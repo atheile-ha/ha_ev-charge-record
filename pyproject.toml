@@ -1,0 +1,30 @@
+[project]
+name = "ev-charging"
+version = "0.1.0"
+description = "Home Assistant integration for EV charging session tracking"
+requires-python = ">=3.13"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = ["custom_components", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",    # pycodestyle
+    "F",         # pyflakes
+    "I",         # isort
+    "UP",        # pyupgrade
+    "B",         # bugbear
+    "ASYNC",     # flake8-async
+    "D",         # pydocstyle
+    "RUF",
+]
+ignore = ["D203", "D213"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

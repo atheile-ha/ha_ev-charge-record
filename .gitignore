@@ -1,0 +1,43 @@
+# --- Nicht-öffentliche Projektunterlagen -------------------------------
+# Konzept, Architektur, Entscheidungen, Bauanweisungen, Backlog.
+# Werden in einem getrennten privaten Repository versioniert.
+/internal/
+/CLAUDE.md
+
+# --- Home-Assistant-Laufzeitdaten --------------------------------------
+.storage/
+config/
+*.db
+*.db-shm
+*.db-wal
+home-assistant.log*
+secrets.yaml
+
+# --- Datenexporte ------------------------------------------------------
+*.json
+!custom_components/ev_charging/manifest.json
+!custom_components/ev_charging/strings.json
+!custom_components/ev_charging/translations/*.json
+!custom_components/ev_charging/presets/*.json
+!hacs.json
+!frontend/package.json
+!frontend/tsconfig.json
+!.vscode/*.json
+
+# --- Python ------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Node --------------------------------------------------------------
+node_modules/
+frontend/dist/
+
+# --- Editoren und Betriebssystem ---------------------------------------
+.idea/
+.DS_Store

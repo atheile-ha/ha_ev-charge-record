@@ -1,0 +1,34 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  schedule:
+    # Nightly run against the Home Assistant dev branch.
+    # A failure here is an early warning about a breaking change in an
+    # upcoming release, not necessarily a bug in this repository.
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.ha == 'dev' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        ha: ["stable", "dev"]
+    name: pytest (HA ${{ matrix.ha }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          if [ "${{ matrix.ha }}" = "dev" ]; then
+            pip install --upgrade git+https://github.com/home-assistant/core.git@dev
+          fi
+      - name: Run tests
+        run: pytest --cov=custom_components/ev_charging --cov-report=term-missing
