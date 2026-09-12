@@ -8,5 +8,191 @@
         "description": "Charging sessions are recorded once a wallbox and at least one vehicle have been added."
       }
     }
+  },
+  "config_subentries": {
+    "wallbox": {
+      "entry_type": "Wallbox",
+      "abort": {
+        "single_wallbox_allowed": "Only one wallbox is supported.",
+        "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]"
+      },
+      "error": {
+        "start_debounce_out_of_range": "Start debounce must be between 5 and 120 seconds.",
+        "must_be_positive": "Must be greater than zero.",
+        "must_not_be_negative": "Must not be negative."
+      },
+      "step": {
+        "user": {
+          "title": "Add wallbox",
+          "data": {
+            "name": "Name",
+            "current_type": "Current type",
+            "max_power_kw": "Maximum power (kW)",
+            "session_strategy": "Session strategy",
+            "power_threshold_kw": "Power threshold (kW)",
+            "start_debounce_s": "Start debounce (s)",
+            "min_pause_min": "Minimum pause (min)",
+            "session_end_pause_min": "Session end pause (min)",
+            "final_values_grace_min": "Final values grace period (min)",
+            "identification_max_age_min": "Identification maximum age (min)",
+            "default_vehicle_id": "Default vehicle",
+            "error_debounce_s": "Error debounce (s)",
+            "session_stale_h": "Stale session timeout (h)"
+          },
+          "data_description": {
+            "max_power_kw": "The wallbox's rated power.",
+            "session_strategy": "How a charging session's start and end are detected.",
+            "power_threshold_kw": "Power above which a session candidate starts.",
+            "start_debounce_s": "How long the power threshold must hold before the session is confirmed.",
+            "min_pause_min": "Pauses shorter than this stay part of the current phase.",
+            "session_end_pause_min": "Only used with the power pause strategy: the pause length that ends the session.",
+            "final_values_grace_min": "How long to wait for final values after unplugging.",
+            "identification_max_age_min": "How old an identification may be at session start to still count.",
+            "default_vehicle_id": "Used when no identification is available.",
+            "error_debounce_s": "How long an error must persist before it is reported.",
+            "session_stale_h": "A session is closed as stale if the source entity stays unavailable this long."
+          }
+        },
+        "reconfigure": {
+          "title": "Edit wallbox",
+          "data": {
+            "name": "[%key:component::ev_charging::config_subentries::wallbox::step::user::data::name%]",
+            "current_type": "[%key:component::ev_charging::config_subentries::wallbox::step::user::data::current_type%]",
+            "max_power_kw": "[%key:component::ev_charging::config_subentries::wallbox::step::user::data::max_power_kw%]",
+            "session_strategy": "[%key:component::ev_charging::config_subentries::wallbox::step::user::data::session_strategy%]",
+            "power_threshold_kw": "[%key:component::ev_charging::config_subentries::wallbox::step::user::data::power_threshold_kw%]",
+            "start_debounce_s": "[%key:component::ev_charging::config_subentries::wallbox::step::user::data::start_debounce_s%]",
+            "min_pause_min": "[%key:component::ev_charging::config_subentries::wallbox::step::user::data::min_pause_min%]",
+            "session_end_pause_min": "[%key:component::ev_charging::config_subentries::wallbox::step::user::data::session_end_pause_min%]",
+            "final_values_grace_min": "[%key:component::ev_charging::config_subentries::wallbox::step::user::data::final_values_grace_min%]",
+            "identification_max_age_min": "[%key:component::ev_charging::config_subentries::wallbox::step::user::data::identification_max_age_min%]",
+            "default_vehicle_id": "[%key:component::ev_charging::config_subentries::wallbox::step::user::data::default_vehicle_id%]",
+            "error_debounce_s": "[%key:component::ev_charging::config_subentries::wallbox::step::user::data::error_debounce_s%]",
+            "session_stale_h": "[%key:component::ev_charging::config_subentries::wallbox::step::user::data::session_stale_h%]"
+          },
+          "data_description": {
+            "max_power_kw": "[%key:component::ev_charging::config_subentries::wallbox::step::user::data_description::max_power_kw%]",
+            "session_strategy": "[%key:component::ev_charging::config_subentries::wallbox::step::user::data_description::session_strategy%]",
+            "power_threshold_kw": "[%key:component::ev_charging::config_subentries::wallbox::step::user::data_description::power_threshold_kw%]",
+            "start_debounce_s": "[%key:component::ev_charging::config_subentries::wallbox::step::user::data_description::start_debounce_s%]",
+            "min_pause_min": "[%key:component::ev_charging::config_subentries::wallbox::step::user::data_description::min_pause_min%]",
+            "session_end_pause_min": "[%key:component::ev_charging::config_subentries::wallbox::step::user::data_description::session_end_pause_min%]",
+            "final_values_grace_min": "[%key:component::ev_charging::config_subentries::wallbox::step::user::data_description::final_values_grace_min%]",
+            "identification_max_age_min": "[%key:component::ev_charging::config_subentries::wallbox::step::user::data_description::identification_max_age_min%]",
+            "default_vehicle_id": "[%key:component::ev_charging::config_subentries::wallbox::step::user::data_description::default_vehicle_id%]",
+            "error_debounce_s": "[%key:component::ev_charging::config_subentries::wallbox::step::user::data_description::error_debounce_s%]",
+            "session_stale_h": "[%key:component::ev_charging::config_subentries::wallbox::step::user::data_description::session_stale_h%]"
+          }
+        }
+      }
+    },
+    "vehicle": {
+      "entry_type": "Vehicle",
+      "abort": {
+        "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]"
+      },
+      "error": {
+        "capacity_required": "Battery capacity is required unless this is a guest vehicle.",
+        "fixed_valuation_required": "A fixed solar price is required when solar valuation is set to fixed.",
+        "duplicate_card": "This card already belongs to another active vehicle."
+      },
+      "step": {
+        "user": {
+          "title": "Add vehicle",
+          "data": {
+            "name": "Name",
+            "active": "Active",
+            "is_guest": "Guest vehicle",
+            "vin": "VIN",
+            "capacity_kwh": "Battery capacity (kWh)",
+            "solar_valuation": "Solar valuation",
+            "solar_valuation_fixed": "Fixed solar price"
+          },
+          "data_description": {
+            "active": "Inactive vehicles keep their history, but their entities are disabled.",
+            "is_guest": "A shared vehicle without telemetry.",
+            "vin": "Kept out of every state and log entry.",
+            "capacity_kwh": "Required unless this is a guest vehicle.",
+            "solar_valuation": "How the solar share of a home charge is valued for this vehicle.",
+            "solar_valuation_fixed": "Only used when solar valuation is set to fixed."
+          }
+        },
+        "reconfigure": {
+          "title": "Edit vehicle",
+          "data": {
+            "name": "[%key:component::ev_charging::config_subentries::vehicle::step::user::data::name%]",
+            "active": "[%key:component::ev_charging::config_subentries::vehicle::step::user::data::active%]",
+            "is_guest": "[%key:component::ev_charging::config_subentries::vehicle::step::user::data::is_guest%]",
+            "vin": "[%key:component::ev_charging::config_subentries::vehicle::step::user::data::vin%]",
+            "capacity_kwh": "[%key:component::ev_charging::config_subentries::vehicle::step::user::data::capacity_kwh%]",
+            "solar_valuation": "[%key:component::ev_charging::config_subentries::vehicle::step::user::data::solar_valuation%]",
+            "solar_valuation_fixed": "[%key:component::ev_charging::config_subentries::vehicle::step::user::data::solar_valuation_fixed%]"
+          },
+          "data_description": {
+            "active": "[%key:component::ev_charging::config_subentries::vehicle::step::user::data_description::active%]",
+            "is_guest": "[%key:component::ev_charging::config_subentries::vehicle::step::user::data_description::is_guest%]",
+            "vin": "[%key:component::ev_charging::config_subentries::vehicle::step::user::data_description::vin%]",
+            "capacity_kwh": "[%key:component::ev_charging::config_subentries::vehicle::step::user::data_description::capacity_kwh%]",
+            "solar_valuation": "[%key:component::ev_charging::config_subentries::vehicle::step::user::data_description::solar_valuation%]",
+            "solar_valuation_fixed": "[%key:component::ev_charging::config_subentries::vehicle::step::user::data_description::solar_valuation_fixed%]"
+          }
+        },
+        "cards_menu": {
+          "title": "Cards",
+          "menu_options": {
+            "add_card": "Add card",
+            "select_card": "Edit or remove a card",
+            "finish": "Save vehicle"
+          }
+        },
+        "add_card": {
+          "title": "Add card",
+          "data": {
+            "uid": "Card identifier",
+            "label": "Label",
+            "active": "Valid (not locked)"
+          },
+          "data_description": {
+            "uid": "The identifier as reported by the wallbox, e.g. an RFID uid or eMAID."
+          }
+        },
+        "select_card": {
+          "title": "Select a card",
+          "data": {
+            "uid": "Card"
+          }
+        },
+        "edit_card": {
+          "title": "Edit card",
+          "description": "Editing card {uid}.",
+          "data": {
+            "label": "[%key:component::ev_charging::config_subentries::vehicle::step::add_card::data::label%]",
+            "active": "[%key:component::ev_charging::config_subentries::vehicle::step::add_card::data::active%]",
+            "remove": "Remove this card"
+          }
+        }
+      }
+    }
+  },
+  "selector": {
+    "current_type": {
+      "options": {
+        "ac": "AC",
+        "dc": "DC"
+      }
+    },
+    "session_strategy": {
+      "options": {
+        "plug_state": "Plug state",
+        "power_pause": "Power pause"
+      }
+    },
+    "solar_valuation": {
+      "options": {
+        "feed_in_tariff": "Feed-in tariff",
+        "zero": "Free",
+        "fixed": "Fixed price"
+      }
+    }
   }
 }

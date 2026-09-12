@@ -9,3 +9,7 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 - Projektgerüst, CI-Konfiguration, Frontend-Werkzeugkette
 - Einrichtung und Entfernung der Integration über den Config Flow, genau ein Eintrag je Instanz
 - Deutsche und englische Texte des Einrichtungsdialogs
+- Wallbox-Subentry mit Stammdaten, auf eine Instanz begrenzt
+- Fahrzeug-Subentry mit Stammdaten, Kartenverwaltung und fortlaufenden, nie wiederverwendeten IDs
+- Prüfung von Kartenkennungen gegen aktive Fahrzeuge samt Normalisierung
+- Deutsche und englische Texte der Wallbox- und Fahrzeugdialoge

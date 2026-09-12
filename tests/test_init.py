@@ -35,6 +35,18 @@ async def test_remove_entry(hass: HomeAssistant) -> None:
     assert DOMAIN not in hass.data
 
 
+async def test_migrate_entry_adds_sequence_counters(hass: HomeAssistant) -> None:
+    """An entry from before the sequence counters existed is migrated on setup."""
+    entry = MockConfigEntry(domain=DOMAIN, title=TITLE, data={})
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.minor_version == 2
+    assert entry.data == {"wallbox_seq": 0, "vehicle_seq": 0}
+
+
 async def test_setup_creates_no_entities(hass: HomeAssistant) -> None:
     """This stage has no platforms, so no entities appear."""
     entry = MockConfigEntry(domain=DOMAIN, title=TITLE, data={})
