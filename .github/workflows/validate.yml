@@ -23,3 +23,6 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
+          # brands: no brand assets exist for this domain.
+          # topics: the repository has no topics set.
+          ignore: brands topics

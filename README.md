@@ -34,8 +34,10 @@ Optional werden Koordinaten externer Ladevorgänge an einen Geocoding-Dienst üb
 
 ## Entwicklung
 
+Python 3.14 oder neuer. Die Testabhängigkeiten setzen eine Linux- oder macOS-Umgebung voraus.
+
 ```bash
-python -m venv .venv && source .venv/bin/activate
+python3.14 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 ruff check . && ruff format --check .
 pytest

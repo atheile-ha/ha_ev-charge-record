@@ -1,0 +1,12 @@
+{
+  "config": {
+    "abort": {
+      "single_instance_allowed": "Bereits eingerichtet. Es ist nur eine Konfiguration möglich."
+    },
+    "step": {
+      "user": {
+        "description": "Ladevorgänge werden erfasst, sobald eine Wallbox und mindestens ein Fahrzeug angelegt sind."
+      }
+    }
+  }
+}

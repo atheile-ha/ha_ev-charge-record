@@ -1,0 +1,12 @@
+{
+  "config": {
+    "abort": {
+      "single_instance_allowed": "Already configured. Only a single configuration is possible."
+    },
+    "step": {
+      "user": {
+        "description": "Charging sessions are recorded once a wallbox and at least one vehicle have been added."
+      }
+    }
+  }
+}

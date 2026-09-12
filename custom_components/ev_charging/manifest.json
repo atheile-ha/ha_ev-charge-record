@@ -1,16 +1,13 @@
 {
   "domain": "ev_charging",
   "name": "EV Charging",
-  "version": "0.1.0",
-  "documentation": "https://github.com/atheile-ha/ha_ev-charge-record",
-  "issue_tracker": "https://github.com/atheile-ha/ha_ev-charge-record/issues",
   "codeowners": ["@atheile-ha"],
   "config_flow": true,
-  "single_config_entry": true,
+  "documentation": "https://github.com/atheile-ha/ha_ev-charge-record",
   "integration_type": "hub",
   "iot_class": "calculated",
-  "dependencies": ["http", "frontend", "panel_custom", "recorder"],
-  "after_dependencies": ["notify"],
-  "requirements": [],
-  "loggers": ["custom_components.ev_charging"]
+  "issue_tracker": "https://github.com/atheile-ha/ha_ev-charge-record/issues",
+  "loggers": ["custom_components.ev_charging"],
+  "single_config_entry": true,
+  "version": "0.1.0"
 }
