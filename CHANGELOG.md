@@ -4,6 +4,8 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.1.2] - 2026-09-13
+
 ### Hinzugefügt
 
 - Projektgerüst, CI-Konfiguration, Frontend-Werkzeugkette
@@ -13,7 +15,20 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 - Fahrzeug-Subentry mit Stammdaten, Kartenverwaltung und fortlaufenden, nie wiederverwendeten IDs
 - Prüfung von Kartenkennungen gegen aktive Fahrzeuge samt Normalisierung
 - Deutsche und englische Texte der Wallbox- und Fahrzeugdialoge
+- Kartenverwaltung als einzelnes Feld im Fahrzeugformular, ohne eigenen Dialogschritt
+- Automatisches Entfernen der Kennungen beim Inaktivsetzen eines Fahrzeugs, Pflicht zur Neuvergabe bei Reaktivierung
+- Kostenmodus je Fahrzeug: fester Preis für den gesamten Ladevorgang oder dynamische Bewertung von Netz- und Sonnenanteil
+
+### Geändert
+
+- Sessions der Wallbox werden ausschließlich über den Steckerzustand begrenzt, nicht mehr über eine wählbare Strategie
+- Der feste Sonnenpreis ist jetzt ein fester Gesamtpreis für den Ladevorgang und Teil des Kostenmodus, nicht mehr eine Ausprägung der Sonnenbewertung
+
+### Entfernt
+
+- Konfigurierbarkeit von Nachlauf auf Endwerte, Fehlerentprellung und Session-Timeout der Wallbox; diese Werte sind fest
 
 ### Behoben
 
 - Fehlende Menütexte für das Anlegen und Bearbeiten von Wallbox- und Fahrzeug-Subentries in allen Sprachdateien ergänzt
+- Übersetzungsverweise, die zur Laufzeit nicht aufgelöst wurden, durch den tatsächlichen Text ersetzt

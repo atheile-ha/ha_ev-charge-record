@@ -33,7 +33,6 @@ def test_wallbox_round_trips_through_dict() -> None:
         name="Carport",
         current_type="ac",
         max_power_kw=11.0,
-        session_strategy="plug_state",
     )
     assert Wallbox.from_dict(wallbox.to_dict()) == wallbox
 
@@ -46,12 +45,11 @@ def test_wallbox_from_dict_applies_defaults_for_missing_optional_fields() -> Non
             "name": "Carport",
             "current_type": "ac",
             "max_power_kw": 11.0,
-            "session_strategy": "plug_state",
         }
     )
     assert wallbox.power_threshold_kw == 0.5
     assert wallbox.start_debounce_s == 20
-    assert wallbox.session_end_pause_min is None
+    assert wallbox.default_vehicle_id is None
 
 
 def test_vehicle_round_trips_through_dict_with_cards() -> None:

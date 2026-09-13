@@ -17,15 +17,10 @@ WALLBOX_INPUT: dict[str, Any] = {
     "name": "Carport",
     "current_type": "ac",
     "max_power_kw": 11.0,
-    "session_strategy": "plug_state",
     "power_threshold_kw": 0.5,
     "start_debounce_s": 20,
     "min_pause_min": 15,
-    "session_end_pause_min": 240,
-    "final_values_grace_min": 30,
     "identification_max_age_min": 5,
-    "error_debounce_s": 30,
-    "session_stale_h": 12,
 }
 
 VEHICLE_INPUT: dict[str, Any] = {
@@ -33,7 +28,9 @@ VEHICLE_INPUT: dict[str, Any] = {
     "active": True,
     "is_guest": False,
     "capacity_kwh": 85.0,
+    "cost_mode": "dynamic",
     "solar_valuation": "feed_in_tariff",
+    "cards": [{"uid": "ABC123", "label": "Karte GLB"}],
 }
 
 
@@ -90,26 +87,17 @@ async def _add_vehicle(
     hass: HomeAssistant,
     entry: MockConfigEntry,
     *,
-    cards: tuple[dict[str, Any], ...] = (),
+    cards: list[dict[str, Any]] | None = None,
     **overrides: Any,
 ) -> dict[str, Any]:
     """Run the vehicle subentry flow to completion and return the final result."""
+    payload = {**VEHICLE_INPUT, **overrides}
+    if cards is not None:
+        payload["cards"] = cards
     result = await hass.config_entries.subentries.async_init(
         (entry.entry_id, SUBENTRY_TYPE_VEHICLE), context={"source": SOURCE_USER}
     )
-    result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {**VEHICLE_INPUT, **overrides}
-    )
-    for card in cards:
-        assert result["type"] is FlowResultType.MENU
-        result = await hass.config_entries.subentries.async_configure(
-            result["flow_id"], {"next_step_id": "add_card"}
-        )
-        result = await hass.config_entries.subentries.async_configure(result["flow_id"], card)
-    assert result["type"] is FlowResultType.MENU
-    return await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {"next_step_id": "finish"}
-    )
+    return await hass.config_entries.subentries.async_configure(result["flow_id"], payload)
 
 
 async def test_wallbox_can_be_created(hass: HomeAssistant) -> None:
@@ -219,19 +207,30 @@ async def test_vehicle_requires_capacity_unless_guest(hass: HomeAssistant) -> No
     assert guest_result["type"] is FlowResultType.CREATE_ENTRY
 
 
-async def test_vehicle_fixed_valuation_requires_value(hass: HomeAssistant) -> None:
-    """solar_valuation_fixed is mandatory when solar_valuation is 'fixed'."""
+async def test_static_cost_mode_requires_a_price(hass: HomeAssistant) -> None:
+    """static_price is mandatory when cost_mode is 'static'."""
     entry = await _setup_hub(hass)
 
     result = await hass.config_entries.subentries.async_init(
         (entry.entry_id, SUBENTRY_TYPE_VEHICLE), context={"source": SOURCE_USER}
     )
     result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {**VEHICLE_INPUT, "solar_valuation": "fixed"}
+        result["flow_id"], {**VEHICLE_INPUT, "cost_mode": "static"}
     )
 
     assert result["type"] is FlowResultType.FORM
-    assert result["errors"] == {"solar_valuation_fixed": "fixed_valuation_required"}
+    assert result["errors"] == {"static_price": "static_price_required"}
+
+
+async def test_static_cost_mode_with_a_price_is_accepted(hass: HomeAssistant) -> None:
+    """A vehicle can be created with a static price instead of the dynamic split."""
+    entry = await _setup_hub(hass)
+
+    result = await _add_vehicle(hass, entry, cost_mode="static", static_price=0.35)
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"]["cost_mode"] == "static"
+    assert result["data"]["static_price"] == 0.35
 
 
 async def test_duplicate_card_on_active_vehicle_is_rejected(hass: HomeAssistant) -> None:
@@ -241,27 +240,46 @@ async def test_duplicate_card_on_active_vehicle_is_rejected(hass: HomeAssistant)
         hass, entry, name="GLB 250+ EQ", cards=[{"uid": "ABC123", "label": "Karte GLB"}]
     )
 
-    result = await hass.config_entries.subentries.async_init(
-        (entry.entry_id, SUBENTRY_TYPE_VEHICLE), context={"source": SOURCE_USER}
-    )
-    result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {**VEHICLE_INPUT, "name": "Zweitwagen"}
-    )
-    assert result["type"] is FlowResultType.MENU
-    result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {"next_step_id": "add_card"}
-    )
-    result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {"uid": "ABC123", "label": "Karte Zweitwagen"}
+    result = await _add_vehicle(
+        hass,
+        entry,
+        name="Zweitwagen",
+        cards=[{"uid": "ABC123", "label": "Karte Zweitwagen"}],
     )
 
     assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "add_card"
-    assert result["errors"] == {"uid": "duplicate_card"}
+    assert result["errors"] == {"cards": "duplicate_card"}
 
 
-async def test_duplicate_card_on_inactive_vehicle_is_allowed(hass: HomeAssistant) -> None:
-    """Reusing a card already held by an active vehicle is allowed on an inactive one."""
+async def test_duplicate_card_within_the_same_submission_is_rejected(hass: HomeAssistant) -> None:
+    """A vehicle cannot be given the same card identifier twice."""
+    entry = await _setup_hub(hass)
+
+    result = await _add_vehicle(
+        hass,
+        entry,
+        cards=[
+            {"uid": "ABC123", "label": "Karte 1"},
+            {"uid": "abc-123", "label": "Karte 2"},
+        ],
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"cards": "duplicate_card"}
+
+
+async def test_active_vehicle_requires_at_least_one_card(hass: HomeAssistant) -> None:
+    """A vehicle cannot be saved as active without at least one card."""
+    entry = await _setup_hub(hass)
+
+    result = await _add_vehicle(hass, entry, cards=[])
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"cards": "card_required"}
+
+
+async def test_card_on_an_inactive_vehicle_is_dropped(hass: HomeAssistant) -> None:
+    """Cards submitted for a vehicle created inactive are not stored."""
     entry = await _setup_hub(hass)
     await _add_vehicle(
         hass, entry, name="GLB 250+ EQ", cards=[{"uid": "ABC123", "label": "Karte GLB"}]
@@ -272,11 +290,11 @@ async def test_duplicate_card_on_inactive_vehicle_is_allowed(hass: HomeAssistant
         entry,
         name="EQB 250+",
         active=False,
-        cards=[{"uid": "ABC123", "label": "Karte EQB, historisch"}],
+        cards=[{"uid": "ABC123", "label": "Karte EQB"}],
     )
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["data"]["cards"][0]["uid"] == "ABC123"
+    assert result["data"]["cards"] == []
 
 
 async def test_card_uid_is_normalized(hass: HomeAssistant) -> None:
@@ -294,7 +312,7 @@ async def test_card_uid_is_normalized(hass: HomeAssistant) -> None:
 
 
 async def test_vehicle_can_be_renamed_and_deactivated(hass: HomeAssistant) -> None:
-    """Reconfiguring a vehicle can rename it and flip active off."""
+    """Reconfiguring a vehicle can rename it, flip active off, and clears its cards."""
     entry = await _setup_hub(hass)
     await _add_vehicle(hass, entry, name="GLB 250+ EQ")
     subentry = next(iter(entry.get_subentries_of_type(SUBENTRY_TYPE_VEHICLE)))
@@ -306,10 +324,6 @@ async def test_vehicle_can_be_renamed_and_deactivated(hass: HomeAssistant) -> No
     result = await hass.config_entries.subentries.async_configure(
         result["flow_id"], {**VEHICLE_INPUT, "name": "EQB 250+", "active": False}
     )
-    assert result["type"] is FlowResultType.MENU
-    result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {"next_step_id": "finish"}
-    )
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
@@ -317,6 +331,40 @@ async def test_vehicle_can_be_renamed_and_deactivated(hass: HomeAssistant) -> No
     assert updated.data["name"] == "EQB 250+"
     assert updated.data["active"] is False
     assert updated.data["id"] == "v001"
+    assert updated.data["cards"] == []
+
+
+async def test_reactivating_a_vehicle_requires_a_new_card(hass: HomeAssistant) -> None:
+    """A vehicle set inactive loses its cards and needs a new one to be reactivated."""
+    entry = await _setup_hub(hass)
+    await _add_vehicle(hass, entry, name="GLB 250+ EQ")
+    subentry = next(iter(entry.get_subentries_of_type(SUBENTRY_TYPE_VEHICLE)))
+
+    result = await hass.config_entries.subentries.async_init(
+        (entry.entry_id, SUBENTRY_TYPE_VEHICLE),
+        context={"source": SOURCE_RECONFIGURE, "subentry_id": subentry.subentry_id},
+    )
+    await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {**VEHICLE_INPUT, "active": False}
+    )
+    assert entry.subentries[subentry.subentry_id].data["cards"] == []
+
+    result = await hass.config_entries.subentries.async_init(
+        (entry.entry_id, SUBENTRY_TYPE_VEHICLE),
+        context={"source": SOURCE_RECONFIGURE, "subentry_id": subentry.subentry_id},
+    )
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {**VEHICLE_INPUT, "active": True, "cards": []}
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"cards": "card_required"}
+
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {**VEHICLE_INPUT, "active": True}
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert entry.subentries[subentry.subentry_id].data["cards"][0]["uid"] == "ABC123"
 
 
 async def test_vehicle_can_be_removed(hass: HomeAssistant) -> None:

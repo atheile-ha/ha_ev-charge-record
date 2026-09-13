@@ -40,3 +40,23 @@ def test_no_text_is_empty():
                 stack.extend(item.values())
             else:
                 assert isinstance(item, str) and item.strip()
+
+
+def test_no_text_contains_an_unresolved_key_reference():
+    """No shipped text is a [%key:...%] reference.
+
+    Home Assistant only resolves these references at build time for
+    integrations bundled with Home Assistant Core. A custom integration
+    ships strings.json and translations/*.json directly, so every text
+    must already be the literal, final value.
+    """
+    paths = [COMPONENT / "strings.json"]
+    paths += [COMPONENT / "translations" / f"{language}.json" for language in LANGUAGES]
+    for path in paths:
+        stack = [json.loads(path.read_text(encoding="utf-8"))]
+        while stack:
+            item = stack.pop()
+            if isinstance(item, dict):
+                stack.extend(item.values())
+            else:
+                assert "[%key:" not in item, f"{path}: {item}"

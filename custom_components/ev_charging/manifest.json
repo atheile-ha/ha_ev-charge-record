@@ -9,5 +9,5 @@
   "issue_tracker": "https://github.com/atheile-ha/ha_ev-charge-record/issues",
   "loggers": ["custom_components.ev_charging"],
   "single_config_entry": true,
-  "version": "0.1.0"
+  "version": "0.1.2"
 }
