@@ -4,6 +4,23 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.1.3] - 2026-09-13
+
+### Hinzugefügt
+
+- Zweiter Schritt im Fahrzeugdialog: je nach Kostenmodus wird nur noch der fixe Ladepreis oder nur die Sonnenbewertung abgefragt
+
+### Geändert
+
+- Wallbox-Dialog auf Name, Stromart und maximale Leistung reduziert; Leistungsschwelle und Startentprellung stehen unter „Expertenoptionen“, eingeklappt
+- Beschriftung des Kostenmodus im Fahrzeugformular korrigiert
+- Kartenfeld im Fahrzeugformular umbenannt in „Freischalt-Referenz“, mit Erklärung zu RFID/eMAID
+
+### Entfernt
+
+- Konfigurierbarkeit von Mindestpause und maximalem Alter der Kennung der Wallbox; diese Werte sind fest
+- Auswahl eines Standardfahrzeugs im Wallbox-Dialog, bis Entitätsrollen umgesetzt sind
+
 ## [0.1.2] - 2026-09-13
 
 ### Hinzugefügt

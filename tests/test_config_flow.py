@@ -17,10 +17,10 @@ WALLBOX_INPUT: dict[str, Any] = {
     "name": "Carport",
     "current_type": "ac",
     "max_power_kw": 11.0,
-    "power_threshold_kw": 0.5,
-    "start_debounce_s": 20,
-    "min_pause_min": 15,
-    "identification_max_age_min": 5,
+    "expert": {
+        "power_threshold_kw": 0.5,
+        "start_debounce_s": 20,
+    },
 }
 
 VEHICLE_INPUT: dict[str, Any] = {
@@ -29,7 +29,6 @@ VEHICLE_INPUT: dict[str, Any] = {
     "is_guest": False,
     "capacity_kwh": 85.0,
     "cost_mode": "dynamic",
-    "solar_valuation": "feed_in_tariff",
     "cards": [{"uid": "ABC123", "label": "Karte GLB"}],
 }
 
@@ -72,15 +71,20 @@ async def _setup_hub(hass: HomeAssistant) -> MockConfigEntry:
 
 
 async def _add_wallbox(
-    hass: HomeAssistant, entry: MockConfigEntry, **overrides: Any
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    *,
+    expert: dict[str, Any] | None = None,
+    **overrides: Any,
 ) -> dict[str, Any]:
     """Run the wallbox subentry flow to completion and return the final result."""
+    payload = {**WALLBOX_INPUT, **overrides}
+    if expert is not None:
+        payload["expert"] = {**WALLBOX_INPUT["expert"], **expert}
     result = await hass.config_entries.subentries.async_init(
         (entry.entry_id, SUBENTRY_TYPE_WALLBOX), context={"source": SOURCE_USER}
     )
-    return await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {**WALLBOX_INPUT, **overrides}
-    )
+    return await hass.config_entries.subentries.async_configure(result["flow_id"], payload)
 
 
 async def _add_vehicle(
@@ -88,16 +92,27 @@ async def _add_vehicle(
     entry: MockConfigEntry,
     *,
     cards: list[dict[str, Any]] | None = None,
+    cost_input: dict[str, Any] | None = None,
     **overrides: Any,
 ) -> dict[str, Any]:
-    """Run the vehicle subentry flow to completion and return the final result."""
+    """Run the vehicle subentry flow (base step, then the cost step) to completion."""
     payload = {**VEHICLE_INPUT, **overrides}
     if cards is not None:
         payload["cards"] = cards
     result = await hass.config_entries.subentries.async_init(
         (entry.entry_id, SUBENTRY_TYPE_VEHICLE), context={"source": SOURCE_USER}
     )
-    return await hass.config_entries.subentries.async_configure(result["flow_id"], payload)
+    result = await hass.config_entries.subentries.async_configure(result["flow_id"], payload)
+    if result.get("step_id") not in ("static_price", "solar_valuation"):
+        # The base step itself rejected the input; there is no cost step to follow.
+        return result
+    if cost_input is None:
+        cost_input = (
+            {"static_price": 0.35}
+            if payload["cost_mode"] == "static"
+            else {"solar_valuation": "feed_in_tariff"}
+        )
+    return await hass.config_entries.subentries.async_configure(result["flow_id"], cost_input)
 
 
 async def test_wallbox_can_be_created(hass: HomeAssistant) -> None:
@@ -130,7 +145,7 @@ async def test_wallbox_start_debounce_out_of_range_is_rejected(hass: HomeAssista
     """start_debounce_s outside 5 to 120 seconds is rejected with an error."""
     entry = await _setup_hub(hass)
 
-    result = await _add_wallbox(hass, entry, start_debounce_s=200)
+    result = await _add_wallbox(hass, entry, expert={"start_debounce_s": 200})
 
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"start_debounce_s": "start_debounce_out_of_range"}
@@ -173,8 +188,12 @@ async def test_vehicle_ids_are_sequential_and_never_reused(hass: HomeAssistant) 
     """Vehicles get v001, v002, ... and a removed id is not reused."""
     entry = await _setup_hub(hass)
 
-    first = await _add_vehicle(hass, entry, name="GLB 250+ EQ")
-    second = await _add_vehicle(hass, entry, name="EQB 250+")
+    first = await _add_vehicle(
+        hass, entry, name="GLB 250+ EQ", cards=[{"uid": "ABC123", "label": "Karte GLB"}]
+    )
+    second = await _add_vehicle(
+        hass, entry, name="EQB 250+", cards=[{"uid": "DEF456", "label": "Karte EQB"}]
+    )
     assert first["data"]["id"] == "v001"
     assert second["data"]["id"] == "v002"
 
@@ -185,7 +204,9 @@ async def test_vehicle_ids_are_sequential_and_never_reused(hass: HomeAssistant) 
     )
     hass.config_entries.async_remove_subentry(entry, first_subentry_id)
 
-    third = await _add_vehicle(hass, entry, name="Gast")
+    third = await _add_vehicle(
+        hass, entry, name="Gast", cards=[{"uid": "ABC123", "label": "Karte, neu vergeben"}]
+    )
     assert third["data"]["id"] == "v003"
 
 
@@ -217,6 +238,12 @@ async def test_static_cost_mode_requires_a_price(hass: HomeAssistant) -> None:
     result = await hass.config_entries.subentries.async_configure(
         result["flow_id"], {**VEHICLE_INPUT, "cost_mode": "static"}
     )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "static_price"
+
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"static_price": None}
+    )
 
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"static_price": "static_price_required"}
@@ -226,11 +253,24 @@ async def test_static_cost_mode_with_a_price_is_accepted(hass: HomeAssistant) ->
     """A vehicle can be created with a static price instead of the dynamic split."""
     entry = await _setup_hub(hass)
 
-    result = await _add_vehicle(hass, entry, cost_mode="static", static_price=0.35)
+    result = await _add_vehicle(hass, entry, cost_mode="static", cost_input={"static_price": 0.35})
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"]["cost_mode"] == "static"
     assert result["data"]["static_price"] == 0.35
+    assert result["data"]["solar_valuation"] == "feed_in_tariff"
+
+
+async def test_dynamic_cost_mode_asks_for_solar_valuation(hass: HomeAssistant) -> None:
+    """The dynamic branch asks how the solar share is valued, not for a fixed price."""
+    entry = await _setup_hub(hass)
+
+    result = await _add_vehicle(hass, entry, cost_input={"solar_valuation": "zero"})
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"]["cost_mode"] == "dynamic"
+    assert result["data"]["static_price"] is None
+    assert result["data"]["solar_valuation"] == "zero"
 
 
 async def test_duplicate_card_on_active_vehicle_is_rejected(hass: HomeAssistant) -> None:
@@ -324,6 +364,11 @@ async def test_vehicle_can_be_renamed_and_deactivated(hass: HomeAssistant) -> No
     result = await hass.config_entries.subentries.async_configure(
         result["flow_id"], {**VEHICLE_INPUT, "name": "EQB 250+", "active": False}
     )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "solar_valuation"
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"solar_valuation": "feed_in_tariff"}
+    )
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
@@ -344,8 +389,12 @@ async def test_reactivating_a_vehicle_requires_a_new_card(hass: HomeAssistant) -
         (entry.entry_id, SUBENTRY_TYPE_VEHICLE),
         context={"source": SOURCE_RECONFIGURE, "subentry_id": subentry.subentry_id},
     )
-    await hass.config_entries.subentries.async_configure(
+    result = await hass.config_entries.subentries.async_configure(
         result["flow_id"], {**VEHICLE_INPUT, "active": False}
+    )
+    assert result["step_id"] == "solar_valuation"
+    await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"solar_valuation": "feed_in_tariff"}
     )
     assert entry.subentries[subentry.subentry_id].data["cards"] == []
 
@@ -356,13 +405,18 @@ async def test_reactivating_a_vehicle_requires_a_new_card(hass: HomeAssistant) -
     result = await hass.config_entries.subentries.async_configure(
         result["flow_id"], {**VEHICLE_INPUT, "active": True, "cards": []}
     )
-
+    # The base step rejects the missing card before any cost step is reached.
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"cards": "card_required"}
 
     result = await hass.config_entries.subentries.async_configure(
         result["flow_id"], {**VEHICLE_INPUT, "active": True}
     )
+    assert result["step_id"] == "solar_valuation"
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"solar_valuation": "feed_in_tariff"}
+    )
+
     assert result["type"] is FlowResultType.ABORT
     assert entry.subentries[subentry.subentry_id].data["cards"][0]["uid"] == "ABC123"
 

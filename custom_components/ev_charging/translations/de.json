@@ -31,20 +31,23 @@
           "data": {
             "name": "Name",
             "current_type": "Stromart",
-            "max_power_kw": "Maximale Leistung (kW)",
-            "power_threshold_kw": "Leistungsschwelle (kW)",
-            "start_debounce_s": "Startentprellung (s)",
-            "min_pause_min": "Mindestpause (min)",
-            "identification_max_age_min": "Maximales Alter der Kennung (min)",
-            "default_vehicle_id": "Standardfahrzeug"
+            "max_power_kw": "Maximale Leistung (kW)"
           },
           "data_description": {
-            "max_power_kw": "Die Nennleistung der Wallbox.",
-            "power_threshold_kw": "Leistung, oberhalb der ein Sessionkandidat beginnt.",
-            "start_debounce_s": "Wie lange die Leistungsschwelle überschritten bleiben muss, bevor die Session bestätigt wird.",
-            "min_pause_min": "Unterbrechungen unterhalb dieser Dauer bleiben Teil der laufenden Phase.",
-            "identification_max_age_min": "Wie alt eine Kennung beim Sessionstart höchstens sein darf, um noch zu zählen.",
-            "default_vehicle_id": "Wird verwendet, wenn keine Kennung verfügbar ist."
+            "max_power_kw": "Die Nennleistung der Wallbox."
+          },
+          "sections": {
+            "expert": {
+              "name": "Expertenoptionen",
+              "data": {
+                "power_threshold_kw": "Leistungsschwelle (kW)",
+                "start_debounce_s": "Startentprellung (s)"
+              },
+              "data_description": {
+                "power_threshold_kw": "Leistung, oberhalb der ein Sessionkandidat beginnt.",
+                "start_debounce_s": "Wie lange die Leistungsschwelle überschritten bleiben muss, bevor die Session bestätigt wird."
+              }
+            }
           }
         },
         "reconfigure": {
@@ -52,20 +55,23 @@
           "data": {
             "name": "Name",
             "current_type": "Stromart",
-            "max_power_kw": "Maximale Leistung (kW)",
-            "power_threshold_kw": "Leistungsschwelle (kW)",
-            "start_debounce_s": "Startentprellung (s)",
-            "min_pause_min": "Mindestpause (min)",
-            "identification_max_age_min": "Maximales Alter der Kennung (min)",
-            "default_vehicle_id": "Standardfahrzeug"
+            "max_power_kw": "Maximale Leistung (kW)"
           },
           "data_description": {
-            "max_power_kw": "Die Nennleistung der Wallbox.",
-            "power_threshold_kw": "Leistung, oberhalb der ein Sessionkandidat beginnt.",
-            "start_debounce_s": "Wie lange die Leistungsschwelle überschritten bleiben muss, bevor die Session bestätigt wird.",
-            "min_pause_min": "Unterbrechungen unterhalb dieser Dauer bleiben Teil der laufenden Phase.",
-            "identification_max_age_min": "Wie alt eine Kennung beim Sessionstart höchstens sein darf, um noch zu zählen.",
-            "default_vehicle_id": "Wird verwendet, wenn keine Kennung verfügbar ist."
+            "max_power_kw": "Die Nennleistung der Wallbox."
+          },
+          "sections": {
+            "expert": {
+              "name": "Expertenoptionen",
+              "data": {
+                "power_threshold_kw": "Leistungsschwelle (kW)",
+                "start_debounce_s": "Startentprellung (s)"
+              },
+              "data_description": {
+                "power_threshold_kw": "Leistung, oberhalb der ein Sessionkandidat beginnt.",
+                "start_debounce_s": "Wie lange die Leistungsschwelle überschritten bleiben muss, bevor die Session bestätigt wird."
+              }
+            }
           }
         }
       }
@@ -81,7 +87,7 @@
       },
       "error": {
         "capacity_required": "Die Batteriekapazität ist erforderlich, außer bei einem Gastfahrzeug.",
-        "static_price_required": "Ein fester Preis ist erforderlich, wenn der Preismodus fest steht.",
+        "static_price_required": "Ein fester Preis ist erforderlich, wenn der Kostenmodus fest steht.",
         "duplicate_card": "Eine Kennung ist doppelt eingetragen oder gehört bereits einem anderen aktiven Fahrzeug.",
         "card_required": "Ein aktives Fahrzeug braucht mindestens eine Kennung."
       },
@@ -94,20 +100,16 @@
             "is_guest": "Gastfahrzeug",
             "vin": "Fahrgestellnummer",
             "capacity_kwh": "Batteriekapazität (kWh)",
-            "cost_mode": "Preismodus",
-            "static_price": "Fixer Ladepreis",
-            "solar_valuation": "Sonnenbewertung",
-            "cards": "Kennungen"
+            "cost_mode": "Kostenmodus",
+            "cards": "Freischalt-Referenz"
           },
           "data_description": {
-            "active": "Inaktive Fahrzeuge behalten ihre Historie, ihre Entitäten werden deaktiviert. Ihre Kennungen werden entfernt; bei erneuter Aktivierung muss mindestens eine Kennung neu vergeben werden.",
+            "active": "Inaktive Fahrzeuge behalten ihre Historie, ihre Entitäten werden deaktiviert. Ihre Freischalt-Referenzen werden entfernt; bei erneuter Aktivierung muss mindestens eine neu vergeben werden.",
             "is_guest": "Ein gemeinsam genutztes Fahrzeug ohne Telemetrie.",
             "vin": "Erscheint in keinem Zustand und keinem Protokolleintrag.",
             "capacity_kwh": "Erforderlich, außer bei einem Gastfahrzeug.",
             "cost_mode": "Fest: ein fester Preis für den gesamten Ladevorgang. Dynamisch: Netz- und Sonnenanteil werden getrennt bewertet.",
-            "static_price": "Währung je kWh, für den gesamten Ladevorgang unabhängig vom Netz- oder Sonnenanteil. Nur wirksam, wenn der Preismodus fest steht.",
-            "solar_valuation": "Wie der Sonnenanteil einer Heimladung bewertet wird. Nur wirksam, wenn der Preismodus dynamisch steht.",
-            "cards": "Die von der Wallbox für dieses Fahrzeug übermittelten Kennungen, z. B. eine RFID-Kennung oder eMAID. Erforderlich, solange das Fahrzeug aktiv ist."
+            "cards": "Die von der Wallbox übermittelte RFID- oder eMAID-Kennung, über die dieses Fahrzeug erkannt wird. Erforderlich, solange das Fahrzeug aktiv ist."
           }
         },
         "reconfigure": {
@@ -118,20 +120,34 @@
             "is_guest": "Gastfahrzeug",
             "vin": "Fahrgestellnummer",
             "capacity_kwh": "Batteriekapazität (kWh)",
-            "cost_mode": "Preismodus",
-            "static_price": "Fixer Ladepreis",
-            "solar_valuation": "Sonnenbewertung",
-            "cards": "Kennungen"
+            "cost_mode": "Kostenmodus",
+            "cards": "Freischalt-Referenz"
           },
           "data_description": {
-            "active": "Inaktive Fahrzeuge behalten ihre Historie, ihre Entitäten werden deaktiviert. Ihre Kennungen werden entfernt; bei erneuter Aktivierung muss mindestens eine Kennung neu vergeben werden.",
+            "active": "Inaktive Fahrzeuge behalten ihre Historie, ihre Entitäten werden deaktiviert. Ihre Freischalt-Referenzen werden entfernt; bei erneuter Aktivierung muss mindestens eine neu vergeben werden.",
             "is_guest": "Ein gemeinsam genutztes Fahrzeug ohne Telemetrie.",
             "vin": "Erscheint in keinem Zustand und keinem Protokolleintrag.",
             "capacity_kwh": "Erforderlich, außer bei einem Gastfahrzeug.",
             "cost_mode": "Fest: ein fester Preis für den gesamten Ladevorgang. Dynamisch: Netz- und Sonnenanteil werden getrennt bewertet.",
-            "static_price": "Währung je kWh, für den gesamten Ladevorgang unabhängig vom Netz- oder Sonnenanteil. Nur wirksam, wenn der Preismodus fest steht.",
-            "solar_valuation": "Wie der Sonnenanteil einer Heimladung bewertet wird. Nur wirksam, wenn der Preismodus dynamisch steht.",
-            "cards": "Die von der Wallbox für dieses Fahrzeug übermittelten Kennungen, z. B. eine RFID-Kennung oder eMAID. Erforderlich, solange das Fahrzeug aktiv ist."
+            "cards": "Die von der Wallbox übermittelte RFID- oder eMAID-Kennung, über die dieses Fahrzeug erkannt wird. Erforderlich, solange das Fahrzeug aktiv ist."
+          }
+        },
+        "static_price": {
+          "title": "Statischer Ladepreis",
+          "data": {
+            "static_price": "Statischer Ladepreis in €/kWh"
+          },
+          "data_description": {
+            "static_price": "Für den gesamten Ladevorgang, unabhängig vom Netz- oder Sonnenanteil."
+          }
+        },
+        "solar_valuation": {
+          "title": "Sonnenbewertung",
+          "data": {
+            "solar_valuation": "Sonnenbewertung"
+          },
+          "data_description": {
+            "solar_valuation": "Wie der Sonnenanteil einer Heimladung bewertet wird."
           }
         }
       }

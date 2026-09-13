@@ -31,20 +31,23 @@
           "data": {
             "name": "Name",
             "current_type": "Current type",
-            "max_power_kw": "Maximum power (kW)",
-            "power_threshold_kw": "Power threshold (kW)",
-            "start_debounce_s": "Start debounce (s)",
-            "min_pause_min": "Minimum pause (min)",
-            "identification_max_age_min": "Identification maximum age (min)",
-            "default_vehicle_id": "Default vehicle"
+            "max_power_kw": "Maximum power (kW)"
           },
           "data_description": {
-            "max_power_kw": "The wallbox's rated power.",
-            "power_threshold_kw": "Power above which a session candidate starts.",
-            "start_debounce_s": "How long the power threshold must hold before the session is confirmed.",
-            "min_pause_min": "Pauses shorter than this stay part of the current phase.",
-            "identification_max_age_min": "How old an identification may be at session start to still count.",
-            "default_vehicle_id": "Used when no identification is available."
+            "max_power_kw": "The wallbox's rated power."
+          },
+          "sections": {
+            "expert": {
+              "name": "Expert options",
+              "data": {
+                "power_threshold_kw": "Power threshold (kW)",
+                "start_debounce_s": "Start debounce (s)"
+              },
+              "data_description": {
+                "power_threshold_kw": "Power above which a session candidate starts.",
+                "start_debounce_s": "How long the power threshold must hold before the session is confirmed."
+              }
+            }
           }
         },
         "reconfigure": {
@@ -52,20 +55,23 @@
           "data": {
             "name": "Name",
             "current_type": "Current type",
-            "max_power_kw": "Maximum power (kW)",
-            "power_threshold_kw": "Power threshold (kW)",
-            "start_debounce_s": "Start debounce (s)",
-            "min_pause_min": "Minimum pause (min)",
-            "identification_max_age_min": "Identification maximum age (min)",
-            "default_vehicle_id": "Default vehicle"
+            "max_power_kw": "Maximum power (kW)"
           },
           "data_description": {
-            "max_power_kw": "The wallbox's rated power.",
-            "power_threshold_kw": "Power above which a session candidate starts.",
-            "start_debounce_s": "How long the power threshold must hold before the session is confirmed.",
-            "min_pause_min": "Pauses shorter than this stay part of the current phase.",
-            "identification_max_age_min": "How old an identification may be at session start to still count.",
-            "default_vehicle_id": "Used when no identification is available."
+            "max_power_kw": "The wallbox's rated power."
+          },
+          "sections": {
+            "expert": {
+              "name": "Expert options",
+              "data": {
+                "power_threshold_kw": "Power threshold (kW)",
+                "start_debounce_s": "Start debounce (s)"
+              },
+              "data_description": {
+                "power_threshold_kw": "Power above which a session candidate starts.",
+                "start_debounce_s": "How long the power threshold must hold before the session is confirmed."
+              }
+            }
           }
         }
       }
@@ -95,9 +101,7 @@
             "vin": "VIN",
             "capacity_kwh": "Battery capacity (kWh)",
             "cost_mode": "Cost mode",
-            "static_price": "Fixed charging price",
-            "solar_valuation": "Solar valuation",
-            "cards": "Cards"
+            "cards": "Authorization reference"
           },
           "data_description": {
             "active": "Inactive vehicles keep their history, but their entities are disabled. Its cards are removed; reactivating it requires assigning at least one card again.",
@@ -105,9 +109,7 @@
             "vin": "Kept out of every state and log entry.",
             "capacity_kwh": "Required unless this is a guest vehicle.",
             "cost_mode": "Static: one fixed price for the whole charge. Dynamic: grid and solar shares are valued separately.",
-            "static_price": "Currency per kWh, for the entire charge regardless of grid or solar share. Only used when the cost mode is static.",
-            "solar_valuation": "How the solar share of a home charge is valued. Only used when the cost mode is dynamic.",
-            "cards": "The identifiers the wallbox reports for this vehicle, e.g. an RFID uid or eMAID. Required while the vehicle is active."
+            "cards": "The RFID or eMAID identifier the wallbox reports, used to recognize this vehicle. Required while the vehicle is active."
           }
         },
         "reconfigure": {
@@ -119,9 +121,7 @@
             "vin": "VIN",
             "capacity_kwh": "Battery capacity (kWh)",
             "cost_mode": "Cost mode",
-            "static_price": "Fixed charging price",
-            "solar_valuation": "Solar valuation",
-            "cards": "Cards"
+            "cards": "Authorization reference"
           },
           "data_description": {
             "active": "Inactive vehicles keep their history, but their entities are disabled. Its cards are removed; reactivating it requires assigning at least one card again.",
@@ -129,9 +129,25 @@
             "vin": "Kept out of every state and log entry.",
             "capacity_kwh": "Required unless this is a guest vehicle.",
             "cost_mode": "Static: one fixed price for the whole charge. Dynamic: grid and solar shares are valued separately.",
-            "static_price": "Currency per kWh, for the entire charge regardless of grid or solar share. Only used when the cost mode is static.",
-            "solar_valuation": "How the solar share of a home charge is valued. Only used when the cost mode is dynamic.",
-            "cards": "The identifiers the wallbox reports for this vehicle, e.g. an RFID uid or eMAID. Required while the vehicle is active."
+            "cards": "The RFID or eMAID identifier the wallbox reports, used to recognize this vehicle. Required while the vehicle is active."
+          }
+        },
+        "static_price": {
+          "title": "Static charging price",
+          "data": {
+            "static_price": "Static charging price (currency/kWh)"
+          },
+          "data_description": {
+            "static_price": "For the entire charge, regardless of grid or solar share."
+          }
+        },
+        "solar_valuation": {
+          "title": "Solar valuation",
+          "data": {
+            "solar_valuation": "Solar valuation"
+          },
+          "data_description": {
+            "solar_valuation": "How the solar share of a home charge is valued."
           }
         }
       }

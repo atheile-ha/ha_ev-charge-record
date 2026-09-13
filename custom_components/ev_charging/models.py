@@ -7,8 +7,6 @@ from typing import Any
 
 from .const import (
     COST_MODE_DYNAMIC,
-    DEFAULT_IDENTIFICATION_MAX_AGE_MIN,
-    DEFAULT_MIN_PAUSE_MIN,
     DEFAULT_POWER_THRESHOLD_KW,
     DEFAULT_START_DEBOUNCE_S,
     SOLAR_VALUATION_FEED_IN_TARIFF,
@@ -51,8 +49,8 @@ class Wallbox:
     max_power_kw: float
     power_threshold_kw: float = DEFAULT_POWER_THRESHOLD_KW
     start_debounce_s: int = DEFAULT_START_DEBOUNCE_S
-    min_pause_min: int = DEFAULT_MIN_PAUSE_MIN
-    identification_max_age_min: int = DEFAULT_IDENTIFICATION_MAX_AGE_MIN
+    # Reserved for the entity-roles stage. Not yet exposed in the dialog:
+    # meaningless without an identification role to fall back from.
     default_vehicle_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -64,8 +62,6 @@ class Wallbox:
             "max_power_kw": self.max_power_kw,
             "power_threshold_kw": self.power_threshold_kw,
             "start_debounce_s": self.start_debounce_s,
-            "min_pause_min": self.min_pause_min,
-            "identification_max_age_min": self.identification_max_age_min,
             "default_vehicle_id": self.default_vehicle_id,
         }
 
@@ -79,10 +75,6 @@ class Wallbox:
             max_power_kw=data["max_power_kw"],
             power_threshold_kw=data.get("power_threshold_kw", DEFAULT_POWER_THRESHOLD_KW),
             start_debounce_s=data.get("start_debounce_s", DEFAULT_START_DEBOUNCE_S),
-            min_pause_min=data.get("min_pause_min", DEFAULT_MIN_PAUSE_MIN),
-            identification_max_age_min=data.get(
-                "identification_max_age_min", DEFAULT_IDENTIFICATION_MAX_AGE_MIN
-            ),
             default_vehicle_id=data.get("default_vehicle_id"),
         )
 
