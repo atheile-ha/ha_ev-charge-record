@@ -13,3 +13,7 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 - Fahrzeug-Subentry mit Stammdaten, Kartenverwaltung und fortlaufenden, nie wiederverwendeten IDs
 - Prüfung von Kartenkennungen gegen aktive Fahrzeuge samt Normalisierung
 - Deutsche und englische Texte der Wallbox- und Fahrzeugdialoge
+
+### Behoben
+
+- Fehlende Menütexte für das Anlegen und Bearbeiten von Wallbox- und Fahrzeug-Subentries in allen Sprachdateien ergänzt

@@ -12,6 +12,10 @@
   "config_subentries": {
     "wallbox": {
       "entry_type": "Wallbox",
+      "initiate_flow": {
+        "user": "[%key:component::ev_charging::config_subentries::wallbox::step::user::title%]",
+        "reconfigure": "[%key:component::ev_charging::config_subentries::wallbox::step::reconfigure::title%]"
+      },
       "abort": {
         "single_wallbox_allowed": "Only one wallbox is supported.",
         "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]"
@@ -88,6 +92,10 @@
     },
     "vehicle": {
       "entry_type": "Vehicle",
+      "initiate_flow": {
+        "user": "[%key:component::ev_charging::config_subentries::vehicle::step::user::title%]",
+        "reconfigure": "[%key:component::ev_charging::config_subentries::vehicle::step::reconfigure::title%]"
+      },
       "abort": {
         "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]"
       },
