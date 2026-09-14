@@ -34,8 +34,6 @@ COST_MODE_STATIC = "static"
 COST_MODE_DYNAMIC = "dynamic"
 COST_MODES = (COST_MODE_STATIC, COST_MODE_DYNAMIC)
 
-# Only meaningful while cost_mode is dynamic; the static price then covers
-# the whole charge instead.
 SOLAR_VALUATION_FEED_IN_TARIFF = "feed_in_tariff"
 SOLAR_VALUATION_ZERO = "zero"
 SOLAR_VALUATIONS = (
@@ -43,10 +41,30 @@ SOLAR_VALUATIONS = (
     SOLAR_VALUATION_ZERO,
 )
 
+CARD_TYPE_RFID = "rfid"
+CARD_TYPE_EMAID = "emaid"
+CARD_TYPES = (CARD_TYPE_RFID, CARD_TYPE_EMAID)
+
+# Normalized card uids that never count as an identification, regardless of
+# how they were entered.
+INVALID_CARD_UIDS = frozenset({"0", "UNKNOWN", "UNAVAILABLE"})
+
 DEFAULT_POWER_THRESHOLD_KW = 0.5
-DEFAULT_START_DEBOUNCE_S = 20
-MIN_START_DEBOUNCE_S = 5
-MAX_START_DEBOUNCE_S = 120
+DEFAULT_START_DEBOUNCE_S = 2
+MIN_START_DEBOUNCE_S = 0
+MAX_START_DEBOUNCE_S = 30
+DEFAULT_IDENTIFICATION_WINDOW_S = 15
+MIN_IDENTIFICATION_WINDOW_S = 0
+MAX_IDENTIFICATION_WINDOW_S = 300
+
+# Global hub settings (4.2). Only the fields without an entity selector are
+# handled here; the remaining fields are added once entity roles exist.
+DEFAULT_UPDATE_INTERVAL_S = 30
+MIN_UPDATE_INTERVAL_S = 15
+MAX_UPDATE_INTERVAL_S = 300
+DEFAULT_GEOCODING_ENABLED = True
+DEFAULT_GEOCODING_URL = "https://nominatim.openstreetmap.org/reverse"
+DEFAULT_ESTIMATE_UNCERTAIN_THRESHOLD_PCT = 5
 
 # Fixed, not user-configurable. Not part of the wallbox subentry schema.
 MIN_PAUSE_MIN = 15

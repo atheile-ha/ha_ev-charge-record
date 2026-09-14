@@ -24,19 +24,24 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
+    CARD_TYPES,
     CONF_VEHICLE_SEQUENCE,
     CONF_WALLBOX_SEQUENCE,
     COST_MODE_DYNAMIC,
-    COST_MODE_STATIC,
     COST_MODES,
     CURRENT_TYPE_AC,
     CURRENT_TYPES,
+    DEFAULT_IDENTIFICATION_WINDOW_S,
     DEFAULT_POWER_THRESHOLD_KW,
     DEFAULT_START_DEBOUNCE_S,
     DOMAIN,
+    INVALID_CARD_UIDS,
+    MAX_IDENTIFICATION_WINDOW_S,
     MAX_START_DEBOUNCE_S,
+    MAX_UPDATE_INTERVAL_S,
+    MIN_IDENTIFICATION_WINDOW_S,
     MIN_START_DEBOUNCE_S,
-    SOLAR_VALUATION_FEED_IN_TARIFF,
+    MIN_UPDATE_INTERVAL_S,
     SOLAR_VALUATIONS,
     SUBENTRY_TYPE_VEHICLE,
     SUBENTRY_TYPE_WALLBOX,
@@ -44,23 +49,80 @@ from .const import (
     VEHICLE_ID_PREFIX,
     WALLBOX_ID_PREFIX,
 )
-from .models import Card, Vehicle, Wallbox, normalize_card_uid
+from .models import Card, HubSettings, Vehicle, Wallbox, normalize_card_uid
 
 
 class EvChargingConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for ev_charging."""
 
-    VERSION = 1
-    MINOR_VERSION = 2
+    VERSION = 2
+    MINOR_VERSION = 1
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Confirm the setup. The entry carries no options yet."""
+        """Confirm the setup. Global settings start at their defaults."""
         if user_input is None:
             return self.async_show_form(step_id="user")
 
-        return self.async_create_entry(
-            title=TITLE,
-            data={CONF_WALLBOX_SEQUENCE: 0, CONF_VEHICLE_SEQUENCE: 0},
+        data = {
+            CONF_WALLBOX_SEQUENCE: 0,
+            CONF_VEHICLE_SEQUENCE: 0,
+            **HubSettings().to_dict(),
+        }
+        return self.async_create_entry(title=TITLE, data=data)
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Edit the global settings of the hub entry."""
+        entry = self._get_reconfigure_entry()
+        defaults = HubSettings.from_dict(entry.data)
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            errors = self._validate_settings(user_input)
+            if not errors:
+                settings = HubSettings(**user_input)
+                return self.async_update_reload_and_abort(
+                    entry, data={**entry.data, **settings.to_dict()}
+                )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self._settings_schema(defaults=defaults),
+            errors=errors,
+        )
+
+    def _validate_settings(self, user_input: dict[str, Any]) -> dict[str, str]:
+        errors: dict[str, str] = {}
+        if not (MIN_UPDATE_INTERVAL_S <= user_input["update_interval_s"] <= MAX_UPDATE_INTERVAL_S):
+            errors["update_interval_s"] = "update_interval_out_of_range"
+        if user_input["geocoding_enabled"] and not user_input.get("geocoding_contact"):
+            errors["geocoding_contact"] = "geocoding_contact_required"
+        if not (0 < user_input["estimate_uncertain_threshold_pct"] <= 100):
+            errors["estimate_uncertain_threshold_pct"] = "estimate_uncertain_threshold_out_of_range"
+        return errors
+
+    def _settings_schema(self, *, defaults: HubSettings) -> vol.Schema:
+        d = defaults
+        return vol.Schema(
+            {
+                vol.Required("update_interval_s", default=d.update_interval_s): vol.Coerce(int),
+                vol.Required("solar_valuation", default=d.solar_valuation): SelectSelector(
+                    SelectSelectorConfig(
+                        options=list(SOLAR_VALUATIONS), translation_key="solar_valuation"
+                    )
+                ),
+                vol.Required("geocoding_enabled", default=d.geocoding_enabled): bool,
+                vol.Required("geocoding_url", default=d.geocoding_url): str,
+                vol.Optional(
+                    "geocoding_contact",
+                    description={"suggested_value": d.geocoding_contact},
+                ): str,
+                vol.Required(
+                    "estimate_uncertain_threshold_pct",
+                    default=d.estimate_uncertain_threshold_pct,
+                ): vol.Coerce(float),
+            }
         )
 
     @classmethod
@@ -139,6 +201,12 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
         errors: dict[str, str] = {}
         if not (MIN_START_DEBOUNCE_S <= user_input["start_debounce_s"] <= MAX_START_DEBOUNCE_S):
             errors["start_debounce_s"] = "start_debounce_out_of_range"
+        if not (
+            MIN_IDENTIFICATION_WINDOW_S
+            <= user_input["identification_window_s"]
+            <= MAX_IDENTIFICATION_WINDOW_S
+        ):
+            errors["identification_window_s"] = "identification_window_out_of_range"
         if user_input["max_power_kw"] <= 0:
             errors["max_power_kw"] = "must_be_positive"
         if user_input.get("power_threshold_kw", 0) < 0:
@@ -171,6 +239,14 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
                                 "start_debounce_s",
                                 default=(d.start_debounce_s if d else DEFAULT_START_DEBOUNCE_S),
                             ): vol.Coerce(int),
+                            vol.Required(
+                                "identification_window_s",
+                                default=(
+                                    d.identification_window_s
+                                    if d
+                                    else DEFAULT_IDENTIFICATION_WINDOW_S
+                                ),
+                            ): vol.Coerce(int),
                         }
                     ),
                     SectionConfig(collapsed=True),
@@ -180,19 +256,7 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
 
 
 class VehicleSubentryFlow(ConfigSubentryFlow):
-    """Handle creating and editing a vehicle subentry, including its cards.
-
-    Name, guest/active status, capacity, cards and the cost mode choice are
-    entered on a single form. Only the cost mode's follow-up field (a fixed
-    price, or the solar valuation) is a separate step, because which one
-    applies depends on the choice made on the first form.
-    """
-
-    def __init__(self) -> None:
-        """Initialize the state carried from the base step to the cost step."""
-        self._base_data: dict[str, Any] = {}
-        self._cards: tuple[Card, ...] = ()
-        self._subentry: ConfigSubentry | None = None
+    """Handle creating and editing a vehicle subentry, including its cards."""
 
     @property
     def _entry(self) -> ConfigEntry:
@@ -200,38 +264,48 @@ class VehicleSubentryFlow(ConfigSubentryFlow):
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
         """Create a new vehicle subentry."""
-        return await self._async_step_base(user_input, subentry=None)
+        return await self._async_step(user_input, subentry=None)
 
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> SubentryFlowResult:
         """Edit an existing vehicle subentry."""
-        return await self._async_step_base(user_input, subentry=self._get_reconfigure_subentry())
+        return await self._async_step(user_input, subentry=self._get_reconfigure_subentry())
 
-    async def _async_step_base(
+    async def _async_step(
         self, user_input: dict[str, Any] | None, *, subentry: ConfigSubentry | None
     ) -> SubentryFlowResult:
         step_id = "reconfigure" if subentry else "user"
-        vehicle = Vehicle.from_dict(subentry.data) if subentry else None
+        defaults = Vehicle.from_dict(subentry.data) if subentry else None
         errors: dict[str, str] = {}
 
         if user_input is not None:
             user_input["vin"] = user_input.get("vin") or None
+            user_input["manufacturer"] = user_input.get("manufacturer") or None
+            user_input["model"] = user_input.get("model") or None
             own_subentry_id = subentry.subentry_id if subentry else None
-            cards, errors = self._validate_base(user_input, own_subentry_id=own_subentry_id)
+            cards, errors = self._validate(user_input, own_subentry_id=own_subentry_id)
             if not errors:
-                self._base_data = user_input
-                self._cards = cards
-                self._subentry = subentry
-                if user_input["cost_mode"] == COST_MODE_STATIC:
-                    return await self.async_step_static_price()
-                return await self.async_step_solar_valuation()
+                if subentry:
+                    vehicle = Vehicle(id=defaults.id, cards=cards, **user_input)
+                    return self.async_update_and_abort(
+                        self._entry, subentry, title=vehicle.name, data=vehicle.to_dict()
+                    )
+
+                vehicle_id = _allocate_id(
+                    self._entry,
+                    self.hass,
+                    sequence_key=CONF_VEHICLE_SEQUENCE,
+                    prefix=VEHICLE_ID_PREFIX,
+                )
+                vehicle = Vehicle(id=vehicle_id, cards=cards, **user_input)
+                return self.async_create_entry(title=vehicle.name, data=vehicle.to_dict())
 
         return self.async_show_form(
-            step_id=step_id, data_schema=self._base_schema(defaults=vehicle), errors=errors
+            step_id=step_id, data_schema=self._schema(defaults=defaults), errors=errors
         )
 
-    def _validate_base(
+    def _validate(
         self, user_input: dict[str, Any], *, own_subentry_id: str | None
     ) -> tuple[tuple[Card, ...], dict[str, str]]:
         errors: dict[str, str] = {}
@@ -249,11 +323,16 @@ class VehicleSubentryFlow(ConfigSubentryFlow):
         seen_uids: set[str] = set()
         for raw in raw_cards:
             uid = normalize_card_uid(raw["uid"])
+            if not uid or uid in INVALID_CARD_UIDS:
+                errors["cards"] = "invalid_card_uid"
+                continue
             if uid in seen_uids or self._active_conflict(uid, own_subentry_id):
                 errors["cards"] = "duplicate_card"
                 continue
             seen_uids.add(uid)
-            cards.append(Card(uid=uid, label=raw["label"], active=raw.get("active", True)))
+            cards.append(
+                Card(uid=uid, label=raw["label"], type=raw["type"], active=raw.get("active", True))
+            )
 
         if not errors and not cards:
             errors["cards"] = "card_required"
@@ -270,7 +349,7 @@ class VehicleSubentryFlow(ConfigSubentryFlow):
                 return True
         return False
 
-    def _base_schema(self, *, defaults: Vehicle | None) -> vol.Schema:
+    def _schema(self, *, defaults: Vehicle | None) -> vol.Schema:
         d = defaults
         return vol.Schema(
             {
@@ -278,6 +357,11 @@ class VehicleSubentryFlow(ConfigSubentryFlow):
                 vol.Required("active", default=d.active if d else True): bool,
                 vol.Required("is_guest", default=d.is_guest if d else False): bool,
                 vol.Optional("vin", description={"suggested_value": d.vin if d else None}): str,
+                vol.Optional(
+                    "manufacturer",
+                    description={"suggested_value": d.manufacturer if d else None},
+                ): str,
+                vol.Optional("model", description={"suggested_value": d.model if d else None}): str,
                 vol.Optional(
                     "capacity_kwh",
                     description={"suggested_value": d.capacity_kwh if d else None},
@@ -298,85 +382,17 @@ class VehicleSubentryFlow(ConfigSubentryFlow):
                         fields={
                             "uid": {"selector": TextSelector(), "required": True},
                             "label": {"selector": TextSelector(), "required": True},
+                            "type": {
+                                "selector": SelectSelector(
+                                    SelectSelectorConfig(
+                                        options=list(CARD_TYPES), translation_key="card_type"
+                                    )
+                                ),
+                                "required": True,
+                            },
                             "active": {"selector": BooleanSelector(), "required": False},
                         },
                     )
                 ),
             }
         )
-
-    async def async_step_static_price(
-        self, user_input: dict[str, Any] | None = None
-    ) -> SubentryFlowResult:
-        """Ask for the fixed price that applies to the whole charge."""
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            if user_input.get("static_price") is None:
-                errors["static_price"] = "static_price_required"
-            else:
-                return self._finish(
-                    static_price=user_input["static_price"],
-                    solar_valuation=SOLAR_VALUATION_FEED_IN_TARIFF,
-                )
-
-        existing = self._existing_vehicle
-        suggested = (
-            existing.static_price if existing and existing.cost_mode == COST_MODE_STATIC else None
-        )
-        schema = vol.Schema(
-            {
-                vol.Optional("static_price", description={"suggested_value": suggested}): vol.Any(
-                    None, vol.Coerce(float)
-                ),
-            }
-        )
-        return self.async_show_form(step_id="static_price", data_schema=schema, errors=errors)
-
-    async def async_step_solar_valuation(
-        self, user_input: dict[str, Any] | None = None
-    ) -> SubentryFlowResult:
-        """Ask how the solar share of a home charge is valued."""
-        if user_input is not None:
-            return self._finish(static_price=None, solar_valuation=user_input["solar_valuation"])
-
-        existing = self._existing_vehicle
-        default = (
-            existing.solar_valuation
-            if existing and existing.cost_mode == COST_MODE_DYNAMIC
-            else SOLAR_VALUATION_FEED_IN_TARIFF
-        )
-        schema = vol.Schema(
-            {
-                vol.Required("solar_valuation", default=default): SelectSelector(
-                    SelectSelectorConfig(
-                        options=list(SOLAR_VALUATIONS), translation_key="solar_valuation"
-                    )
-                ),
-            }
-        )
-        return self.async_show_form(step_id="solar_valuation", data_schema=schema)
-
-    @property
-    def _existing_vehicle(self) -> Vehicle | None:
-        """Return the vehicle being reconfigured, if any."""
-        return Vehicle.from_dict(self._subentry.data) if self._subentry else None
-
-    def _finish(self, *, static_price: float | None, solar_valuation: str) -> SubentryFlowResult:
-        """Persist the vehicle with the base data and the chosen cost fields."""
-        vehicle_data = {
-            **self._base_data,
-            "static_price": static_price,
-            "solar_valuation": solar_valuation,
-        }
-
-        if self._subentry:
-            vehicle = Vehicle(id=self._existing_vehicle.id, cards=self._cards, **vehicle_data)
-            return self.async_update_and_abort(
-                self._entry, self._subentry, title=vehicle.name, data=vehicle.to_dict()
-            )
-
-        vehicle_id = _allocate_id(
-            self._entry, self.hass, sequence_key=CONF_VEHICLE_SEQUENCE, prefix=VEHICLE_ID_PREFIX
-        )
-        vehicle = Vehicle(id=vehicle_id, cards=self._cards, **vehicle_data)
-        return self.async_create_entry(title=vehicle.name, data=vehicle.to_dict())

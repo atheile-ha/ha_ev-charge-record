@@ -1,12 +1,37 @@
 {
   "config": {
     "abort": {
-      "single_instance_allowed": "Already configured. Only a single configuration is possible."
+      "single_instance_allowed": "Already configured. Only a single configuration is possible.",
+      "reconfigure_successful": "Reconfiguration was successful"
     },
     "step": {
       "user": {
         "description": "Charging sessions are recorded once a wallbox and at least one vehicle have been added."
+      },
+      "reconfigure": {
+        "title": "Global settings",
+        "data": {
+          "update_interval_s": "Update interval (s)",
+          "solar_valuation": "Solar valuation",
+          "geocoding_enabled": "Geocoding enabled",
+          "geocoding_url": "Geocoding URL",
+          "geocoding_contact": "Geocoding contact",
+          "estimate_uncertain_threshold_pct": "Uncertain estimate threshold (%)"
+        },
+        "data_description": {
+          "update_interval_s": "How often live entities publish. Between 15 and 300 seconds.",
+          "solar_valuation": "How the solar share of a home charge is valued.",
+          "geocoding_enabled": "Look up an address for external charging sessions from their coordinates.",
+          "geocoding_url": "The geocoding service endpoint. Preset to Nominatim, freely changeable.",
+          "geocoding_contact": "Sent as the contact in the User-Agent. Required while geocoding is enabled.",
+          "estimate_uncertain_threshold_pct": "Below this state-of-charge delta, an estimate counts as uncertain."
+        }
       }
+    },
+    "error": {
+      "update_interval_out_of_range": "Update interval must be between 15 and 300 seconds.",
+      "geocoding_contact_required": "A contact is required while geocoding is enabled.",
+      "estimate_uncertain_threshold_out_of_range": "Must be greater than 0 and at most 100."
     }
   },
   "config_subentries": {
@@ -21,7 +46,8 @@
         "reconfigure_successful": "Reconfiguration was successful"
       },
       "error": {
-        "start_debounce_out_of_range": "Start debounce must be between 5 and 120 seconds.",
+        "start_debounce_out_of_range": "Start debounce must be between 0 and 30 seconds.",
+        "identification_window_out_of_range": "Identification window must be between 0 and 300 seconds.",
         "must_be_positive": "Must be greater than zero.",
         "must_not_be_negative": "Must not be negative."
       },
@@ -41,11 +67,13 @@
               "name": "Expert options",
               "data": {
                 "power_threshold_kw": "Power threshold (kW)",
-                "start_debounce_s": "Start debounce (s)"
+                "start_debounce_s": "Start debounce (s)",
+                "identification_window_s": "Identification window (s)"
               },
               "data_description": {
                 "power_threshold_kw": "Power above which a session candidate starts.",
-                "start_debounce_s": "How long the power threshold must hold before the session is confirmed."
+                "start_debounce_s": "How long the power threshold must hold before the session is confirmed.",
+                "identification_window_s": "How long to wait after session start before deciding which vehicle is charging."
               }
             }
           }
@@ -65,11 +93,13 @@
               "name": "Expert options",
               "data": {
                 "power_threshold_kw": "Power threshold (kW)",
-                "start_debounce_s": "Start debounce (s)"
+                "start_debounce_s": "Start debounce (s)",
+                "identification_window_s": "Identification window (s)"
               },
               "data_description": {
                 "power_threshold_kw": "Power above which a session candidate starts.",
-                "start_debounce_s": "How long the power threshold must hold before the session is confirmed."
+                "start_debounce_s": "How long the power threshold must hold before the session is confirmed.",
+                "identification_window_s": "How long to wait after session start before deciding which vehicle is charging."
               }
             }
           }
@@ -87,9 +117,9 @@
       },
       "error": {
         "capacity_required": "Battery capacity is required unless this is a guest vehicle.",
-        "static_price_required": "A fixed price is required when the cost mode is static.",
         "duplicate_card": "A card identifier is entered twice, or already belongs to another active vehicle.",
-        "card_required": "An active vehicle needs at least one card."
+        "card_required": "An active vehicle needs at least one card.",
+        "invalid_card_uid": "This value can never be a card identifier."
       },
       "step": {
         "user": {
@@ -99,6 +129,8 @@
             "active": "Active",
             "is_guest": "Guest vehicle",
             "vin": "VIN",
+            "manufacturer": "Manufacturer",
+            "model": "Model",
             "capacity_kwh": "Battery capacity (kWh)",
             "cost_mode": "Cost mode",
             "cards": "Authorization reference"
@@ -107,8 +139,10 @@
             "active": "Inactive vehicles keep their history, but their entities are disabled. Its cards are removed; reactivating it requires assigning at least one card again.",
             "is_guest": "A shared vehicle without telemetry.",
             "vin": "Kept out of every state and log entry.",
+            "manufacturer": "Shown in the device entry.",
+            "model": "Shown in the device entry.",
             "capacity_kwh": "Required unless this is a guest vehicle.",
-            "cost_mode": "Static: one fixed price for the whole charge. Dynamic: grid and solar shares are valued separately.",
+            "cost_mode": "Recorded for a later billing feature. It has no effect on data collection.",
             "cards": "The RFID or eMAID identifier the wallbox reports, used to recognize this vehicle. Required while the vehicle is active."
           }
         },
@@ -119,6 +153,8 @@
             "active": "Active",
             "is_guest": "Guest vehicle",
             "vin": "VIN",
+            "manufacturer": "Manufacturer",
+            "model": "Model",
             "capacity_kwh": "Battery capacity (kWh)",
             "cost_mode": "Cost mode",
             "cards": "Authorization reference"
@@ -127,27 +163,11 @@
             "active": "Inactive vehicles keep their history, but their entities are disabled. Its cards are removed; reactivating it requires assigning at least one card again.",
             "is_guest": "A shared vehicle without telemetry.",
             "vin": "Kept out of every state and log entry.",
+            "manufacturer": "Shown in the device entry.",
+            "model": "Shown in the device entry.",
             "capacity_kwh": "Required unless this is a guest vehicle.",
-            "cost_mode": "Static: one fixed price for the whole charge. Dynamic: grid and solar shares are valued separately.",
+            "cost_mode": "Recorded for a later billing feature. It has no effect on data collection.",
             "cards": "The RFID or eMAID identifier the wallbox reports, used to recognize this vehicle. Required while the vehicle is active."
-          }
-        },
-        "static_price": {
-          "title": "Static charging price",
-          "data": {
-            "static_price": "Static charging price (currency/kWh)"
-          },
-          "data_description": {
-            "static_price": "For the entire charge, regardless of grid or solar share."
-          }
-        },
-        "solar_valuation": {
-          "title": "Solar valuation",
-          "data": {
-            "solar_valuation": "Solar valuation"
-          },
-          "data_description": {
-            "solar_valuation": "How the solar share of a home charge is valued."
           }
         }
       }
@@ -172,10 +192,17 @@
         "zero": "Free"
       }
     },
+    "card_type": {
+      "options": {
+        "rfid": "RFID",
+        "emaid": "eMAID"
+      }
+    },
     "cards": {
       "fields": {
         "uid": "Card identifier",
         "label": "Label",
+        "type": "Type",
         "active": "Valid (not locked)"
       }
     }

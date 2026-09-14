@@ -1,12 +1,37 @@
 {
   "config": {
     "abort": {
-      "single_instance_allowed": "Bereits eingerichtet. Es ist nur eine Konfiguration möglich."
+      "single_instance_allowed": "Bereits eingerichtet. Es ist nur eine Konfiguration möglich.",
+      "reconfigure_successful": "Die Neukonfiguration war erfolgreich"
     },
     "step": {
       "user": {
         "description": "Ladevorgänge werden erfasst, sobald eine Wallbox und mindestens ein Fahrzeug angelegt sind."
+      },
+      "reconfigure": {
+        "title": "Globale Einstellungen",
+        "data": {
+          "update_interval_s": "Veröffentlichungsintervall (s)",
+          "solar_valuation": "Sonnenbewertung",
+          "geocoding_enabled": "Geocoding aktiv",
+          "geocoding_url": "Geocoding-URL",
+          "geocoding_contact": "Geocoding-Kontaktangabe",
+          "estimate_uncertain_threshold_pct": "Schwelle für unsichere Schätzung (%)"
+        },
+        "data_description": {
+          "update_interval_s": "Wie oft die Live-Entitäten veröffentlicht werden. Zwischen 15 und 300 Sekunden.",
+          "solar_valuation": "Wie der Sonnenanteil einer Heimladung bewertet wird.",
+          "geocoding_enabled": "Für externe Ladevorgänge aus den Koordinaten eine Adresse ermitteln.",
+          "geocoding_url": "Der Geocoding-Dienst. Voreingestellt auf Nominatim, frei änderbar.",
+          "geocoding_contact": "Wird als Kontaktangabe im User-Agent übermittelt. Erforderlich, solange Geocoding aktiv ist.",
+          "estimate_uncertain_threshold_pct": "Unterhalb dieses SOC-Unterschieds gilt eine Schätzung als unsicher."
+        }
       }
+    },
+    "error": {
+      "update_interval_out_of_range": "Das Veröffentlichungsintervall muss zwischen 15 und 300 Sekunden liegen.",
+      "geocoding_contact_required": "Solange Geocoding aktiv ist, ist eine Kontaktangabe erforderlich.",
+      "estimate_uncertain_threshold_out_of_range": "Muss größer als 0 und höchstens 100 sein."
     }
   },
   "config_subentries": {
@@ -21,7 +46,8 @@
         "reconfigure_successful": "Die Neukonfiguration war erfolgreich"
       },
       "error": {
-        "start_debounce_out_of_range": "Die Entprellung muss zwischen 5 und 120 Sekunden liegen.",
+        "start_debounce_out_of_range": "Die Entprellung muss zwischen 0 und 30 Sekunden liegen.",
+        "identification_window_out_of_range": "Das Erkennungsfenster muss zwischen 0 und 300 Sekunden liegen.",
         "must_be_positive": "Muss größer als null sein.",
         "must_not_be_negative": "Darf nicht negativ sein."
       },
@@ -41,11 +67,13 @@
               "name": "Expertenoptionen",
               "data": {
                 "power_threshold_kw": "Leistungsschwelle (kW)",
-                "start_debounce_s": "Startentprellung (s)"
+                "start_debounce_s": "Startentprellung (s)",
+                "identification_window_s": "Erkennungsfenster (s)"
               },
               "data_description": {
                 "power_threshold_kw": "Leistung, oberhalb der ein Sessionkandidat beginnt.",
-                "start_debounce_s": "Wie lange die Leistungsschwelle überschritten bleiben muss, bevor die Session bestätigt wird."
+                "start_debounce_s": "Wie lange die Leistungsschwelle überschritten bleiben muss, bevor die Session bestätigt wird.",
+                "identification_window_s": "Wartezeit nach Sessionbeginn, bevor entschieden wird, welches Fahrzeug lädt."
               }
             }
           }
@@ -65,11 +93,13 @@
               "name": "Expertenoptionen",
               "data": {
                 "power_threshold_kw": "Leistungsschwelle (kW)",
-                "start_debounce_s": "Startentprellung (s)"
+                "start_debounce_s": "Startentprellung (s)",
+                "identification_window_s": "Erkennungsfenster (s)"
               },
               "data_description": {
                 "power_threshold_kw": "Leistung, oberhalb der ein Sessionkandidat beginnt.",
-                "start_debounce_s": "Wie lange die Leistungsschwelle überschritten bleiben muss, bevor die Session bestätigt wird."
+                "start_debounce_s": "Wie lange die Leistungsschwelle überschritten bleiben muss, bevor die Session bestätigt wird.",
+                "identification_window_s": "Wartezeit nach Sessionbeginn, bevor entschieden wird, welches Fahrzeug lädt."
               }
             }
           }
@@ -87,9 +117,9 @@
       },
       "error": {
         "capacity_required": "Die Batteriekapazität ist erforderlich, außer bei einem Gastfahrzeug.",
-        "static_price_required": "Ein fester Preis ist erforderlich, wenn der Kostenmodus fest steht.",
         "duplicate_card": "Eine Kennung ist doppelt eingetragen oder gehört bereits einem anderen aktiven Fahrzeug.",
-        "card_required": "Ein aktives Fahrzeug braucht mindestens eine Kennung."
+        "card_required": "Ein aktives Fahrzeug braucht mindestens eine Kennung.",
+        "invalid_card_uid": "Dieser Wert kann nie eine Kennung sein."
       },
       "step": {
         "user": {
@@ -99,6 +129,8 @@
             "active": "Aktiv",
             "is_guest": "Gastfahrzeug",
             "vin": "Fahrgestellnummer",
+            "manufacturer": "Hersteller",
+            "model": "Modell",
             "capacity_kwh": "Batteriekapazität (kWh)",
             "cost_mode": "Kostenmodus",
             "cards": "Freischalt-Referenz"
@@ -107,8 +139,10 @@
             "active": "Inaktive Fahrzeuge behalten ihre Historie, ihre Entitäten werden deaktiviert. Ihre Freischalt-Referenzen werden entfernt; bei erneuter Aktivierung muss mindestens eine neu vergeben werden.",
             "is_guest": "Ein gemeinsam genutztes Fahrzeug ohne Telemetrie.",
             "vin": "Erscheint in keinem Zustand und keinem Protokolleintrag.",
+            "manufacturer": "Erscheint im Geräteeintrag.",
+            "model": "Erscheint im Geräteeintrag.",
             "capacity_kwh": "Erforderlich, außer bei einem Gastfahrzeug.",
-            "cost_mode": "Fest: ein fester Preis für den gesamten Ladevorgang. Dynamisch: Netz- und Sonnenanteil werden getrennt bewertet.",
+            "cost_mode": "Vorgemerkt für eine spätere Abrechnungsfunktion. Hat keine Wirkung auf die Erfassung.",
             "cards": "Die von der Wallbox übermittelte RFID- oder eMAID-Kennung, über die dieses Fahrzeug erkannt wird. Erforderlich, solange das Fahrzeug aktiv ist."
           }
         },
@@ -119,6 +153,8 @@
             "active": "Aktiv",
             "is_guest": "Gastfahrzeug",
             "vin": "Fahrgestellnummer",
+            "manufacturer": "Hersteller",
+            "model": "Modell",
             "capacity_kwh": "Batteriekapazität (kWh)",
             "cost_mode": "Kostenmodus",
             "cards": "Freischalt-Referenz"
@@ -127,27 +163,11 @@
             "active": "Inaktive Fahrzeuge behalten ihre Historie, ihre Entitäten werden deaktiviert. Ihre Freischalt-Referenzen werden entfernt; bei erneuter Aktivierung muss mindestens eine neu vergeben werden.",
             "is_guest": "Ein gemeinsam genutztes Fahrzeug ohne Telemetrie.",
             "vin": "Erscheint in keinem Zustand und keinem Protokolleintrag.",
+            "manufacturer": "Erscheint im Geräteeintrag.",
+            "model": "Erscheint im Geräteeintrag.",
             "capacity_kwh": "Erforderlich, außer bei einem Gastfahrzeug.",
-            "cost_mode": "Fest: ein fester Preis für den gesamten Ladevorgang. Dynamisch: Netz- und Sonnenanteil werden getrennt bewertet.",
+            "cost_mode": "Vorgemerkt für eine spätere Abrechnungsfunktion. Hat keine Wirkung auf die Erfassung.",
             "cards": "Die von der Wallbox übermittelte RFID- oder eMAID-Kennung, über die dieses Fahrzeug erkannt wird. Erforderlich, solange das Fahrzeug aktiv ist."
-          }
-        },
-        "static_price": {
-          "title": "Statischer Ladepreis",
-          "data": {
-            "static_price": "Statischer Ladepreis in €/kWh"
-          },
-          "data_description": {
-            "static_price": "Für den gesamten Ladevorgang, unabhängig vom Netz- oder Sonnenanteil."
-          }
-        },
-        "solar_valuation": {
-          "title": "Sonnenbewertung",
-          "data": {
-            "solar_valuation": "Sonnenbewertung"
-          },
-          "data_description": {
-            "solar_valuation": "Wie der Sonnenanteil einer Heimladung bewertet wird."
           }
         }
       }
@@ -172,10 +192,17 @@
         "zero": "Kostenlos"
       }
     },
+    "card_type": {
+      "options": {
+        "rfid": "RFID",
+        "emaid": "eMAID"
+      }
+    },
     "cards": {
       "fields": {
         "uid": "Kennung",
         "label": "Bezeichnung",
+        "type": "Typ",
         "active": "Gültig (nicht gesperrt)"
       }
     }

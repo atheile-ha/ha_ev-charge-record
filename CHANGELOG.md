@@ -4,6 +4,27 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.1.4] - 2026-09-14
+
+### Hinzugefügt
+
+- Globale Einstellungen am Hauptentry: Veröffentlichungsintervall, Sonnenbewertung, Geocoding-Aktivierung, Geocoding-URL, Geocoding-Kontaktangabe, Schwelle für unsichere Schätzung. Bearbeitbar über „Neu konfigurieren“
+- Erkennungsfenster im Wallbox-Dialog
+- Hersteller und Modell im Fahrzeugdialog
+- Kartentyp (RFID oder eMAID) je Karteneintrag
+- Ablehnung der Werte `0`, `unknown`, `unavailable` und der leeren Zeichenkette als Kartenkennung
+
+### Geändert
+
+- Startentprellung der Wallbox: Standardwert 2 Sekunden, Bereich 0 bis 30 Sekunden
+- Kostenmodus am Fahrzeug ist vorgemerkt und wirkt sich nicht auf die Erfassung aus
+- Schemaversion des Config Entrys und der Subentries auf 2 angehoben, bestehende Einträge werden migriert
+
+### Entfernt
+
+- Standardfahrzeug-Feld am Wallbox-Subentry
+- Fester Ladepreis und Sonnenbewertung am Fahrzeug-Subentry
+
 ## [0.1.3] - 2026-09-13
 
 ### Hinzugefügt
