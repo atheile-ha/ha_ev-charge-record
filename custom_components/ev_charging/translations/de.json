@@ -16,7 +16,15 @@
           "geocoding_enabled": "Geocoding aktiv",
           "geocoding_url": "Geocoding-URL",
           "geocoding_contact": "Geocoding-Kontaktangabe",
-          "estimate_uncertain_threshold_pct": "Schwelle für unsichere Schätzung (%)"
+          "estimate_uncertain_threshold_pct": "Schwelle für unsichere Schätzung (%)",
+          "grid_power": "Netzsaldo",
+          "grid_power_inverted": "Netzsaldo umgekehrt",
+          "grid_import": "Netzbezug",
+          "grid_export": "Netzeinspeisung",
+          "price_grid": "Netzstrompreis-Entität",
+          "price_grid_fixed": "Netzstrompreis (fest)",
+          "price_feed_in": "Einspeisevergütungs-Entität",
+          "price_feed_in_fixed": "Einspeisevergütung (fest)"
         },
         "data_description": {
           "update_interval_s": "Wie oft die Live-Entitäten veröffentlicht werden. Zwischen 15 und 300 Sekunden.",
@@ -24,14 +32,24 @@
           "geocoding_enabled": "Für externe Ladevorgänge aus den Koordinaten eine Adresse ermitteln.",
           "geocoding_url": "Der Geocoding-Dienst. Voreingestellt auf Nominatim, frei änderbar.",
           "geocoding_contact": "Wird als Kontaktangabe im User-Agent übermittelt. Erforderlich, solange Geocoding aktiv ist.",
-          "estimate_uncertain_threshold_pct": "Unterhalb dieses SOC-Unterschieds gilt eine Schätzung als unsicher."
+          "estimate_uncertain_threshold_pct": "Unterhalb dieses SOC-Unterschieds gilt eine Schätzung als unsicher.",
+          "grid_power": "Entität mit dem Netzsaldo, positiv bei Bezug. Alternative zu Netzbezug und Netzeinspeisung.",
+          "grid_power_inverted": "Aktivieren, wenn die Entität Bezug als negativen Wert meldet.",
+          "grid_import": "Entität mit dem Netzbezug, stets positiv. Alternative zum Netzsaldo.",
+          "grid_export": "Entität mit der Netzeinspeisung, stets positiv. Wird zusammen mit dem Netzbezug verwendet.",
+          "price_grid": "Entität mit dem Netzstrompreis je kWh. Alternative zu einem festen Wert.",
+          "price_grid_fixed": "Fester Netzstrompreis je kWh. Alternative zu einer Entität.",
+          "price_feed_in": "Entität mit der Einspeisevergütung je kWh. Alternative zu einem festen Wert.",
+          "price_feed_in_fixed": "Feste Einspeisevergütung je kWh. Alternative zu einer Entität."
         }
       }
     },
     "error": {
       "update_interval_out_of_range": "Das Veröffentlichungsintervall muss zwischen 15 und 300 Sekunden liegen.",
       "geocoding_contact_required": "Solange Geocoding aktiv ist, ist eine Kontaktangabe erforderlich.",
-      "estimate_uncertain_threshold_out_of_range": "Muss größer als 0 und höchstens 100 sein."
+      "estimate_uncertain_threshold_out_of_range": "Muss größer als 0 und höchstens 100 sein.",
+      "grid_source_conflict": "Netzsaldo und Netzbezug/Netzeinspeisung sind Alternativen; nur eines davon angeben.",
+      "price_source_conflict": "Entweder eine Entität oder einen festen Wert angeben, nicht beides."
     }
   },
   "config_subentries": {
@@ -49,7 +67,10 @@
         "start_debounce_out_of_range": "Die Entprellung muss zwischen 0 und 30 Sekunden liegen.",
         "identification_window_out_of_range": "Das Erkennungsfenster muss zwischen 0 und 300 Sekunden liegen.",
         "must_be_positive": "Muss größer als null sein.",
-        "must_not_be_negative": "Darf nicht negativ sein."
+        "must_not_be_negative": "Darf nicht negativ sein.",
+        "charge_power_required": "Die Ladeleistung ist erforderlich.",
+        "plug_state_required": "Der Steckerzustand ist erforderlich.",
+        "energy_counter_required": "Mindestens ein Energiezähler, Gesamt- oder Sessionzähler, ist erforderlich."
       },
       "step": {
         "user": {
@@ -67,6 +88,25 @@
             "max_power_kw": "Die Nennleistung der Wallbox."
           },
           "sections": {
+            "roles": {
+              "name": "Entitätsrollen",
+              "data": {
+                "charge_power": "Ladeleistung",
+                "energy_total": "Gesamtenergiezähler",
+                "energy_session": "Sessionenergiezähler",
+                "plug_state": "Steckerzustand",
+                "identification": "Kennung",
+                "error": "Fehler"
+              },
+              "data_description": {
+                "charge_power": "Erforderlich. Leistung, die die Wallbox liefert.",
+                "energy_total": "Monoton steigender Gesamtzähler. Mindestens ein Energiezähler ist erforderlich.",
+                "energy_session": "Zähler, der bei jedem Ladevorgang zurückgesetzt wird. Mindestens ein Energiezähler ist erforderlich.",
+                "plug_state": "Erforderlich. Beliebige Zustandsentität; ihre Rohwerte werden im nächsten Schritt auf verbunden/nicht verbunden abgebildet.",
+                "identification": "Von der Wallbox gemeldete RFID- oder eMAID-Kennung, falls vorhanden.",
+                "error": "Ein binary_sensor mit device_class problem, oder eine beliebige Zustandsentität, deren Rohwerte in einem späteren Schritt auf ok/error abgebildet werden."
+              }
+            },
             "expert": {
               "name": "Expertenoptionen",
               "data": {
@@ -97,6 +137,25 @@
             "max_power_kw": "Die Nennleistung der Wallbox."
           },
           "sections": {
+            "roles": {
+              "name": "Entitätsrollen",
+              "data": {
+                "charge_power": "Ladeleistung",
+                "energy_total": "Gesamtenergiezähler",
+                "energy_session": "Sessionenergiezähler",
+                "plug_state": "Steckerzustand",
+                "identification": "Kennung",
+                "error": "Fehler"
+              },
+              "data_description": {
+                "charge_power": "Erforderlich. Leistung, die die Wallbox liefert.",
+                "energy_total": "Monoton steigender Gesamtzähler. Mindestens ein Energiezähler ist erforderlich.",
+                "energy_session": "Zähler, der bei jedem Ladevorgang zurückgesetzt wird. Mindestens ein Energiezähler ist erforderlich.",
+                "plug_state": "Erforderlich. Beliebige Zustandsentität; ihre Rohwerte werden im nächsten Schritt auf verbunden/nicht verbunden abgebildet.",
+                "identification": "Von der Wallbox gemeldete RFID- oder eMAID-Kennung, falls vorhanden.",
+                "error": "Ein binary_sensor mit device_class problem, oder eine beliebige Zustandsentität, deren Rohwerte in einem späteren Schritt auf ok/error abgebildet werden."
+              }
+            },
             "expert": {
               "name": "Expertenoptionen",
               "data": {
@@ -111,6 +170,14 @@
               }
             }
           }
+        },
+        "plug_state_mapping": {
+          "title": "Steckerzustand-Zuordnung",
+          "description": "Jeden von der Steckerzustand-Entität gemeldeten Rohwert einer Klasse zuordnen. Ein nicht zugeordneter Wert gilt bis zur Zuordnung als verbunden.\n\n{reference}"
+        },
+        "error_mapping": {
+          "title": "Fehler-Zuordnung",
+          "description": "Jeden von der Fehler-Entität gemeldeten Rohwert einer Klasse zuordnen. Ein nicht zugeordneter Wert gilt bis zur Zuordnung als ok.\n\n{reference}"
         }
       }
     },
@@ -126,12 +193,14 @@
       "error": {
         "capacity_required": "Die Batteriekapazität ist erforderlich, außer bei einem Gastfahrzeug.",
         "duplicate_card": "Eine Kennung ist doppelt eingetragen oder gehört bereits einem anderen aktiven Fahrzeug.",
-        "card_required": "Ein aktives Fahrzeug braucht mindestens eine Kennung.",
-        "invalid_card_uid": "Dieser Wert kann nie eine Kennung sein."
+        "identification_required": "Ein aktives Fahrzeug braucht mindestens eine Kennung oder die Identifikation über die Fahrzeugintegration.",
+        "invalid_card_uid": "Dieser Wert kann nie eine Kennung sein.",
+        "identify_by_vehicle_api_requires_roles": "Die Identifikation über die Fahrzeugintegration setzt voraus, dass die Rollen charge_state und location zugeordnet sind."
       },
       "step": {
         "user": {
           "title": "Fahrzeug anlegen",
+          "description": "Aktueller Wert der Kennungs-Entität der Wallbox: {identification_hint}. Manche Wallboxen melden nur das Ende der vollständigen, aufgedruckten Seriennummer; in dem Fall den fehlenden, vorangestellten Teil beim Anlegen einer Karte unten von Hand ergänzen. Der Abgleich prüft das Ende der hinterlegten Kennung.",
           "data": {
             "name": "Name",
             "active": "Aktiv",
@@ -141,6 +210,7 @@
             "model": "Modell",
             "capacity_kwh": "Batteriekapazität (kWh)",
             "cost_mode": "Kostenmodus",
+            "identify_by_vehicle_api": "Identifikation über die Fahrzeugintegration",
             "cards": "Freischalt-Referenz"
           },
           "data_description": {
@@ -151,11 +221,42 @@
             "model": "Erscheint im Geräteeintrag.",
             "capacity_kwh": "Erforderlich, außer bei einem Gastfahrzeug.",
             "cost_mode": "Auswahlmöglichkeit für vorgemerkte Abrechnungsfunktion, bei der Fahrzeuge mit festem Ladepreis berücksichtigt werden können. Auswahl hat keine direkte Auswirkung auf die Datenerfassung.",
-            "cards": "Die von der Wallbox übermittelte RFID- oder eMAID-Kennung, über die dieses Fahrzeug erkannt wird. Erforderlich, solange das Fahrzeug aktiv ist."
+            "identify_by_vehicle_api": "Nur wählbar, sobald die Rollen charge_state und location unten zugeordnet sind. Für Fahrzeuge, die ohne Kennung laden.",
+            "cards": "Die von der Wallbox übermittelte RFID- oder eMAID-Kennung, über die dieses Fahrzeug erkannt wird. Ein aktives Fahrzeug braucht mindestens eine Kennung oder identify_by_vehicle_api."
+          },
+          "sections": {
+            "roles": {
+              "name": "Entitätsrollen",
+              "data": {
+                "soc": "Ladezustand",
+                "soc_target": "Ziel-Ladezustand",
+                "odometer": "Kilometerstand",
+                "charge_state": "Ladezustand (Fahrzeug)",
+                "charge_type": "Ladeart",
+                "energy_session": "Sessionenergie",
+                "location": "Standort",
+                "charge_end": "Ladeende",
+                "charge_power": "Ladeleistung",
+                "range": "Reichweite"
+              },
+              "data_description": {
+                "soc": "Batterieladezustand in Prozent.",
+                "soc_target": "Ziel-Ladezustand in Prozent. Nur Anzeige.",
+                "odometer": "Kilometerstand.",
+                "charge_state": "Beliebige Zustandsentität; ihre Rohwerte werden in einem späteren Schritt den vier Ladezustandsklassen zugeordnet.",
+                "charge_type": "Beliebige Zustandsentität; ihre Rohwerte werden in einem späteren Schritt auf ac/dc abgebildet.",
+                "energy_session": "Vom Fahrzeug gemeldete Energie der laufenden Session.",
+                "location": "Ein device_tracker mit Koordinaten.",
+                "charge_end": "Voraussichtliches Ladeende, als Zeitstempel oder Zeichenkette.",
+                "charge_power": "Vom Fahrzeug gemeldete Ladeleistung. Nur Anzeige.",
+                "range": "Verbleibende Reichweite. Nur Anzeige."
+              }
+            }
           }
         },
         "reconfigure": {
           "title": "Fahrzeug bearbeiten",
+          "description": "Aktueller Wert der Kennungs-Entität der Wallbox: {identification_hint}. Manche Wallboxen melden nur das Ende der vollständigen, aufgedruckten Seriennummer; in dem Fall den fehlenden, vorangestellten Teil beim Anlegen einer Karte unten von Hand ergänzen. Der Abgleich prüft das Ende der hinterlegten Kennung.",
           "data": {
             "name": "Name",
             "active": "Aktiv",
@@ -165,6 +266,7 @@
             "model": "Modell",
             "capacity_kwh": "Batteriekapazität (kWh)",
             "cost_mode": "Kostenmodus",
+            "identify_by_vehicle_api": "Identifikation über die Fahrzeugintegration",
             "cards": "Freischalt-Referenz"
           },
           "data_description": {
@@ -175,8 +277,46 @@
             "model": "Erscheint im Geräteeintrag.",
             "capacity_kwh": "Erforderlich, außer bei einem Gastfahrzeug.",
             "cost_mode": "Auswahlmöglichkeit für vorgemerkte Abrechnungsfunktion, bei der Fahrzeuge mit festem Ladepreis berücksichtigt werden können. Auswahl hat keine direkte Auswirkung auf die Datenerfassung.",
-            "cards": "Die von der Wallbox übermittelte RFID- oder eMAID-Kennung, über die dieses Fahrzeug erkannt wird. Erforderlich, solange das Fahrzeug aktiv ist."
+            "identify_by_vehicle_api": "Nur wählbar, sobald die Rollen charge_state und location unten zugeordnet sind. Für Fahrzeuge, die ohne Kennung laden.",
+            "cards": "Die von der Wallbox übermittelte RFID- oder eMAID-Kennung, über die dieses Fahrzeug erkannt wird. Ein aktives Fahrzeug braucht mindestens eine Kennung oder identify_by_vehicle_api."
+          },
+          "sections": {
+            "roles": {
+              "name": "Entitätsrollen",
+              "data": {
+                "soc": "Ladezustand",
+                "soc_target": "Ziel-Ladezustand",
+                "odometer": "Kilometerstand",
+                "charge_state": "Ladezustand (Fahrzeug)",
+                "charge_type": "Ladeart",
+                "energy_session": "Sessionenergie",
+                "location": "Standort",
+                "charge_end": "Ladeende",
+                "charge_power": "Ladeleistung",
+                "range": "Reichweite"
+              },
+              "data_description": {
+                "soc": "Batterieladezustand in Prozent.",
+                "soc_target": "Ziel-Ladezustand in Prozent. Nur Anzeige.",
+                "odometer": "Kilometerstand.",
+                "charge_state": "Beliebige Zustandsentität; ihre Rohwerte werden in einem späteren Schritt den vier Ladezustandsklassen zugeordnet.",
+                "charge_type": "Beliebige Zustandsentität; ihre Rohwerte werden in einem späteren Schritt auf ac/dc abgebildet.",
+                "energy_session": "Vom Fahrzeug gemeldete Energie der laufenden Session.",
+                "location": "Ein device_tracker mit Koordinaten.",
+                "charge_end": "Voraussichtliches Ladeende, als Zeitstempel oder Zeichenkette.",
+                "charge_power": "Vom Fahrzeug gemeldete Ladeleistung. Nur Anzeige.",
+                "range": "Verbleibende Reichweite. Nur Anzeige."
+              }
+            }
           }
+        },
+        "charge_state_mapping": {
+          "title": "Ladezustand-Zuordnung",
+          "description": "Jeden Rohwert einer der vier Ladezustandsklassen zuordnen. Ein nicht zugeordneter Wert gilt bis zur Zuordnung als connected_idle.\n\n{reference}"
+        },
+        "charge_type_mapping": {
+          "title": "Ladeart-Zuordnung",
+          "description": "Jeden Rohwert, wo bekannt, ac oder dc zuordnen. Ein nicht zugeordneter Wert bleibt offen.\n\n{reference}"
         }
       }
     }
@@ -213,6 +353,52 @@
         "type": "Typ",
         "active": "Gültig (nicht gesperrt)"
       }
+    },
+    "state_mapping": {
+      "fields": {
+        "raw_value": "Rohwert",
+        "class": "Klasse"
+      }
+    },
+    "plug_state_class": {
+      "options": {
+        "connected": "Verbunden",
+        "not_connected": "Nicht verbunden",
+        "__unmapped__": "Noch nicht klassifiziert"
+      }
+    },
+    "error_class": {
+      "options": {
+        "ok": "OK",
+        "error": "Fehler",
+        "__unmapped__": "Noch nicht klassifiziert"
+      }
+    },
+    "charge_state_class": {
+      "options": {
+        "charging": "Lädt",
+        "connected_idle": "Verbunden, lädt nicht",
+        "disconnected": "Nicht verbunden",
+        "error": "Fehler",
+        "__unmapped__": "Noch nicht klassifiziert"
+      }
+    },
+    "charge_type_class": {
+      "options": {
+        "ac": "AC",
+        "dc": "DC",
+        "__unmapped__": "Noch nicht klassifiziert"
+      }
+    }
+  },
+  "issues": {
+    "role_entity_removed": {
+      "title": "Zugeordnete Entität entfernt",
+      "description": "Die der Rolle {role} von \"{subentry_title}\" zugeordnete Entität wurde aus der Entity Registry entfernt. Der Rolle eine neue Entität zuordnen."
+    },
+    "role_unit_changed": {
+      "title": "Einheit geändert",
+      "description": "Die der Rolle {role} von \"{subentry_title}\" zugeordnete Entität meldet jetzt eine andere Einheit als bei der Zuordnung. Die Rolle wird bis zur Klärung nicht gelesen. Im Dialog der Rolle die Entität erneut auswählen, um die neue Einheit zu bestätigen."
     }
   }
 }

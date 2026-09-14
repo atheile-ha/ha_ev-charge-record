@@ -16,7 +16,15 @@
           "geocoding_enabled": "Geocoding enabled",
           "geocoding_url": "Geocoding URL",
           "geocoding_contact": "Geocoding contact",
-          "estimate_uncertain_threshold_pct": "Uncertain estimate threshold (%)"
+          "estimate_uncertain_threshold_pct": "Uncertain estimate threshold (%)",
+          "grid_power": "Grid power",
+          "grid_power_inverted": "Grid power inverted",
+          "grid_import": "Grid import",
+          "grid_export": "Grid export",
+          "price_grid": "Grid price entity",
+          "price_grid_fixed": "Grid price (fixed)",
+          "price_feed_in": "Feed-in price entity",
+          "price_feed_in_fixed": "Feed-in price (fixed)"
         },
         "data_description": {
           "update_interval_s": "How often live entities publish. Between 15 and 300 seconds.",
@@ -24,14 +32,24 @@
           "geocoding_enabled": "Look up an address for external charging sessions from their coordinates.",
           "geocoding_url": "The geocoding service endpoint. Preset to Nominatim, freely changeable.",
           "geocoding_contact": "Sent as the contact in the User-Agent. Required while geocoding is enabled.",
-          "estimate_uncertain_threshold_pct": "Below this state-of-charge delta, an estimate counts as uncertain."
+          "estimate_uncertain_threshold_pct": "Below this state-of-charge delta, an estimate counts as uncertain.",
+          "grid_power": "Entity reporting the grid balance, positive on import. Alternative to grid import and grid export.",
+          "grid_power_inverted": "Enable if the entity reports import as a negative value.",
+          "grid_import": "Entity reporting grid import, always positive. Alternative to grid power.",
+          "grid_export": "Entity reporting grid export, always positive. Used together with grid import.",
+          "price_grid": "Entity reporting the grid price per kWh. Alternative to a fixed price.",
+          "price_grid_fixed": "Fixed grid price per kWh. Alternative to an entity.",
+          "price_feed_in": "Entity reporting the feed-in tariff per kWh. Alternative to a fixed price.",
+          "price_feed_in_fixed": "Fixed feed-in tariff per kWh. Alternative to an entity."
         }
       }
     },
     "error": {
       "update_interval_out_of_range": "Update interval must be between 15 and 300 seconds.",
       "geocoding_contact_required": "A contact is required while geocoding is enabled.",
-      "estimate_uncertain_threshold_out_of_range": "Must be greater than 0 and at most 100."
+      "estimate_uncertain_threshold_out_of_range": "Must be greater than 0 and at most 100.",
+      "grid_source_conflict": "Grid power and grid import/export are alternatives; set only one.",
+      "price_source_conflict": "Choose either an entity or a fixed value, not both."
     }
   },
   "config_subentries": {
@@ -49,7 +67,10 @@
         "start_debounce_out_of_range": "Start debounce must be between 0 and 30 seconds.",
         "identification_window_out_of_range": "Identification window must be between 0 and 300 seconds.",
         "must_be_positive": "Must be greater than zero.",
-        "must_not_be_negative": "Must not be negative."
+        "must_not_be_negative": "Must not be negative.",
+        "charge_power_required": "Charging power is required.",
+        "plug_state_required": "Plug state is required.",
+        "energy_counter_required": "At least one energy counter, total or session, is required."
       },
       "step": {
         "user": {
@@ -67,6 +88,25 @@
             "max_power_kw": "The wallbox's rated power."
           },
           "sections": {
+            "roles": {
+              "name": "Entity roles",
+              "data": {
+                "charge_power": "Charging power",
+                "energy_total": "Total energy counter",
+                "energy_session": "Session energy counter",
+                "plug_state": "Plug state",
+                "identification": "Identification",
+                "error": "Error"
+              },
+              "data_description": {
+                "charge_power": "Required. Power the wallbox delivers.",
+                "energy_total": "Monotonically increasing overall counter. At least one energy counter is required.",
+                "energy_session": "Counter that resets at the start of each charging session. At least one energy counter is required.",
+                "plug_state": "Required. Any state entity; its raw values are mapped to connected/not connected in the next step.",
+                "identification": "RFID or eMAID reported by the wallbox, if available.",
+                "error": "A binary_sensor with device class problem, or any state entity whose raw values are mapped to ok/error in a later step."
+              }
+            },
             "expert": {
               "name": "Expert options",
               "data": {
@@ -97,6 +137,25 @@
             "max_power_kw": "The wallbox's rated power."
           },
           "sections": {
+            "roles": {
+              "name": "Entity roles",
+              "data": {
+                "charge_power": "Charging power",
+                "energy_total": "Total energy counter",
+                "energy_session": "Session energy counter",
+                "plug_state": "Plug state",
+                "identification": "Identification",
+                "error": "Error"
+              },
+              "data_description": {
+                "charge_power": "Required. Power the wallbox delivers.",
+                "energy_total": "Monotonically increasing overall counter. At least one energy counter is required.",
+                "energy_session": "Counter that resets at the start of each charging session. At least one energy counter is required.",
+                "plug_state": "Required. Any state entity; its raw values are mapped to connected/not connected in the next step.",
+                "identification": "RFID or eMAID reported by the wallbox, if available.",
+                "error": "A binary_sensor with device class problem, or any state entity whose raw values are mapped to ok/error in a later step."
+              }
+            },
             "expert": {
               "name": "Expert options",
               "data": {
@@ -111,6 +170,14 @@
               }
             }
           }
+        },
+        "plug_state_mapping": {
+          "title": "Plug state mapping",
+          "description": "Assign each raw value reported by the plug state entity to a class. A value left unmapped defaults to connected until it is classified.\n\n{reference}"
+        },
+        "error_mapping": {
+          "title": "Error mapping",
+          "description": "Assign each raw value reported by the error entity to a class. A value left unmapped defaults to ok until it is classified.\n\n{reference}"
         }
       }
     },
@@ -126,12 +193,14 @@
       "error": {
         "capacity_required": "Battery capacity is required unless this is a guest vehicle.",
         "duplicate_card": "A card identifier is entered twice, or already belongs to another active vehicle.",
-        "card_required": "An active vehicle needs at least one card.",
-        "invalid_card_uid": "This value can never be a card identifier."
+        "identification_required": "An active vehicle needs at least one card or identification via the vehicle's own integration.",
+        "invalid_card_uid": "This value can never be a card identifier.",
+        "identify_by_vehicle_api_requires_roles": "Identification via the vehicle's own integration requires the charge_state and location roles to be assigned."
       },
       "step": {
         "user": {
           "title": "Add vehicle",
+          "description": "Current value reported by the wallbox's identification entity: {identification_hint}. Some wallboxes report only the end of the full serial number printed on the card; if so, prepend the missing leading part by hand when entering a card below. Matching happens against the end of the stored value.",
           "data": {
             "name": "Name",
             "active": "Active",
@@ -141,6 +210,7 @@
             "model": "Model",
             "capacity_kwh": "Battery capacity (kWh)",
             "cost_mode": "Cost mode",
+            "identify_by_vehicle_api": "Identify via the vehicle's own integration",
             "cards": "Authorization reference"
           },
           "data_description": {
@@ -151,11 +221,42 @@
             "model": "Shown in the device entry.",
             "capacity_kwh": "Required unless this is a guest vehicle.",
             "cost_mode": "Selectable for a planned billing feature that can take a fixed charging price per vehicle into account. The choice has no direct effect on data collection.",
-            "cards": "The RFID or eMAID identifier the wallbox reports, used to recognize this vehicle. Required while the vehicle is active."
+            "identify_by_vehicle_api": "Only selectable once the charge_state and location roles below are assigned. Used when the vehicle charges without presenting a card.",
+            "cards": "The RFID or eMAID identifier the wallbox reports, used to recognize this vehicle. An active vehicle needs at least one card or identify_by_vehicle_api."
+          },
+          "sections": {
+            "roles": {
+              "name": "Entity roles",
+              "data": {
+                "soc": "State of charge",
+                "soc_target": "Target state of charge",
+                "odometer": "Odometer",
+                "charge_state": "Charge state",
+                "charge_type": "Charge type",
+                "energy_session": "Session energy",
+                "location": "Location",
+                "charge_end": "Charge end",
+                "charge_power": "Charging power",
+                "range": "Range"
+              },
+              "data_description": {
+                "soc": "Battery state of charge, in percent.",
+                "soc_target": "Target state of charge, in percent. Display only.",
+                "odometer": "Odometer reading.",
+                "charge_state": "Any state entity; its raw values are mapped to the four charge state classes in a later step.",
+                "charge_type": "Any state entity; its raw values are mapped to ac/dc in a later step.",
+                "energy_session": "Energy reported by the vehicle for the current session.",
+                "location": "A device_tracker with coordinates.",
+                "charge_end": "Estimated charge end, as a timestamp or a string.",
+                "charge_power": "Charging power reported by the vehicle. Display only.",
+                "range": "Remaining range. Display only."
+              }
+            }
           }
         },
         "reconfigure": {
           "title": "Edit vehicle",
+          "description": "Current value reported by the wallbox's identification entity: {identification_hint}. Some wallboxes report only the end of the full serial number printed on the card; if so, prepend the missing leading part by hand when entering a card below. Matching happens against the end of the stored value.",
           "data": {
             "name": "Name",
             "active": "Active",
@@ -165,6 +266,7 @@
             "model": "Model",
             "capacity_kwh": "Battery capacity (kWh)",
             "cost_mode": "Cost mode",
+            "identify_by_vehicle_api": "Identify via the vehicle's own integration",
             "cards": "Authorization reference"
           },
           "data_description": {
@@ -175,8 +277,46 @@
             "model": "Shown in the device entry.",
             "capacity_kwh": "Required unless this is a guest vehicle.",
             "cost_mode": "Selectable for a planned billing feature that can take a fixed charging price per vehicle into account. The choice has no direct effect on data collection.",
-            "cards": "The RFID or eMAID identifier the wallbox reports, used to recognize this vehicle. Required while the vehicle is active."
+            "identify_by_vehicle_api": "Only selectable once the charge_state and location roles below are assigned. Used when the vehicle charges without presenting a card.",
+            "cards": "The RFID or eMAID identifier the wallbox reports, used to recognize this vehicle. An active vehicle needs at least one card or identify_by_vehicle_api."
+          },
+          "sections": {
+            "roles": {
+              "name": "Entity roles",
+              "data": {
+                "soc": "State of charge",
+                "soc_target": "Target state of charge",
+                "odometer": "Odometer",
+                "charge_state": "Charge state",
+                "charge_type": "Charge type",
+                "energy_session": "Session energy",
+                "location": "Location",
+                "charge_end": "Charge end",
+                "charge_power": "Charging power",
+                "range": "Range"
+              },
+              "data_description": {
+                "soc": "Battery state of charge, in percent.",
+                "soc_target": "Target state of charge, in percent. Display only.",
+                "odometer": "Odometer reading.",
+                "charge_state": "Any state entity; its raw values are mapped to the four charge state classes in a later step.",
+                "charge_type": "Any state entity; its raw values are mapped to ac/dc in a later step.",
+                "energy_session": "Energy reported by the vehicle for the current session.",
+                "location": "A device_tracker with coordinates.",
+                "charge_end": "Estimated charge end, as a timestamp or a string.",
+                "charge_power": "Charging power reported by the vehicle. Display only.",
+                "range": "Remaining range. Display only."
+              }
+            }
           }
+        },
+        "charge_state_mapping": {
+          "title": "Charge state mapping",
+          "description": "Assign each raw value to one of the four charge state classes. A value left unmapped defaults to connected_idle until it is classified.\n\n{reference}"
+        },
+        "charge_type_mapping": {
+          "title": "Charge type mapping",
+          "description": "Assign each raw value to ac or dc, where known. A value left unmapped stays undetermined.\n\n{reference}"
         }
       }
     }
@@ -213,6 +353,52 @@
         "type": "Type",
         "active": "Valid (not locked)"
       }
+    },
+    "state_mapping": {
+      "fields": {
+        "raw_value": "Raw value",
+        "class": "Class"
+      }
+    },
+    "plug_state_class": {
+      "options": {
+        "connected": "Connected",
+        "not_connected": "Not connected",
+        "__unmapped__": "Not yet classified"
+      }
+    },
+    "error_class": {
+      "options": {
+        "ok": "OK",
+        "error": "Error",
+        "__unmapped__": "Not yet classified"
+      }
+    },
+    "charge_state_class": {
+      "options": {
+        "charging": "Charging",
+        "connected_idle": "Connected, idle",
+        "disconnected": "Disconnected",
+        "error": "Error",
+        "__unmapped__": "Not yet classified"
+      }
+    },
+    "charge_type_class": {
+      "options": {
+        "ac": "AC",
+        "dc": "DC",
+        "__unmapped__": "Not yet classified"
+      }
+    }
+  },
+  "issues": {
+    "role_entity_removed": {
+      "title": "Assigned entity removed",
+      "description": "The entity assigned to the {role} role of \"{subentry_title}\" was removed from the entity registry. Assign a new entity to this role."
+    },
+    "role_unit_changed": {
+      "title": "Unit changed",
+      "description": "The entity assigned to the {role} role of \"{subentry_title}\" now reports a different unit than when it was assigned. The role is not read until this is resolved. Open the role's dialog and re-select the entity to confirm the new unit."
     }
   }
 }

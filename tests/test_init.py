@@ -1,13 +1,17 @@
 """Tests for setting up, unloading and removing the ev_charging config entry."""
 
+from custom_components.ev_charging import problems
 from custom_components.ev_charging.const import (
     DOMAIN,
     SUBENTRY_TYPE_VEHICLE,
     SUBENTRY_TYPE_WALLBOX,
     TITLE,
 )
+from custom_components.ev_charging.models import EntityRole, Wallbox
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 CURRENT_DATA = {
@@ -19,13 +23,21 @@ CURRENT_DATA = {
     "geocoding_url": "https://nominatim.openstreetmap.org/reverse",
     "geocoding_contact": None,
     "estimate_uncertain_threshold_pct": 5,
+    "grid_power": None,
+    "grid_power_inverted": False,
+    "grid_import": None,
+    "grid_export": None,
+    "price_grid": None,
+    "price_grid_fixed": None,
+    "price_feed_in": None,
+    "price_feed_in_fixed": None,
 }
 
 
 async def test_setup_and_unload_entry(hass: HomeAssistant) -> None:
     """The config entry loads and unloads again."""
     entry = MockConfigEntry(
-        domain=DOMAIN, title=TITLE, data=CURRENT_DATA, version=2, minor_version=1
+        domain=DOMAIN, title=TITLE, data=CURRENT_DATA, version=3, minor_version=1
     )
     entry.add_to_hass(hass)
 
@@ -41,7 +53,7 @@ async def test_setup_and_unload_entry(hass: HomeAssistant) -> None:
 async def test_remove_entry(hass: HomeAssistant) -> None:
     """Removing the config entry leaves nothing behind."""
     entry = MockConfigEntry(
-        domain=DOMAIN, title=TITLE, data=CURRENT_DATA, version=2, minor_version=1
+        domain=DOMAIN, title=TITLE, data=CURRENT_DATA, version=3, minor_version=1
     )
     entry.add_to_hass(hass)
 
@@ -63,8 +75,30 @@ async def test_migrate_entry_adds_hub_settings(hass: HomeAssistant) -> None:
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert entry.version == 2
+    assert entry.version == 3
     assert entry.minor_version == 1
+    assert entry.data == CURRENT_DATA
+
+
+async def test_migrate_entry_v2_adds_grid_and_price_roles(hass: HomeAssistant) -> None:
+    """An entry from before entity roles existed gains the new role fields."""
+    old_data = {
+        "wallbox_seq": 0,
+        "vehicle_seq": 0,
+        "update_interval_s": 30,
+        "solar_valuation": "feed_in_tariff",
+        "geocoding_enabled": True,
+        "geocoding_url": "https://nominatim.openstreetmap.org/reverse",
+        "geocoding_contact": None,
+        "estimate_uncertain_threshold_pct": 5,
+    }
+    entry = MockConfigEntry(domain=DOMAIN, title=TITLE, data=old_data, version=2, minor_version=1)
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.version == 3
     assert entry.data == CURRENT_DATA
 
 
@@ -145,10 +179,100 @@ async def test_migrate_entry_updates_vehicle_subentry(hass: HomeAssistant) -> No
     assert subentry.data["cards"][0]["type"] == "rfid"
 
 
+def _wallbox_subentry_data(*, charge_power: EntityRole) -> dict:
+    return Wallbox(
+        id="wb001",
+        name="Carport",
+        current_type="ac",
+        max_power_kw=11.0,
+        charge_power=charge_power,
+        plug_state=EntityRole(entity_id="sensor.wallbox_plug_state"),
+        energy_total=EntityRole(entity_id="sensor.wallbox_energy_total", unit="kWh"),
+    ).to_dict()
+
+
+async def test_removed_role_entity_creates_repair_issue(hass: HomeAssistant) -> None:
+    """Removing a role's registered entity creates a repair issue on setup."""
+    registry = er.async_get(hass)
+    entity_entry = registry.async_get_or_create("sensor", "test", "wallbox_power_unique")
+    hass.states.async_set(entity_entry.entity_id, "1.5", {"unit_of_measurement": "kW"})
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title=TITLE,
+        data=CURRENT_DATA,
+        version=3,
+        minor_version=1,
+        subentries_data=[
+            {
+                "data": _wallbox_subentry_data(
+                    charge_power=EntityRole(
+                        entity_id=entity_entry.entity_id,
+                        registry_entry_id=entity_entry.id,
+                        unit="kW",
+                    )
+                ),
+                "subentry_type": SUBENTRY_TYPE_WALLBOX,
+                "title": "Carport",
+                "unique_id": None,
+            }
+        ],
+    )
+    entry.add_to_hass(hass)
+    subentry = next(iter(entry.subentries.values()))
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    registry.async_remove(entity_entry.entity_id)
+    await hass.async_block_till_done()
+
+    issue_id = problems.role_removed_issue_id(subentry.subentry_id, "charge_power")
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
+
+
+async def test_unit_change_creates_repair_issue_on_setup(hass: HomeAssistant) -> None:
+    """A role whose live unit no longer matches the recorded one is flagged on setup."""
+    registry = er.async_get(hass)
+    entity_entry = registry.async_get_or_create("sensor", "test", "wallbox_power_unique2")
+    # The entity now reports W, but the role was assigned while it reported kW.
+    hass.states.async_set(entity_entry.entity_id, "1500", {"unit_of_measurement": "W"})
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title=TITLE,
+        data=CURRENT_DATA,
+        version=3,
+        minor_version=1,
+        subentries_data=[
+            {
+                "data": _wallbox_subentry_data(
+                    charge_power=EntityRole(
+                        entity_id=entity_entry.entity_id,
+                        registry_entry_id=entity_entry.id,
+                        unit="kW",
+                    )
+                ),
+                "subentry_type": SUBENTRY_TYPE_WALLBOX,
+                "title": "Carport",
+                "unique_id": None,
+            }
+        ],
+    )
+    entry.add_to_hass(hass)
+    subentry = next(iter(entry.subentries.values()))
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    issue_id = problems.role_unit_changed_issue_id(subentry.subentry_id, "charge_power")
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
+
+
 async def test_setup_creates_no_entities(hass: HomeAssistant) -> None:
     """This stage has no platforms, so no entities appear."""
     entry = MockConfigEntry(
-        domain=DOMAIN, title=TITLE, data=CURRENT_DATA, version=2, minor_version=1
+        domain=DOMAIN, title=TITLE, data=CURRENT_DATA, version=3, minor_version=1
     )
     entry.add_to_hass(hass)
 

@@ -22,6 +22,13 @@ Die Integration führt keine Steuerung aus.
 
 Herstellerunabhängig. Die Zuordnung erfolgt über normalisierte Rollen bei der Einrichtung.
 
+## Kennungen (RFID/eMAID)
+
+Beim Fahrzeug wird stets die vollständige, aufgedruckte Seriennummer hinterlegt. Meldet die Wallbox nur einen
+Ausschnitt, wie die KEBA P40 mit den letzten vier Bytes der Seriennummer, prüft der Abgleich zur Laufzeit, ob
+der gemeldete Ausschnitt das Ende der hinterlegten Kennung bildet. Ein fehlender vorangestellter Teil ist beim
+Anlegen der Kennung von Hand zu ergänzen.
+
 ## Installation
 
 HACS, benutzerdefiniertes Repository, Kategorie Integration. Anschließend unter Geräte und Dienste hinzufügen.

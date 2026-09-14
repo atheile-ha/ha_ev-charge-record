@@ -72,3 +72,73 @@ IDENTIFICATION_MAX_AGE_MIN = 5
 FINAL_VALUES_GRACE_S = 2
 ERROR_DEBOUNCE_S = 5
 SESSION_TIMEOUT_H = 12
+
+# Wallbox plug state classes (5.1, 4.7). Whether the wallbox is plugged in
+# and locked with the vehicle, as opposed to any other connector state.
+PLUG_STATE_CONNECTED = "connected"
+PLUG_STATE_NOT_CONNECTED = "not_connected"
+PLUG_STATE_CLASSES = (PLUG_STATE_CONNECTED, PLUG_STATE_NOT_CONNECTED)
+
+# error role classes, shared by the wallbox and vehicle error mapping (E29).
+ERROR_CLASS_OK = "ok"
+ERROR_CLASS_ERROR = "error"
+ERROR_CLASSES = (ERROR_CLASS_OK, ERROR_CLASS_ERROR)
+
+# Vehicle charge state classes (4.7). Never evaluated two-valued.
+CHARGE_STATE_CHARGING = "charging"
+CHARGE_STATE_CONNECTED_IDLE = "connected_idle"
+CHARGE_STATE_DISCONNECTED = "disconnected"
+CHARGE_STATE_ERROR = "error"
+CHARGE_STATE_CLASSES = (
+    CHARGE_STATE_CHARGING,
+    CHARGE_STATE_CONNECTED_IDLE,
+    CHARGE_STATE_DISCONNECTED,
+    CHARGE_STATE_ERROR,
+)
+# An unmapped charge state value falls back to this class (I15).
+CHARGE_STATE_DEFAULT = CHARGE_STATE_CONNECTED_IDLE
+
+CHARGE_TYPES = CURRENT_TYPES
+
+# Wallbox entity roles (5.1).
+ROLE_CHARGE_POWER = "charge_power"
+ROLE_ENERGY_TOTAL = "energy_total"
+ROLE_ENERGY_SESSION = "energy_session"
+ROLE_PLUG_STATE = "plug_state"
+ROLE_IDENTIFICATION = "identification"
+ROLE_ERROR = "error"
+
+# Vehicle entity roles (5.2).
+ROLE_SOC = "soc"
+ROLE_SOC_TARGET = "soc_target"
+ROLE_ODOMETER = "odometer"
+ROLE_CHARGE_STATE = "charge_state"
+ROLE_CHARGE_TYPE = "charge_type"
+ROLE_LOCATION = "location"
+ROLE_CHARGE_END = "charge_end"
+ROLE_RANGE = "range"
+
+# Hub entity roles (4.2).
+ROLE_GRID_POWER = "grid_power"
+ROLE_GRID_IMPORT = "grid_import"
+ROLE_GRID_EXPORT = "grid_export"
+ROLE_PRICE_GRID = "price_grid"
+ROLE_PRICE_FEED_IN = "price_feed_in"
+
+# Recognized units, normalized to the given canonical unit (5.3). No other
+# unit is accepted; an unrecognized unit is treated as unresolvable rather
+# than guessed at.
+POWER_UNIT_FACTORS_TO_KW = {"kW": 1.0, "W": 0.001, "MW": 1000.0}
+ENERGY_UNIT_FACTORS_TO_KWH = {"kWh": 1.0, "Wh": 0.001, "MWh": 1000.0}
+DISTANCE_UNIT_FACTORS_TO_KM = {"km": 1.0, "m": 0.001, "mi": 1.609344}
+
+RECORDER_STATE_LOOKBACK_DAYS = 90
+
+# Sentinel selectable in a mapping step's class field, for a raw value that is
+# not yet assigned a class. Rows left at this value are not stored; the
+# value falls back to its runtime default until it is mapped explicitly.
+MAPPING_UNMAPPED = "__unmapped__"
+
+# Repair issue translation keys (12.3).
+ISSUE_ROLE_ENTITY_REMOVED = "role_entity_removed"
+ISSUE_ROLE_UNIT_CHANGED = "role_unit_changed"

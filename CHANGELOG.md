@@ -4,6 +4,26 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.2.0] - 2026-09-14
+
+### Hinzugefügt
+
+- Entitätsrollen für Wallbox, Fahrzeug und Hauptentry, zuordenbar über den Config Flow: Ladeleistung, Energiezähler, Steckerzustand, Kennung und Fehler an der Wallbox; Ladezustand, Ladeart, Ladestand, Kilometerstand, Standort, Ladeende, Reichweite und Sessionenergie am Fahrzeug; Netzsaldo, Netzbezug, Netzeinspeisung sowie Netz- und Einspeisepreis am Hauptentry
+- Zustandsmapping für Steckerzustand, Fehler, Ladezustand und Ladeart: Voreinstellung aus mitgelieferten Presets, Ergänzung um die über den Recorder real aufgetretenen Werte, freie Eingabe
+- Presets für die OpenEMS-Anbindung der KEBA P40 und für Mercedes Me
+- Fehlerrolle der Wallbox akzeptiert einen `binary_sensor` mit `device_class: problem` oder eine beliebige Zustandsentität mit eigenem Mapping
+- Auflösung von Entitätsrollen über die Entity-Registry-Eintrags-ID, mit Rückfall auf die `entity_id` für Entitäten ohne Registry-Eintrag
+- Repair Issue bei entfernter Rollenentität und bei geänderter Einheit
+- Schalter „Identifikation über die Fahrzeugintegration“ am Fahrzeug, wählbar bei zugeordnetem Ladezustand und Standort
+- Hinweis im Fahrzeugdialog auf den aktuell von der Wallbox gemeldeten Kennungswert
+- Abschnitt zu Kennungen in der README
+
+### Geändert
+
+- Ein aktives Fahrzeug benötigt mindestens eine Karte oder die Identifikation über die Fahrzeugintegration
+- Kartentyp-Auswahl im Fahrzeugdialog verwendet feste Beschriftungen „RFID“ und „EMAID“
+- Schemaversion des Config Entrys und der Subentries auf 3 angehoben, bestehende Einträge werden migriert
+
 ## [0.1.5] - 2026-09-14
 
 ### Hinzugefügt
