@@ -137,7 +137,9 @@ RECORDER_STATE_LOOKBACK_DAYS = 90
 # Sentinel selectable in a mapping step's class field, for a raw value that is
 # not yet assigned a class. Rows left at this value are not stored; the
 # value falls back to its runtime default until it is mapped explicitly.
-MAPPING_UNMAPPED = "__unmapped__"
+# Used as a selector translation key, so it must match [a-z0-9-_]+ without a
+# leading or trailing hyphen or underscore.
+MAPPING_UNMAPPED = "unmapped"
 
 # Repair issue translation keys (12.3).
 ISSUE_ROLE_ENTITY_REMOVED = "role_entity_removed"

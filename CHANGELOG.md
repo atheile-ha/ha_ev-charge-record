@@ -4,6 +4,13 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.2.1] - 2026-09-14
+
+### Behoben
+
+- `recorder` als `after_dependencies` im Manifest eingetragen
+- Auswahlwert „noch nicht klassifiziert“ in den Zuordnungsschritten auf einen gültigen Übersetzungsschlüssel umbenannt
+
 ## [0.2.0] - 2026-09-14
 
 ### Hinzugefügt

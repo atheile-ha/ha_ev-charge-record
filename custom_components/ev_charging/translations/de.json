@@ -364,14 +364,14 @@
       "options": {
         "connected": "Verbunden",
         "not_connected": "Nicht verbunden",
-        "__unmapped__": "Noch nicht klassifiziert"
+        "unmapped": "Noch nicht klassifiziert"
       }
     },
     "error_class": {
       "options": {
         "ok": "OK",
         "error": "Fehler",
-        "__unmapped__": "Noch nicht klassifiziert"
+        "unmapped": "Noch nicht klassifiziert"
       }
     },
     "charge_state_class": {
@@ -380,14 +380,14 @@
         "connected_idle": "Verbunden, lädt nicht",
         "disconnected": "Nicht verbunden",
         "error": "Fehler",
-        "__unmapped__": "Noch nicht klassifiziert"
+        "unmapped": "Noch nicht klassifiziert"
       }
     },
     "charge_type_class": {
       "options": {
         "ac": "AC",
         "dc": "DC",
-        "__unmapped__": "Noch nicht klassifiziert"
+        "unmapped": "Noch nicht klassifiziert"
       }
     }
   },

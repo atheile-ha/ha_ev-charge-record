@@ -1,6 +1,7 @@
 {
   "domain": "ev_charging",
   "name": "EV Charging",
+  "after_dependencies": ["recorder"],
   "codeowners": ["@atheile-ha"],
   "config_flow": true,
   "documentation": "https://github.com/atheile-ha/ha_ev-charge-record",
@@ -9,5 +10,5 @@
   "issue_tracker": "https://github.com/atheile-ha/ha_ev-charge-record/issues",
   "loggers": ["custom_components.ev_charging"],
   "single_config_entry": true,
-  "version": "0.2.0"
+  "version": "0.2.1"
 }
