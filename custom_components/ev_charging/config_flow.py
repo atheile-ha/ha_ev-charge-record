@@ -176,6 +176,8 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
         if user_input is not None:
             expert = user_input.pop("expert")
             user_input.update(expert)
+            user_input["manufacturer"] = user_input.get("manufacturer") or None
+            user_input["model"] = user_input.get("model") or None
             errors = self._validate(user_input)
             if not errors:
                 if subentry:
@@ -218,6 +220,11 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
         return vol.Schema(
             {
                 vol.Required("name", default=d.name if d else vol.UNDEFINED): str,
+                vol.Optional(
+                    "manufacturer",
+                    description={"suggested_value": d.manufacturer if d else None},
+                ): str,
+                vol.Optional("model", description={"suggested_value": d.model if d else None}): str,
                 vol.Required(
                     "current_type", default=d.current_type if d else CURRENT_TYPE_AC
                 ): SelectSelector(

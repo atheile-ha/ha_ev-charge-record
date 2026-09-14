@@ -59,6 +59,8 @@ class Wallbox:
     name: str
     current_type: str
     max_power_kw: float
+    manufacturer: str | None = None
+    model: str | None = None
     power_threshold_kw: float = DEFAULT_POWER_THRESHOLD_KW
     start_debounce_s: int = DEFAULT_START_DEBOUNCE_S
     identification_window_s: int = DEFAULT_IDENTIFICATION_WINDOW_S
@@ -70,6 +72,8 @@ class Wallbox:
             "name": self.name,
             "current_type": self.current_type,
             "max_power_kw": self.max_power_kw,
+            "manufacturer": self.manufacturer,
+            "model": self.model,
             "power_threshold_kw": self.power_threshold_kw,
             "start_debounce_s": self.start_debounce_s,
             "identification_window_s": self.identification_window_s,
@@ -83,6 +87,8 @@ class Wallbox:
             name=data["name"],
             current_type=data["current_type"],
             max_power_kw=data["max_power_kw"],
+            manufacturer=data.get("manufacturer"),
+            model=data.get("model"),
             power_threshold_kw=data.get("power_threshold_kw", DEFAULT_POWER_THRESHOLD_KW),
             start_debounce_s=data.get("start_debounce_s", DEFAULT_START_DEBOUNCE_S),
             identification_window_s=data.get(

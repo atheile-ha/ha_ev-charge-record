@@ -4,20 +4,25 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
-## [0.1.4] - 2026-09-14
+## [0.1.5] - 2026-09-14
 
 ### Hinzugefügt
 
 - Globale Einstellungen am Hauptentry: Veröffentlichungsintervall, Sonnenbewertung, Geocoding-Aktivierung, Geocoding-URL, Geocoding-Kontaktangabe, Schwelle für unsichere Schätzung. Bearbeitbar über „Neu konfigurieren“
 - Erkennungsfenster im Wallbox-Dialog
-- Hersteller und Modell im Fahrzeugdialog
+- Hersteller und Modell im Wallbox- und im Fahrzeugdialog
 - Kartentyp (RFID oder eMAID) je Karteneintrag
 - Ablehnung der Werte `0`, `unknown`, `unavailable` und der leeren Zeichenkette als Kartenkennung
 
 ### Geändert
 
-- Startentprellung der Wallbox: Standardwert 2 Sekunden, Bereich 0 bis 30 Sekunden
-- Kostenmodus am Fahrzeug ist vorgemerkt und wirkt sich nicht auf die Erfassung aus
+- Startentprellung der Wallbox: Standardwert 2 Sekunden, Bereich 0 bis 30 Sekunden, umbenannt in „Entprellzeit Sessionsstart“
+- Erklärungstext des Erkennungsfensters präzisiert
+- Erklärungstext des Gastfahrzeug-Felds präzisiert
+- Kostenmodus am Fahrzeug ist vorgemerkt und wirkt sich nicht auf die Erfassung aus, Erklärungstext direkt am Feld
+- Beschriftung „Dynamisch“ beim Kostenmodus präzisiert
+- Kartentyp-Auswahl zeigt „RFID“ und „EMAID“ in Großschreibung
+- Feld „Kennung“ der Freischalt-Referenz umbenannt in „Kennung / Seriennummer“
 - Schemaversion des Config Entrys und der Subentries auf 2 angehoben, bestehende Einträge werden migriert
 
 ### Entfernt

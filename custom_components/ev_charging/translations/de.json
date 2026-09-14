@@ -56,10 +56,14 @@
           "title": "Wallbox anlegen",
           "data": {
             "name": "Name",
+            "manufacturer": "Hersteller",
+            "model": "Modell",
             "current_type": "Stromart",
             "max_power_kw": "Maximale Leistung (kW)"
           },
           "data_description": {
+            "manufacturer": "Erscheint im Geräteeintrag.",
+            "model": "Erscheint im Geräteeintrag.",
             "max_power_kw": "Die Nennleistung der Wallbox."
           },
           "sections": {
@@ -67,13 +71,13 @@
               "name": "Expertenoptionen",
               "data": {
                 "power_threshold_kw": "Leistungsschwelle (kW)",
-                "start_debounce_s": "Startentprellung (s)",
+                "start_debounce_s": "Entprellzeit Sessionsstart (s)",
                 "identification_window_s": "Erkennungsfenster (s)"
               },
               "data_description": {
                 "power_threshold_kw": "Leistung, oberhalb der ein Sessionkandidat beginnt.",
                 "start_debounce_s": "Wie lange die Leistungsschwelle überschritten bleiben muss, bevor die Session bestätigt wird.",
-                "identification_window_s": "Wartezeit nach Sessionbeginn, bevor entschieden wird, welches Fahrzeug lädt."
+                "identification_window_s": "Wartezeit nach Sessionbeginn, bevor anhand der Fahrzeugentitäten das ladende Fahrzeug identifiziert wird. Relevant, wenn keine Erkennung über RFID oder eMAID möglich ist und die Aktualisierung der Entitäten verzögert stattfindet."
               }
             }
           }
@@ -82,10 +86,14 @@
           "title": "Wallbox bearbeiten",
           "data": {
             "name": "Name",
+            "manufacturer": "Hersteller",
+            "model": "Modell",
             "current_type": "Stromart",
             "max_power_kw": "Maximale Leistung (kW)"
           },
           "data_description": {
+            "manufacturer": "Erscheint im Geräteeintrag.",
+            "model": "Erscheint im Geräteeintrag.",
             "max_power_kw": "Die Nennleistung der Wallbox."
           },
           "sections": {
@@ -93,13 +101,13 @@
               "name": "Expertenoptionen",
               "data": {
                 "power_threshold_kw": "Leistungsschwelle (kW)",
-                "start_debounce_s": "Startentprellung (s)",
+                "start_debounce_s": "Entprellzeit Sessionsstart (s)",
                 "identification_window_s": "Erkennungsfenster (s)"
               },
               "data_description": {
                 "power_threshold_kw": "Leistung, oberhalb der ein Sessionkandidat beginnt.",
                 "start_debounce_s": "Wie lange die Leistungsschwelle überschritten bleiben muss, bevor die Session bestätigt wird.",
-                "identification_window_s": "Wartezeit nach Sessionbeginn, bevor entschieden wird, welches Fahrzeug lädt."
+                "identification_window_s": "Wartezeit nach Sessionbeginn, bevor anhand der Fahrzeugentitäten das ladende Fahrzeug identifiziert wird. Relevant, wenn keine Erkennung über RFID oder eMAID möglich ist und die Aktualisierung der Entitäten verzögert stattfindet."
               }
             }
           }
@@ -137,12 +145,12 @@
           },
           "data_description": {
             "active": "Inaktive Fahrzeuge behalten ihre Historie, ihre Entitäten werden deaktiviert. Ihre Freischalt-Referenzen werden entfernt; bei erneuter Aktivierung muss mindestens eine neu vergeben werden.",
-            "is_guest": "Ein gemeinsam genutztes Fahrzeug ohne Telemetrie.",
+            "is_guest": "Erfassung von Ladevorgängen für Fahrzeuge ohne eingebundene Telemetriedaten.",
             "vin": "Erscheint in keinem Zustand und keinem Protokolleintrag.",
             "manufacturer": "Erscheint im Geräteeintrag.",
             "model": "Erscheint im Geräteeintrag.",
             "capacity_kwh": "Erforderlich, außer bei einem Gastfahrzeug.",
-            "cost_mode": "Vorgemerkt für eine spätere Abrechnungsfunktion. Hat keine Wirkung auf die Erfassung.",
+            "cost_mode": "Auswahlmöglichkeit für vorgemerkte Abrechnungsfunktion, bei der Fahrzeuge mit festem Ladepreis berücksichtigt werden können. Auswahl hat keine direkte Auswirkung auf die Datenerfassung.",
             "cards": "Die von der Wallbox übermittelte RFID- oder eMAID-Kennung, über die dieses Fahrzeug erkannt wird. Erforderlich, solange das Fahrzeug aktiv ist."
           }
         },
@@ -161,12 +169,12 @@
           },
           "data_description": {
             "active": "Inaktive Fahrzeuge behalten ihre Historie, ihre Entitäten werden deaktiviert. Ihre Freischalt-Referenzen werden entfernt; bei erneuter Aktivierung muss mindestens eine neu vergeben werden.",
-            "is_guest": "Ein gemeinsam genutztes Fahrzeug ohne Telemetrie.",
+            "is_guest": "Erfassung von Ladevorgängen für Fahrzeuge ohne eingebundene Telemetriedaten.",
             "vin": "Erscheint in keinem Zustand und keinem Protokolleintrag.",
             "manufacturer": "Erscheint im Geräteeintrag.",
             "model": "Erscheint im Geräteeintrag.",
             "capacity_kwh": "Erforderlich, außer bei einem Gastfahrzeug.",
-            "cost_mode": "Vorgemerkt für eine spätere Abrechnungsfunktion. Hat keine Wirkung auf die Erfassung.",
+            "cost_mode": "Auswahlmöglichkeit für vorgemerkte Abrechnungsfunktion, bei der Fahrzeuge mit festem Ladepreis berücksichtigt werden können. Auswahl hat keine direkte Auswirkung auf die Datenerfassung.",
             "cards": "Die von der Wallbox übermittelte RFID- oder eMAID-Kennung, über die dieses Fahrzeug erkannt wird. Erforderlich, solange das Fahrzeug aktiv ist."
           }
         }
@@ -183,7 +191,7 @@
     "cost_mode": {
       "options": {
         "static": "Fester Preis",
-        "dynamic": "Dynamisch (Netz und Sonne getrennt bewertet)"
+        "dynamic": "Dynamisch (getrennte Berücksichtigung von Anteil Sonnen- und Netzstrom)"
       }
     },
     "solar_valuation": {
@@ -195,12 +203,12 @@
     "card_type": {
       "options": {
         "rfid": "RFID",
-        "emaid": "eMAID"
+        "emaid": "EMAID"
       }
     },
     "cards": {
       "fields": {
-        "uid": "Kennung",
+        "uid": "Kennung / Seriennummer",
         "label": "Bezeichnung",
         "type": "Typ",
         "active": "Gültig (nicht gesperrt)"

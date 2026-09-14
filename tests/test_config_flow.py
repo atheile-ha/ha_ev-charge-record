@@ -149,6 +149,16 @@ async def test_second_wallbox_is_rejected(hass: HomeAssistant) -> None:
     assert result["reason"] == "single_wallbox_allowed"
 
 
+async def test_wallbox_manufacturer_and_model_are_stored(hass: HomeAssistant) -> None:
+    """manufacturer and model are optional master data fields."""
+    entry = await _setup_hub(hass)
+
+    result = await _add_wallbox(hass, entry, manufacturer="KEBA", model="P40")
+
+    assert result["data"]["manufacturer"] == "KEBA"
+    assert result["data"]["model"] == "P40"
+
+
 async def test_wallbox_start_debounce_out_of_range_is_rejected(hass: HomeAssistant) -> None:
     """start_debounce_s outside 0 to 30 seconds is rejected with an error."""
     entry = await _setup_hub(hass)

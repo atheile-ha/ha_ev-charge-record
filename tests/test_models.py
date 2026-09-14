@@ -45,6 +45,8 @@ def test_wallbox_round_trips_through_dict() -> None:
         name="Carport",
         current_type="ac",
         max_power_kw=11.0,
+        manufacturer="KEBA",
+        model="P40",
     )
     assert Wallbox.from_dict(wallbox.to_dict()) == wallbox
 
@@ -59,6 +61,8 @@ def test_wallbox_from_dict_applies_defaults_for_missing_optional_fields() -> Non
             "max_power_kw": 11.0,
         }
     )
+    assert wallbox.manufacturer is None
+    assert wallbox.model is None
     assert wallbox.power_threshold_kw == 0.5
     assert wallbox.start_debounce_s == 2
     assert wallbox.identification_window_s == 15

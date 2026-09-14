@@ -56,10 +56,14 @@
           "title": "Add wallbox",
           "data": {
             "name": "Name",
+            "manufacturer": "Manufacturer",
+            "model": "Model",
             "current_type": "Current type",
             "max_power_kw": "Maximum power (kW)"
           },
           "data_description": {
+            "manufacturer": "Shown in the device entry.",
+            "model": "Shown in the device entry.",
             "max_power_kw": "The wallbox's rated power."
           },
           "sections": {
@@ -67,13 +71,13 @@
               "name": "Expert options",
               "data": {
                 "power_threshold_kw": "Power threshold (kW)",
-                "start_debounce_s": "Start debounce (s)",
+                "start_debounce_s": "Session start debounce (s)",
                 "identification_window_s": "Identification window (s)"
               },
               "data_description": {
                 "power_threshold_kw": "Power above which a session candidate starts.",
                 "start_debounce_s": "How long the power threshold must hold before the session is confirmed.",
-                "identification_window_s": "How long to wait after session start before deciding which vehicle is charging."
+                "identification_window_s": "How long to wait after session start before the charging vehicle is identified from the vehicle entities. Relevant when identification via RFID or eMAID is not possible and entity updates arrive with a delay."
               }
             }
           }
@@ -82,10 +86,14 @@
           "title": "Edit wallbox",
           "data": {
             "name": "Name",
+            "manufacturer": "Manufacturer",
+            "model": "Model",
             "current_type": "Current type",
             "max_power_kw": "Maximum power (kW)"
           },
           "data_description": {
+            "manufacturer": "Shown in the device entry.",
+            "model": "Shown in the device entry.",
             "max_power_kw": "The wallbox's rated power."
           },
           "sections": {
@@ -93,13 +101,13 @@
               "name": "Expert options",
               "data": {
                 "power_threshold_kw": "Power threshold (kW)",
-                "start_debounce_s": "Start debounce (s)",
+                "start_debounce_s": "Session start debounce (s)",
                 "identification_window_s": "Identification window (s)"
               },
               "data_description": {
                 "power_threshold_kw": "Power above which a session candidate starts.",
                 "start_debounce_s": "How long the power threshold must hold before the session is confirmed.",
-                "identification_window_s": "How long to wait after session start before deciding which vehicle is charging."
+                "identification_window_s": "How long to wait after session start before the charging vehicle is identified from the vehicle entities. Relevant when identification via RFID or eMAID is not possible and entity updates arrive with a delay."
               }
             }
           }
@@ -137,12 +145,12 @@
           },
           "data_description": {
             "active": "Inactive vehicles keep their history, but their entities are disabled. Its cards are removed; reactivating it requires assigning at least one card again.",
-            "is_guest": "A shared vehicle without telemetry.",
+            "is_guest": "Records charging sessions for vehicles without connected telemetry.",
             "vin": "Kept out of every state and log entry.",
             "manufacturer": "Shown in the device entry.",
             "model": "Shown in the device entry.",
             "capacity_kwh": "Required unless this is a guest vehicle.",
-            "cost_mode": "Recorded for a later billing feature. It has no effect on data collection.",
+            "cost_mode": "Selectable for a planned billing feature that can take a fixed charging price per vehicle into account. The choice has no direct effect on data collection.",
             "cards": "The RFID or eMAID identifier the wallbox reports, used to recognize this vehicle. Required while the vehicle is active."
           }
         },
@@ -161,12 +169,12 @@
           },
           "data_description": {
             "active": "Inactive vehicles keep their history, but their entities are disabled. Its cards are removed; reactivating it requires assigning at least one card again.",
-            "is_guest": "A shared vehicle without telemetry.",
+            "is_guest": "Records charging sessions for vehicles without connected telemetry.",
             "vin": "Kept out of every state and log entry.",
             "manufacturer": "Shown in the device entry.",
             "model": "Shown in the device entry.",
             "capacity_kwh": "Required unless this is a guest vehicle.",
-            "cost_mode": "Recorded for a later billing feature. It has no effect on data collection.",
+            "cost_mode": "Selectable for a planned billing feature that can take a fixed charging price per vehicle into account. The choice has no direct effect on data collection.",
             "cards": "The RFID or eMAID identifier the wallbox reports, used to recognize this vehicle. Required while the vehicle is active."
           }
         }
@@ -183,7 +191,7 @@
     "cost_mode": {
       "options": {
         "static": "Static price",
-        "dynamic": "Dynamic (grid and solar valued separately)"
+        "dynamic": "Dynamic (grid and solar shares tracked separately)"
       }
     },
     "solar_valuation": {
@@ -195,12 +203,12 @@
     "card_type": {
       "options": {
         "rfid": "RFID",
-        "emaid": "eMAID"
+        "emaid": "EMAID"
       }
     },
     "cards": {
       "fields": {
-        "uid": "Card identifier",
+        "uid": "Identifier / serial number",
         "label": "Label",
         "type": "Type",
         "active": "Valid (not locked)"
