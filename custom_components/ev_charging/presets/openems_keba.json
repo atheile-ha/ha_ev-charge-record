@@ -8,7 +8,8 @@
       { "code": 3, "meaning": "an der Wallbox eingesteckt und verriegelt", "class": "not_connected" },
       { "code": 5, "meaning": "an Wallbox und Fahrzeug eingesteckt", "class": "connected" },
       { "code": 7, "meaning": "an Wallbox und Fahrzeug eingesteckt und verriegelt", "class": "connected" }
-    ]
+    ],
+    "values": {}
   },
   "error": {
     "codes": [
@@ -18,6 +19,7 @@
       { "code": 3, "meaning": "Ladevorgang aktiv", "class": "ok" },
       { "code": 4, "meaning": "Fehler aufgetreten", "class": "error" },
       { "code": 5, "meaning": "vorübergehend unterbrochen, Übertemperatur oder Suspend-Modus", "class": "ok" }
-    ]
+    ],
+    "values": {}
   }
 }

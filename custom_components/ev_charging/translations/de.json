@@ -27,20 +27,20 @@
           "price_feed_in_fixed": "Einspeisevergütung (fest)"
         },
         "data_description": {
-          "update_interval_s": "Wie oft die Live-Entitäten veröffentlicht werden. Zwischen 15 und 300 Sekunden.",
-          "solar_valuation": "Wie der Sonnenanteil einer Heimladung bewertet wird.",
-          "geocoding_enabled": "Für externe Ladevorgänge aus den Koordinaten eine Adresse ermitteln.",
-          "geocoding_url": "Der Geocoding-Dienst. Voreingestellt auf Nominatim, frei änderbar.",
-          "geocoding_contact": "Wird als Kontaktangabe im User-Agent übermittelt. Erforderlich, solange Geocoding aktiv ist.",
-          "estimate_uncertain_threshold_pct": "Unterhalb dieses SOC-Unterschieds gilt eine Schätzung als unsicher.",
-          "grid_power": "Entität mit dem Netzsaldo, positiv bei Bezug. Alternative zu Netzbezug und Netzeinspeisung.",
-          "grid_power_inverted": "Aktivieren, wenn die Entität Bezug als negativen Wert meldet.",
-          "grid_import": "Entität mit dem Netzbezug, stets positiv. Alternative zum Netzsaldo.",
-          "grid_export": "Entität mit der Netzeinspeisung, stets positiv. Wird zusammen mit dem Netzbezug verwendet.",
-          "price_grid": "Entität mit dem Netzstrompreis je kWh. Alternative zu einem festen Wert.",
-          "price_grid_fixed": "Fester Netzstrompreis je kWh. Alternative zu einer Entität.",
-          "price_feed_in": "Entität mit der Einspeisevergütung je kWh. Alternative zu einem festen Wert.",
-          "price_feed_in_fixed": "Feste Einspeisevergütung je kWh. Alternative zu einer Entität."
+          "update_interval_s": "Wie oft die Live-Entitäten veröffentlicht werden. Zwischen 15 und 300 Sekunden",
+          "solar_valuation": "Wie der Sonnenanteil einer Heimladung bewertet wird",
+          "geocoding_enabled": "Für externe Ladevorgänge aus den Koordinaten eine Adresse ermitteln",
+          "geocoding_url": "Der Geocoding-Dienst. Voreingestellt auf Nominatim, frei änderbar",
+          "geocoding_contact": "Wird als Kontaktangabe im User-Agent übermittelt. Erforderlich, solange Geocoding aktiv ist",
+          "estimate_uncertain_threshold_pct": "Unterhalb dieses SOC-Unterschieds gilt eine Schätzung als unsicher",
+          "grid_power": "Entität mit dem Netzsaldo, positiv bei Bezug, negativ bei Einspeisung. Alternative zu Netzbezug und Netzeinspeisung",
+          "grid_power_inverted": "Aktivieren, wenn die Entität Bezug als negativen Wert meldet",
+          "grid_import": "Entität mit dem Netzbezug, stets positiv. Alternative zum Netzsaldo",
+          "grid_export": "Entität mit der Netzeinspeisung, stets positiv. Wird zusammen mit dem Netzbezug verwendet",
+          "price_grid": "Entität mit dem Netzstrompreis in €/kWh. Alternative zu einem festen Wert",
+          "price_grid_fixed": "Fester Netzstrompreis in €/kWh. Alternative zu einer Entität",
+          "price_feed_in": "Entität mit der Einspeisevergütung in €/kWh. Alternative zu einem festen Wert",
+          "price_feed_in_fixed": "Feste Einspeisevergütung in €/kWh. Alternative zu einer Entität"
         }
       }
     },
@@ -83,9 +83,9 @@
             "max_power_kw": "Maximale Leistung (kW)"
           },
           "data_description": {
-            "manufacturer": "Erscheint im Geräteeintrag.",
-            "model": "Erscheint im Geräteeintrag.",
-            "max_power_kw": "Die Nennleistung der Wallbox."
+            "manufacturer": "Erscheint im Geräteeintrag",
+            "model": "Erscheint im Geräteeintrag",
+            "max_power_kw": "Die Nennleistung der Wallbox"
           },
           "sections": {
             "roles": {
@@ -99,12 +99,12 @@
                 "error": "Fehler"
               },
               "data_description": {
-                "charge_power": "Erforderlich. Leistung, die die Wallbox liefert.",
-                "energy_total": "Monoton steigender Gesamtzähler. Mindestens ein Energiezähler ist erforderlich.",
-                "energy_session": "Zähler, der bei jedem Ladevorgang zurückgesetzt wird. Mindestens ein Energiezähler ist erforderlich.",
-                "plug_state": "Erforderlich. Beliebige Zustandsentität; ihre Rohwerte werden im nächsten Schritt auf verbunden/nicht verbunden abgebildet.",
-                "identification": "Von der Wallbox gemeldete RFID- oder eMAID-Kennung, falls vorhanden.",
-                "error": "Ein binary_sensor mit device_class problem, oder eine beliebige Zustandsentität, deren Rohwerte in einem späteren Schritt auf ok/error abgebildet werden."
+                "charge_power": "Erforderlich. Leistung, die die Wallbox liefert",
+                "energy_total": "Kontinuierlich steigender Gesamtzähler. Mindestens ein Energiezähler ist erforderlich",
+                "energy_session": "Zähler, der bei jedem Ladevorgang zurückgesetzt wird. Mindestens ein Energiezähler ist erforderlich",
+                "plug_state": "Erforderlich. Entität mit Zustandswerten der Kabelverbindung an der Wallbox",
+                "identification": "Von der Wallbox gemeldete RFID- oder eMAID-Kennung, falls vorhanden",
+                "error": "Entität, die einen Fehlerzustand der Wallbox anzeigt"
               }
             },
             "expert": {
@@ -115,9 +115,9 @@
                 "identification_window_s": "Erkennungsfenster (s)"
               },
               "data_description": {
-                "power_threshold_kw": "Leistung, oberhalb der ein Sessionkandidat beginnt.",
-                "start_debounce_s": "Wie lange die Leistungsschwelle überschritten bleiben muss, bevor die Session bestätigt wird.",
-                "identification_window_s": "Wartezeit nach Sessionbeginn, bevor anhand der Fahrzeugentitäten das ladende Fahrzeug identifiziert wird. Relevant, wenn keine Erkennung über RFID oder eMAID möglich ist und die Aktualisierung der Entitäten verzögert stattfindet."
+                "power_threshold_kw": "Leistung, oberhalb der ein Sessionkandidat beginnt",
+                "start_debounce_s": "Wie lange die Leistungsschwelle überschritten bleiben muss, bevor die Session bestätigt wird",
+                "identification_window_s": "Wartezeit nach Sessionbeginn, bevor anhand der Fahrzeugentitäten das ladende Fahrzeug identifiziert wird. Relevant, wenn keine Erkennung über RFID oder eMAID möglich ist und die Aktualisierung der Entitäten verzögert stattfindet"
               }
             }
           }
@@ -132,9 +132,9 @@
             "max_power_kw": "Maximale Leistung (kW)"
           },
           "data_description": {
-            "manufacturer": "Erscheint im Geräteeintrag.",
-            "model": "Erscheint im Geräteeintrag.",
-            "max_power_kw": "Die Nennleistung der Wallbox."
+            "manufacturer": "Erscheint im Geräteeintrag",
+            "model": "Erscheint im Geräteeintrag",
+            "max_power_kw": "Die Nennleistung der Wallbox"
           },
           "sections": {
             "roles": {
@@ -148,12 +148,12 @@
                 "error": "Fehler"
               },
               "data_description": {
-                "charge_power": "Erforderlich. Leistung, die die Wallbox liefert.",
-                "energy_total": "Monoton steigender Gesamtzähler. Mindestens ein Energiezähler ist erforderlich.",
-                "energy_session": "Zähler, der bei jedem Ladevorgang zurückgesetzt wird. Mindestens ein Energiezähler ist erforderlich.",
-                "plug_state": "Erforderlich. Beliebige Zustandsentität; ihre Rohwerte werden im nächsten Schritt auf verbunden/nicht verbunden abgebildet.",
-                "identification": "Von der Wallbox gemeldete RFID- oder eMAID-Kennung, falls vorhanden.",
-                "error": "Ein binary_sensor mit device_class problem, oder eine beliebige Zustandsentität, deren Rohwerte in einem späteren Schritt auf ok/error abgebildet werden."
+                "charge_power": "Erforderlich. Leistung, die die Wallbox liefert",
+                "energy_total": "Kontinuierlich steigender Gesamtzähler. Mindestens ein Energiezähler ist erforderlich",
+                "energy_session": "Zähler, der bei jedem Ladevorgang zurückgesetzt wird. Mindestens ein Energiezähler ist erforderlich",
+                "plug_state": "Erforderlich. Entität mit Zustandswerten der Kabelverbindung an der Wallbox",
+                "identification": "Von der Wallbox gemeldete RFID- oder eMAID-Kennung, falls vorhanden",
+                "error": "Entität, die einen Fehlerzustand der Wallbox anzeigt"
               }
             },
             "expert": {
@@ -164,9 +164,9 @@
                 "identification_window_s": "Erkennungsfenster (s)"
               },
               "data_description": {
-                "power_threshold_kw": "Leistung, oberhalb der ein Sessionkandidat beginnt.",
-                "start_debounce_s": "Wie lange die Leistungsschwelle überschritten bleiben muss, bevor die Session bestätigt wird.",
-                "identification_window_s": "Wartezeit nach Sessionbeginn, bevor anhand der Fahrzeugentitäten das ladende Fahrzeug identifiziert wird. Relevant, wenn keine Erkennung über RFID oder eMAID möglich ist und die Aktualisierung der Entitäten verzögert stattfindet."
+                "power_threshold_kw": "Leistung, oberhalb der ein Sessionkandidat beginnt",
+                "start_debounce_s": "Wie lange die Leistungsschwelle überschritten bleiben muss, bevor die Session bestätigt wird",
+                "identification_window_s": "Wartezeit nach Sessionbeginn, bevor anhand der Fahrzeugentitäten das ladende Fahrzeug identifiziert wird. Relevant, wenn keine Erkennung über RFID oder eMAID möglich ist und die Aktualisierung der Entitäten verzögert stattfindet"
               }
             }
           }
@@ -214,15 +214,15 @@
             "cards": "Freischalt-Referenz"
           },
           "data_description": {
-            "active": "Inaktive Fahrzeuge behalten ihre Historie, ihre Entitäten werden deaktiviert. Ihre Freischalt-Referenzen werden entfernt; bei erneuter Aktivierung muss mindestens eine neu vergeben werden.",
-            "is_guest": "Erfassung von Ladevorgängen für Fahrzeuge ohne eingebundene Telemetriedaten.",
-            "vin": "Erscheint in keinem Zustand und keinem Protokolleintrag.",
-            "manufacturer": "Erscheint im Geräteeintrag.",
-            "model": "Erscheint im Geräteeintrag.",
-            "capacity_kwh": "Erforderlich, außer bei einem Gastfahrzeug.",
-            "cost_mode": "Auswahlmöglichkeit für vorgemerkte Abrechnungsfunktion, bei der Fahrzeuge mit festem Ladepreis berücksichtigt werden können. Auswahl hat keine direkte Auswirkung auf die Datenerfassung.",
-            "identify_by_vehicle_api": "Nur wählbar, sobald die Rollen charge_state und location unten zugeordnet sind. Für Fahrzeuge, die ohne Kennung laden.",
-            "cards": "Die von der Wallbox übermittelte RFID- oder eMAID-Kennung, über die dieses Fahrzeug erkannt wird. Ein aktives Fahrzeug braucht mindestens eine Kennung oder identify_by_vehicle_api."
+            "active": "Inaktive Fahrzeuge behalten ihre Historie, ihre Entitäten werden deaktiviert. Ihre Freischalt-Referenzen werden entfernt; bei erneuter Aktivierung muss mindestens eine neu vergeben werden",
+            "is_guest": "Erfassung von Ladevorgängen für Fahrzeuge ohne eingebundene Telemetriedaten",
+            "vin": "Erscheint in keinem Zustand und keinem Protokolleintrag",
+            "manufacturer": "Erscheint im Geräteeintrag",
+            "model": "Erscheint im Geräteeintrag",
+            "capacity_kwh": "Erforderlich, außer bei einem Gastfahrzeug",
+            "cost_mode": "Auswahlmöglichkeit für vorgemerkte Abrechnungsfunktion, bei der Fahrzeuge mit festem Ladepreis berücksichtigt werden können. Auswahl hat keine direkte Auswirkung auf die Datenerfassung",
+            "identify_by_vehicle_api": "Nur wählbar, sobald die Rollen charge_state und location unten zugeordnet sind. Für Fahrzeuge, die ohne Kennung laden",
+            "cards": "Die von der Wallbox übermittelte RFID- oder eMAID-Kennung, über die dieses Fahrzeug erkannt wird. Ein aktives Fahrzeug braucht mindestens eine Kennung oder identify_by_vehicle_api"
           },
           "sections": {
             "roles": {
@@ -240,16 +240,16 @@
                 "range": "Reichweite"
               },
               "data_description": {
-                "soc": "Batterieladezustand in Prozent.",
-                "soc_target": "Ziel-Ladezustand in Prozent. Nur Anzeige.",
-                "odometer": "Kilometerstand.",
-                "charge_state": "Beliebige Zustandsentität; ihre Rohwerte werden in einem späteren Schritt den vier Ladezustandsklassen zugeordnet.",
-                "charge_type": "Beliebige Zustandsentität; ihre Rohwerte werden in einem späteren Schritt auf ac/dc abgebildet.",
-                "energy_session": "Vom Fahrzeug gemeldete Energie der laufenden Session.",
-                "location": "Ein device_tracker mit Koordinaten.",
-                "charge_end": "Voraussichtliches Ladeende, als Zeitstempel oder Zeichenkette.",
-                "charge_power": "Vom Fahrzeug gemeldete Ladeleistung. Nur Anzeige.",
-                "range": "Verbleibende Reichweite. Nur Anzeige."
+                "soc": "Batterieladezustand in Prozent",
+                "soc_target": "Ziel-Ladezustand in Prozent. Nur Anzeige",
+                "odometer": "Kilometerstand",
+                "charge_state": "Ladezustand des Fahrzeuges",
+                "charge_type": "Ladeart des Fahrzeuges - sofern von Fahrzeug AC/DC separat übermittelt wird",
+                "energy_session": "Vom Fahrzeug gemeldete Energie der laufenden Session",
+                "location": "Device Tracker Entität des Fahrzeuges",
+                "charge_end": "Voraussichtliches Ladeende, als Zeitstempel oder Zeichenkette",
+                "charge_power": "Vom Fahrzeug gemeldete Ladeleistung - nur Anzeige",
+                "range": "Verbleibende Reichweite - nur Anzeige"
               }
             }
           }
@@ -270,15 +270,15 @@
             "cards": "Freischalt-Referenz"
           },
           "data_description": {
-            "active": "Inaktive Fahrzeuge behalten ihre Historie, ihre Entitäten werden deaktiviert. Ihre Freischalt-Referenzen werden entfernt; bei erneuter Aktivierung muss mindestens eine neu vergeben werden.",
-            "is_guest": "Erfassung von Ladevorgängen für Fahrzeuge ohne eingebundene Telemetriedaten.",
-            "vin": "Erscheint in keinem Zustand und keinem Protokolleintrag.",
-            "manufacturer": "Erscheint im Geräteeintrag.",
-            "model": "Erscheint im Geräteeintrag.",
-            "capacity_kwh": "Erforderlich, außer bei einem Gastfahrzeug.",
-            "cost_mode": "Auswahlmöglichkeit für vorgemerkte Abrechnungsfunktion, bei der Fahrzeuge mit festem Ladepreis berücksichtigt werden können. Auswahl hat keine direkte Auswirkung auf die Datenerfassung.",
-            "identify_by_vehicle_api": "Nur wählbar, sobald die Rollen charge_state und location unten zugeordnet sind. Für Fahrzeuge, die ohne Kennung laden.",
-            "cards": "Die von der Wallbox übermittelte RFID- oder eMAID-Kennung, über die dieses Fahrzeug erkannt wird. Ein aktives Fahrzeug braucht mindestens eine Kennung oder identify_by_vehicle_api."
+            "active": "Inaktive Fahrzeuge behalten ihre Historie, ihre Entitäten werden deaktiviert. Ihre Freischalt-Referenzen werden entfernt; bei erneuter Aktivierung muss mindestens eine neu vergeben werden",
+            "is_guest": "Erfassung von Ladevorgängen für Fahrzeuge ohne eingebundene Telemetriedaten",
+            "vin": "Erscheint in keinem Zustand und keinem Protokolleintrag",
+            "manufacturer": "Erscheint im Geräteeintrag",
+            "model": "Erscheint im Geräteeintrag",
+            "capacity_kwh": "Erforderlich, außer bei einem Gastfahrzeug",
+            "cost_mode": "Auswahlmöglichkeit für vorgemerkte Abrechnungsfunktion, bei der Fahrzeuge mit festem Ladepreis berücksichtigt werden können. Auswahl hat keine direkte Auswirkung auf die Datenerfassung",
+            "identify_by_vehicle_api": "Nur wählbar, sobald die Rollen charge_state und location unten zugeordnet sind. Für Fahrzeuge, die ohne Kennung laden",
+            "cards": "Die von der Wallbox übermittelte RFID- oder eMAID-Kennung, über die dieses Fahrzeug erkannt wird. Ein aktives Fahrzeug braucht mindestens eine Kennung oder identify_by_vehicle_api"
           },
           "sections": {
             "roles": {
@@ -296,16 +296,16 @@
                 "range": "Reichweite"
               },
               "data_description": {
-                "soc": "Batterieladezustand in Prozent.",
-                "soc_target": "Ziel-Ladezustand in Prozent. Nur Anzeige.",
-                "odometer": "Kilometerstand.",
-                "charge_state": "Beliebige Zustandsentität; ihre Rohwerte werden in einem späteren Schritt den vier Ladezustandsklassen zugeordnet.",
-                "charge_type": "Beliebige Zustandsentität; ihre Rohwerte werden in einem späteren Schritt auf ac/dc abgebildet.",
-                "energy_session": "Vom Fahrzeug gemeldete Energie der laufenden Session.",
-                "location": "Ein device_tracker mit Koordinaten.",
-                "charge_end": "Voraussichtliches Ladeende, als Zeitstempel oder Zeichenkette.",
-                "charge_power": "Vom Fahrzeug gemeldete Ladeleistung. Nur Anzeige.",
-                "range": "Verbleibende Reichweite. Nur Anzeige."
+                "soc": "Batterieladezustand in Prozent",
+                "soc_target": "Ziel-Ladezustand in Prozent. Nur Anzeige",
+                "odometer": "Kilometerstand",
+                "charge_state": "Ladezustand des Fahrzeuges",
+                "charge_type": "Ladeart des Fahrzeuges - sofern von Fahrzeug AC/DC separat übermittelt wird",
+                "energy_session": "Vom Fahrzeug gemeldete Energie der laufenden Session",
+                "location": "Device Tracker Entität des Fahrzeuges",
+                "charge_end": "Voraussichtliches Ladeende, als Zeitstempel oder Zeichenkette",
+                "charge_power": "Vom Fahrzeug gemeldete Ladeleistung - nur Anzeige",
+                "range": "Verbleibende Reichweite - nur Anzeige"
               }
             }
           }

@@ -145,10 +145,10 @@ def test_mercedes_me_preset_maps_codes_to_classes() -> None:
     preset = resolver.load_preset(PRESETS_DIR / "mercedes_me.json")
 
     assert preset["platform"] == "mercedes_me"
-    assert preset["charge_state"]["11"] == "charging"
-    assert preset["charge_type"]["11"] == "dc"
-    assert preset["charge_type"]["13"] == "ac"
-    assert "5" not in preset["charge_type"]
+    assert preset["charge_state"]["values"]["11"] == "charging"
+    assert preset["charge_type"]["values"]["11"] == "dc"
+    assert preset["charge_type"]["values"]["13"] == "ac"
+    assert "5" not in preset["charge_type"]["values"]
 
 
 def test_find_preset_matches_by_platform() -> None:

@@ -23,6 +23,7 @@ from homeassistant.helpers.selector import (
     SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
+    SelectSelectorMode,
     TextSelector,
 )
 
@@ -84,15 +85,16 @@ async def _async_mapping_step(
     user_input: dict[str, Any] | None,
     entity_id: str,
     preset_role_key: str,
-    direct: bool,
     classes: tuple[str, ...],
     class_translation_key: str,
     existing: dict[str, str],
 ) -> tuple[dict[str, str] | None, SubentryFlowResult | None]:
     """Handle one step of a state mapping (4.7): preset, recorder, free entry.
 
-    Returns (mapping, None) once the user has submitted rows, or
-    (None, form_result) to show the step's form.
+    Returns (mapping, None) once the user has submitted rows, or once a
+    bundled preset already covers every candidate value with nothing left to
+    classify. Returns (None, form_result) to show the step's form only when
+    something remains for the user to decide.
     """
     if user_input is not None:
         return resolver.mapping_from_rows(user_input["mapping"]), None
@@ -102,18 +104,16 @@ async def _async_mapping_step(
     platform = resolver.resolve_platform(hass, role)
     preset = await hass.async_add_executor_job(resolver.find_preset, PRESETS_DIR, platform)
     preset_data = (preset or {}).get(preset_role_key)
-
-    if direct:
-        preset_values = preset_data if isinstance(preset_data, dict) else None
-        reference = ""
-    else:
-        preset_values = None
-        reference = resolver.format_preset_reference(preset_data) if preset_data else ""
+    preset_values = preset_data.get("values") if preset_data else None
+    reference = resolver.format_preset_reference(preset_data) if preset_data else ""
 
     discovered = await resolver.async_query_recorder_states(hass, entity_id)
     rows = resolver.build_mapping_rows(
         existing=existing, preset_values=preset_values, discovered=discovered
     )
+
+    if preset_values and all(row["class"] != MAPPING_UNMAPPED for row in rows):
+        return resolver.mapping_from_rows(rows), None
 
     schema = vol.Schema(
         {
@@ -373,7 +373,6 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
             user_input=user_input,
             entity_id=self._pending["plug_state"],
             preset_role_key="plug_state",
-            direct=False,
             classes=PLUG_STATE_CLASSES,
             class_translation_key="plug_state_class",
             existing=existing,
@@ -399,7 +398,6 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
             user_input=user_input,
             entity_id=self._pending["error"],
             preset_role_key="error",
-            direct=False,
             classes=ERROR_CLASSES,
             class_translation_key="error_class",
             existing=existing,
@@ -654,7 +652,6 @@ class VehicleSubentryFlow(ConfigSubentryFlow):
             user_input=user_input,
             entity_id=entity_id,
             preset_role_key="charge_state",
-            direct=True,
             classes=CHARGE_STATE_CLASSES,
             class_translation_key="charge_state_class",
             existing=existing,
@@ -680,7 +677,6 @@ class VehicleSubentryFlow(ConfigSubentryFlow):
             user_input=user_input,
             entity_id=entity_id,
             preset_role_key="charge_type",
-            direct=True,
             classes=CHARGE_TYPES,
             class_translation_key="charge_type_class",
             existing=existing,
@@ -756,7 +752,11 @@ class VehicleSubentryFlow(ConfigSubentryFlow):
                     "cost_mode",
                     default=d.cost_mode if d else COST_MODE_DYNAMIC,
                 ): SelectSelector(
-                    SelectSelectorConfig(options=list(COST_MODES), translation_key="cost_mode")
+                    SelectSelectorConfig(
+                        options=list(COST_MODES),
+                        translation_key="cost_mode",
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
                 ),
                 vol.Optional(
                     "identify_by_vehicle_api", default=d.identify_by_vehicle_api if d else False

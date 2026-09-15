@@ -702,6 +702,25 @@ async def test_charge_state_and_charge_type_mapping_are_stored(hass: HomeAssista
     assert result["data"]["charge_type_mapping"] == {"13": "ac"}
 
 
+async def test_preset_covering_role_skips_mapping_step(hass: HomeAssistant) -> None:
+    """A role backed by an entity from a matched, fully covering preset needs no
+    manual mapping step at all."""
+    registry = er.async_get(hass)
+    charge_state_entry = registry.async_get_or_create(
+        "sensor", "mercedes_me", "vehicle_charge_state_unique"
+    )
+    hass.states.async_set(charge_state_entry.entity_id, "0")
+
+    entry = await _setup_hub(hass)
+    result = await _add_vehicle(hass, entry, roles={"charge_state": charge_state_entry.entity_id})
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    # The full preset is stored, not just the code observed just now, so any
+    # code that arrives later is already classified.
+    assert result["data"]["charge_state_mapping"]["0"] == "charging"
+    assert len(result["data"]["charge_state_mapping"]) == 17
+
+
 async def test_identification_hint_shows_current_wallbox_value(hass: HomeAssistant) -> None:
     """The vehicle dialog shows the wallbox's current identification value."""
     entry = await _setup_hub(hass)

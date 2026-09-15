@@ -4,6 +4,20 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.2.2] - 2026-09-15
+
+### Geändert
+
+- Der Zuordnungsschritt für Steckerzustand, Fehler, Ladezustand und Ladeart entfällt beim Einrichten vollständig, sobald ein mitgeliefertes Preset die betroffene Entität bereits vollständig abdeckt
+- Presets für Steckerzustand, Fehler, Ladezustand und Ladeart tragen die bekannten Rohwerte jetzt einheitlich unter einem eigenen Feld `values`
+- Mercedes-Me-Preset liefert damit Ladezustand und Ladeart ohne manuellen Zuordnungsschritt
+- Erklärungstexte der Entitätsrollen im Anlegen- und im Bearbeiten-Dialog von Wallbox und Fahrzeug vereinheitlicht
+- Beschreibungstexte der Formularfelder enden nicht mehr auf einen Punkt
+
+### Behoben
+
+- Erklärungstext des Kostenmodus erscheint im Fahrzeugdialog jetzt direkt unter dem Feld statt nach der ausgewählten Option
+
 ## [0.2.1] - 2026-09-14
 
 ### Behoben
