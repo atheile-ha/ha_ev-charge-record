@@ -13,6 +13,7 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 - Mercedes-Me-Preset liefert damit Ladezustand und Ladeart ohne manuellen Zuordnungsschritt
 - Erklärungstexte der Entitätsrollen im Anlegen- und im Bearbeiten-Dialog von Wallbox und Fahrzeug vereinheitlicht
 - Beschreibungstexte der Formularfelder enden nicht mehr auf einen Punkt
+- Reihenfolge der Kostenmodus-Auswahl im Fahrzeugdialog: Dynamisch vor Fester Preis
 
 ### Behoben
 
