@@ -70,8 +70,15 @@ class DeviceMapping:
 
     @property
     def device_label(self) -> str:
-        """Return the device's display label. Device names are proper nouns, not translated."""
-        return f"{self.device_manufacturer} {self.device_model}"
+        """Return the device's display label, including its source integration.
+
+        The same physical device connected through a different integration is
+        not the same mapping (E33): the raw values come from the source
+        integration, not from the device itself. Naming it in the label
+        prevents picking this entry for an unrelated connection path. Device
+        and integration names are proper nouns, not translated.
+        """
+        return f"{self.device_manufacturer} {self.device_model} ({self.integration_name})"
 
     def role_values(self, role: str) -> dict[str, str]:
         """Return a role's raw-value-to-class mapping, or an empty dict if the role has none."""

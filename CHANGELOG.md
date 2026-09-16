@@ -4,6 +4,12 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.3.1] - 2026-09-17
+
+### Geändert
+
+- Geräteauswahl nennt neben Hersteller und Modell auch die Quellintegration, etwa „KEBA KeContact P40 (FENECON FEMS / OpenEMS)“
+
 ## [0.3.0] - 2026-09-16
 
 ### Hinzugefügt

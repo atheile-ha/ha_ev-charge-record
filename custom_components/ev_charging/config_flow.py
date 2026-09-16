@@ -90,8 +90,7 @@ async def _async_device_choices(
         else:
             status = "not installed" if meets is None else "too old"
             excluded_lines.append(
-                f"{candidate.device_label} ({candidate.integration_name}, {status}, "
-                f">= {candidate.min_version} required)"
+                f"{candidate.device_label}: {status}, >= {candidate.min_version} required"
             )
     return options, "\n".join(excluded_lines)
 
