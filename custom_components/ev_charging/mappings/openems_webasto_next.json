@@ -1,0 +1,41 @@
+{
+  "format_version": 1,
+  "id": "openems_webasto_next",
+  "kind": "wallbox",
+  "integration": {
+    "domain": "openems",
+    "name": "FENECON FEMS / OpenEMS (ha_openems)",
+    "min_version": "1.7.2"
+  },
+  "device": {
+    "manufacturer": "Webasto",
+    "model": "Next",
+    "source_component": [
+      "Evcs.Webasto.Next"
+    ]
+  },
+  "roles": {
+    "plug_state": {
+      "source_channel": "CableState",
+      "values": {
+        "undefined": "neutral",
+        "no_cable_attached": "not_connected",
+        "cable_attached_no_car_attached": "not_connected",
+        "cable_attached_car_attached": "connected",
+        "cable_attached_car_attached_and_locked": "connected"
+      }
+    },
+    "error": {
+      "source_channel": "ChargePointState",
+      "values": {
+        "undefined": "neutral",
+        "no_vehicle_attached": "ok",
+        "vehicle_attached_no_permission_preparing": "ok",
+        "charging": "ok",
+        "charging_paused": "ok",
+        "charging_error": "error",
+        "charging_station_reserved": "ok"
+      }
+    }
+  }
+}

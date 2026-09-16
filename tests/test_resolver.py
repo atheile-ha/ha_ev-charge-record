@@ -1,22 +1,17 @@
 """Tests for role resolution, unit detection, and state classification."""
 
-from pathlib import Path
-
 from custom_components.ev_charging import resolver
 from custom_components.ev_charging.const import (
     CHARGE_STATE_CHARGING,
     CHARGE_STATE_CONNECTED_IDLE,
     ERROR_CLASS_ERROR,
     ERROR_CLASS_OK,
-    MAPPING_UNMAPPED,
     PLUG_STATE_CONNECTED,
 )
 from custom_components.ev_charging.models import EntityRole
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
-
-PRESETS_DIR = Path(__file__).parent.parent / "custom_components" / "ev_charging" / "presets"
 
 
 def test_unmapped_charge_state_defaults_to_connected_idle() -> None:
@@ -91,71 +86,6 @@ def test_unit_changed_is_false_without_a_recorded_unit() -> None:
     role = EntityRole(entity_id="sensor.x", unit=None)
 
     assert resolver.unit_changed(role, "kW") is False
-
-
-def test_mapping_from_rows_drops_unmapped_and_blank_rows() -> None:
-    """Rows left at the unmapped sentinel, or without a raw value, are dropped."""
-    rows = [
-        {"raw_value": "5", "class": "connected"},
-        {"raw_value": "7", "class": MAPPING_UNMAPPED},
-        {"raw_value": "", "class": "connected"},
-    ]
-
-    assert resolver.mapping_from_rows(rows) == {"5": "connected"}
-
-
-def test_build_mapping_rows_merges_existing_preset_and_discovered() -> None:
-    """Existing entries win, then preset values, then newly discovered raw values."""
-    rows = resolver.build_mapping_rows(
-        existing={"5": "connected"},
-        preset_values={"5": "not_connected", "7": "connected"},
-        discovered={"7", "9"},
-    )
-
-    by_raw_value = {row["raw_value"]: row["class"] for row in rows}
-    assert by_raw_value["5"] == "connected"
-    assert by_raw_value["7"] == "connected"
-    assert by_raw_value["9"] == MAPPING_UNMAPPED
-
-
-def test_format_preset_reference_includes_codes_and_cable_note() -> None:
-    """The reference text lists every code and appends the cable-variant note."""
-    text = resolver.format_preset_reference(
-        {
-            "codes": [{"code": 5, "meaning": "connected", "class": "connected"}],
-            "cable_variant_note": "fixed cable note",
-        }
-    )
-
-    assert "5 = connected (connected)" in text
-    assert "fixed cable note" in text
-
-
-def test_openems_keba_preset_has_both_tables() -> None:
-    """The bundled OpenEMS/KEBA preset carries the plug_state and error tables."""
-    preset = resolver.load_preset(PRESETS_DIR / "openems_keba.json")
-
-    assert preset["platform"] == "openems"
-    assert {entry["code"] for entry in preset["plug_state"]["codes"]} == {0, 1, 3, 5, 7}
-    assert {entry["code"] for entry in preset["error"]["codes"]} == {0, 1, 2, 3, 4, 5}
-
-
-def test_mercedes_me_preset_maps_codes_to_classes() -> None:
-    """The bundled Mercedes Me preset maps every documented code to a class."""
-    preset = resolver.load_preset(PRESETS_DIR / "mercedes_me.json")
-
-    assert preset["platform"] == "mercedes_me"
-    assert preset["charge_state"]["values"]["11"] == "charging"
-    assert preset["charge_type"]["values"]["11"] == "dc"
-    assert preset["charge_type"]["values"]["13"] == "ac"
-    assert "5" not in preset["charge_type"]["values"]
-
-
-def test_find_preset_matches_by_platform() -> None:
-    """find_preset returns the preset whose platform matches, or None."""
-    assert resolver.find_preset(PRESETS_DIR, "openems")["platform"] == "openems"
-    assert resolver.find_preset(PRESETS_DIR, "unknown_platform") is None
-    assert resolver.find_preset(PRESETS_DIR, None) is None
 
 
 async def test_resolve_entity_id_prefers_registry_entry(hass: HomeAssistant) -> None:
@@ -280,32 +210,29 @@ async def test_track_role_registry_survives_a_rename(hass: HomeAssistant) -> Non
     unsub()
 
 
-async def test_query_recorder_states_returns_distinct_known_states(
+async def test_integration_meets_min_version_true_for_current_version(
     hass: HomeAssistant,
 ) -> None:
-    """The recorder query returns the distinct raw states, excluding unknown/unavailable (4.7).
+    """An installed integration at or above min_version passes (4.7, O20)."""
+    from pytest_homeassistant_custom_component.common import MockModule, mock_integration
 
-    The recorder itself is exercised manually in Home Assistant per the stage's
-    acceptance criteria; here the query's own filtering runs against a stubbed
-    recorder history so the test stays fast and independent of the recorder setup.
-    """
-    from unittest.mock import MagicMock, patch
+    mock_integration(hass, MockModule("openems", partial_manifest={"version": "1.7.2"}))
 
-    from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+    assert await resolver.async_integration_meets_min_version(hass, "openems", "1.7.2") is True
 
-    fake_states = [
-        MagicMock(state="plugged_on_wallbox_and_locked__not_ev_"),
-        MagicMock(state="plugged_on_wallbox_and_vehicle"),
-        MagicMock(state="plugged_on_wallbox_and_vehicle"),
-        MagicMock(state=STATE_UNKNOWN),
-        MagicMock(state=STATE_UNAVAILABLE),
-    ]
 
-    with patch(
-        "homeassistant.components.recorder.history.state_changes_during_period",
-        return_value={"sensor.plug_state": fake_states},
-    ) as mocked:
-        states = await resolver.async_query_recorder_states(hass, "sensor.plug_state")
+async def test_integration_meets_min_version_false_when_too_old(hass: HomeAssistant) -> None:
+    """An installed integration below min_version fails."""
+    from pytest_homeassistant_custom_component.common import MockModule, mock_integration
 
-    assert states == {"plugged_on_wallbox_and_locked__not_ev_", "plugged_on_wallbox_and_vehicle"}
-    assert mocked.call_args.kwargs["no_attributes"] is True
+    mock_integration(hass, MockModule("mbapi2020", partial_manifest={"version": "0.20.0"}))
+
+    assert await resolver.async_integration_meets_min_version(hass, "mbapi2020", "0.29.2") is False
+
+
+async def test_integration_meets_min_version_none_when_not_installed(
+    hass: HomeAssistant,
+) -> None:
+    """A domain with no installed integration returns None, distinct from too old."""
+    result = await resolver.async_integration_meets_min_version(hass, "openems", "1.7.2")
+    assert result is None

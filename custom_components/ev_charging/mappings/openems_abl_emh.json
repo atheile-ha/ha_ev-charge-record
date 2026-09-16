@@ -1,0 +1,83 @@
+{
+  "format_version": 1,
+  "id": "openems_abl_emh",
+  "kind": "wallbox",
+  "integration": {
+    "domain": "openems",
+    "name": "FENECON FEMS / OpenEMS (ha_openems)",
+    "min_version": "1.7.2"
+  },
+  "device": {
+    "manufacturer": "ABL",
+    "model": "eMH (Modbus)",
+    "source_component": [
+      "Evcs.Abl"
+    ]
+  },
+  "roles": {
+    "plug_state": {
+      "source_channel": "ChargePointState",
+      "values": {
+        "undefined": "neutral",
+        "blocked_evs_are_detected": "neutral",
+        "waiting_for_ev": "not_connected",
+        "reserved": "not_connected",
+        "ev_detected_authentication_failed": "connected",
+        "ev_detected_authenticating": "connected",
+        "ready_for_charging": "connected",
+        "charging_finished_or_paused": "connected",
+        "charging": "connected",
+        "blocked_evs_are_not_detected": "not_connected",
+        "booting": "neutral",
+        "error_0": "neutral",
+        "error_1": "neutral",
+        "error_2": "neutral",
+        "error_3": "neutral",
+        "error_4": "neutral",
+        "error_5": "neutral",
+        "error_6": "neutral",
+        "error_7": "neutral",
+        "error_8": "neutral",
+        "error_9": "neutral",
+        "error_10": "neutral",
+        "error_11": "neutral",
+        "error_12": "neutral",
+        "error_13": "neutral",
+        "error_14": "neutral",
+        "error_15": "neutral"
+      }
+    },
+    "error": {
+      "source_channel": "ChargePointState",
+      "values": {
+        "undefined": "neutral",
+        "blocked_evs_are_detected": "ok",
+        "waiting_for_ev": "ok",
+        "reserved": "ok",
+        "ev_detected_authentication_failed": "ok",
+        "ev_detected_authenticating": "ok",
+        "ready_for_charging": "ok",
+        "charging_finished_or_paused": "ok",
+        "charging": "ok",
+        "blocked_evs_are_not_detected": "ok",
+        "booting": "ok",
+        "error_0": "error",
+        "error_1": "error",
+        "error_2": "error",
+        "error_3": "error",
+        "error_4": "error",
+        "error_5": "error",
+        "error_6": "error",
+        "error_7": "error",
+        "error_8": "error",
+        "error_9": "error",
+        "error_10": "error",
+        "error_11": "error",
+        "error_12": "error",
+        "error_13": "error",
+        "error_14": "error",
+        "error_15": "error"
+      }
+    }
+  }
+}

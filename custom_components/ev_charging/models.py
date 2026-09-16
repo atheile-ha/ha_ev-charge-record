@@ -106,20 +106,19 @@ class Wallbox:
     power_threshold_kw: float = DEFAULT_POWER_THRESHOLD_KW
     start_debounce_s: int = DEFAULT_START_DEBOUNCE_S
     identification_window_s: int = DEFAULT_IDENTIFICATION_WINDOW_S
-    # Entity roles (5.1). charge_power and plug_state are mandatory before a
-    # wallbox can be saved; at least one of energy_total and energy_session
-    # is mandatory. Enforced by the config flow, not by this dataclass.
+    # id of the chosen mapping file (4.7). Mandatory before a wallbox can be
+    # saved, since plug_state can only be classified once a device is chosen.
+    mapping_id: str | None = None
+    # Entity roles (5.1). charge_power, plug_state and mapping_id are
+    # mandatory before a wallbox can be saved; at least one of energy_total
+    # and energy_session is mandatory. Enforced by the config flow, not by
+    # this dataclass.
     charge_power: EntityRole | None = None
     energy_total: EntityRole | None = None
     energy_session: EntityRole | None = None
     plug_state: EntityRole | None = None
-    plug_state_mapping: dict[str, str] = field(default_factory=dict)
     identification: EntityRole | None = None
     error: EntityRole | None = None
-    # Populated only when error is a state entity mapped like plug_state
-    # (E29). Left empty when error is a binary_sensor with device_class
-    # problem, which is read directly without a mapping.
-    error_mapping: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict."""
@@ -133,14 +132,13 @@ class Wallbox:
             "power_threshold_kw": self.power_threshold_kw,
             "start_debounce_s": self.start_debounce_s,
             "identification_window_s": self.identification_window_s,
+            "mapping_id": self.mapping_id,
             "charge_power": _role_to_dict(self.charge_power),
             "energy_total": _role_to_dict(self.energy_total),
             "energy_session": _role_to_dict(self.energy_session),
             "plug_state": _role_to_dict(self.plug_state),
-            "plug_state_mapping": dict(self.plug_state_mapping),
             "identification": _role_to_dict(self.identification),
             "error": _role_to_dict(self.error),
-            "error_mapping": dict(self.error_mapping),
         }
 
     @classmethod
@@ -158,14 +156,13 @@ class Wallbox:
             identification_window_s=data.get(
                 "identification_window_s", DEFAULT_IDENTIFICATION_WINDOW_S
             ),
+            mapping_id=data.get("mapping_id"),
             charge_power=_role_from_dict(data.get("charge_power")),
             energy_total=_role_from_dict(data.get("energy_total")),
             energy_session=_role_from_dict(data.get("energy_session")),
             plug_state=_role_from_dict(data.get("plug_state")),
-            plug_state_mapping=dict(data.get("plug_state_mapping", {})),
             identification=_role_from_dict(data.get("identification")),
             error=_role_from_dict(data.get("error")),
-            error_mapping=dict(data.get("error_mapping", {})),
         )
 
 
@@ -186,14 +183,18 @@ class Vehicle:
     # Identification via the vehicle's own integration (4.4, 7.8). Only
     # selectable when charge_state and location are assigned.
     identify_by_vehicle_api: bool = False
+    # id of the chosen mapping file (4.7). Optional: a vehicle without
+    # charge_state or charge_type needs no device, for example a guest
+    # vehicle or one tracked only via soc/odometer/location. Mandatory as
+    # soon as charge_state or charge_type is assigned, enforced by the
+    # config flow.
+    mapping_id: str | None = None
     # Entity roles (5.2), all optional.
     soc: EntityRole | None = None
     soc_target: EntityRole | None = None
     odometer: EntityRole | None = None
     charge_state: EntityRole | None = None
-    charge_state_mapping: dict[str, str] = field(default_factory=dict)
     charge_type: EntityRole | None = None
-    charge_type_mapping: dict[str, str] = field(default_factory=dict)
     energy_session: EntityRole | None = None
     location: EntityRole | None = None
     charge_end: EntityRole | None = None
@@ -214,13 +215,12 @@ class Vehicle:
             "cost_mode": self.cost_mode,
             "cards": [card.to_dict() for card in self.cards],
             "identify_by_vehicle_api": self.identify_by_vehicle_api,
+            "mapping_id": self.mapping_id,
             "soc": _role_to_dict(self.soc),
             "soc_target": _role_to_dict(self.soc_target),
             "odometer": _role_to_dict(self.odometer),
             "charge_state": _role_to_dict(self.charge_state),
-            "charge_state_mapping": dict(self.charge_state_mapping),
             "charge_type": _role_to_dict(self.charge_type),
-            "charge_type_mapping": dict(self.charge_type_mapping),
             "energy_session": _role_to_dict(self.energy_session),
             "location": _role_to_dict(self.location),
             "charge_end": _role_to_dict(self.charge_end),
@@ -243,13 +243,12 @@ class Vehicle:
             cost_mode=data.get("cost_mode", COST_MODE_DYNAMIC),
             cards=tuple(Card.from_dict(card) for card in data.get("cards", [])),
             identify_by_vehicle_api=data.get("identify_by_vehicle_api", False),
+            mapping_id=data.get("mapping_id"),
             soc=_role_from_dict(data.get("soc")),
             soc_target=_role_from_dict(data.get("soc_target")),
             odometer=_role_from_dict(data.get("odometer")),
             charge_state=_role_from_dict(data.get("charge_state")),
-            charge_state_mapping=dict(data.get("charge_state_mapping", {})),
             charge_type=_role_from_dict(data.get("charge_type")),
-            charge_type_mapping=dict(data.get("charge_type_mapping", {})),
             energy_session=_role_from_dict(data.get("energy_session")),
             location=_role_from_dict(data.get("location")),
             charge_end=_role_from_dict(data.get("charge_end")),

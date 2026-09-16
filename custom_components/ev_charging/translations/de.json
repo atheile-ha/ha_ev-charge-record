@@ -74,6 +74,26 @@
       },
       "step": {
         "user": {
+          "title": "Wallbox-Gerät wählen",
+          "description": "Wallbox-Modell wählen, aus dessen Mapping-Datei Stecker- und Fehlerzustand klassifiziert werden. Angeboten werden nur Geräte, deren Quellintegration installiert und ausreichend aktuell ist.\n\n{excluded}",
+          "data": {
+            "mapping_id": "Gerät"
+          },
+          "data_description": {
+            "mapping_id": "Bestimmt, wie die Rollen Steckerzustand und Fehler unten klassifiziert werden. Entitäten werden im nächsten Schritt zugeordnet"
+          }
+        },
+        "reconfigure": {
+          "title": "Wallbox-Gerät ändern",
+          "description": "Wallbox-Modell wählen, aus dessen Mapping-Datei Stecker- und Fehlerzustand klassifiziert werden. Angeboten werden nur Geräte, deren Quellintegration installiert und ausreichend aktuell ist.\n\n{excluded}",
+          "data": {
+            "mapping_id": "Gerät"
+          },
+          "data_description": {
+            "mapping_id": "Bestimmt, wie die Rollen Steckerzustand und Fehler unten klassifiziert werden. Entitäten werden im nächsten Schritt zugeordnet"
+          }
+        },
+        "details": {
           "title": "Wallbox anlegen",
           "data": {
             "name": "Name",
@@ -122,7 +142,7 @@
             }
           }
         },
-        "reconfigure": {
+        "details_reconfigure": {
           "title": "Wallbox bearbeiten",
           "data": {
             "name": "Name",
@@ -170,14 +190,6 @@
               }
             }
           }
-        },
-        "plug_state_mapping": {
-          "title": "Steckerzustand-Zuordnung",
-          "description": "Jeden von der Steckerzustand-Entität gemeldeten Rohwert einer Klasse zuordnen. Ein nicht zugeordneter Wert gilt bis zur Zuordnung als verbunden.\n\n{reference}"
-        },
-        "error_mapping": {
-          "title": "Fehler-Zuordnung",
-          "description": "Jeden von der Fehler-Entität gemeldeten Rohwert einer Klasse zuordnen. Ein nicht zugeordneter Wert gilt bis zur Zuordnung als ok.\n\n{reference}"
         }
       }
     },
@@ -195,10 +207,31 @@
         "duplicate_card": "Eine Kennung ist doppelt eingetragen oder gehört bereits einem anderen aktiven Fahrzeug.",
         "identification_required": "Ein aktives Fahrzeug braucht mindestens eine Kennung oder die Identifikation über die Fahrzeugintegration.",
         "invalid_card_uid": "Dieser Wert kann nie eine Kennung sein.",
-        "identify_by_vehicle_api_requires_roles": "Die Identifikation über die Fahrzeugintegration setzt voraus, dass die Rollen charge_state und location zugeordnet sind."
+        "identify_by_vehicle_api_requires_roles": "Die Identifikation über die Fahrzeugintegration setzt voraus, dass die Rollen charge_state und location zugeordnet sind.",
+        "charge_state_requires_mapping": "Die Zuordnung von charge_state oder charge_type setzt ein Gerät voraus. Neu starten und im ersten Schritt eines wählen."
       },
       "step": {
         "user": {
+          "title": "Fahrzeug-Gerät wählen",
+          "description": "Fahrzeugmodell wählen, aus dessen Mapping-Datei Ladezustand und Ladeart klassifiziert werden, falls vorhanden. Leer lassen bei einem Gastfahrzeug oder einem Fahrzeug ohne Ladezustands-Entität. Angeboten werden nur Geräte, deren Quellintegration installiert und ausreichend aktuell ist.\n\n{excluded}",
+          "data": {
+            "mapping_id": "Gerät"
+          },
+          "data_description": {
+            "mapping_id": "Bestimmt, wie die Rollen charge_state und charge_type unten klassifiziert werden. Entitäten werden im nächsten Schritt zugeordnet. Leer lassen, wenn keine der beiden Rollen genutzt wird"
+          }
+        },
+        "reconfigure": {
+          "title": "Fahrzeug-Gerät ändern",
+          "description": "Fahrzeugmodell wählen, aus dessen Mapping-Datei Ladezustand und Ladeart klassifiziert werden, falls vorhanden. Leer lassen bei einem Gastfahrzeug oder einem Fahrzeug ohne Ladezustands-Entität. Angeboten werden nur Geräte, deren Quellintegration installiert und ausreichend aktuell ist.\n\n{excluded}",
+          "data": {
+            "mapping_id": "Gerät"
+          },
+          "data_description": {
+            "mapping_id": "Bestimmt, wie die Rollen charge_state und charge_type unten klassifiziert werden. Entitäten werden im nächsten Schritt zugeordnet. Leer lassen, wenn keine der beiden Rollen genutzt wird"
+          }
+        },
+        "details": {
           "title": "Fahrzeug anlegen",
           "description": "Aktueller Wert der Kennungs-Entität der Wallbox: {identification_hint}. Manche Wallboxen melden nur das Ende der vollständigen, aufgedruckten Seriennummer; in dem Fall den fehlenden, vorangestellten Teil beim Anlegen einer Karte unten von Hand ergänzen. Der Abgleich prüft das Ende der hinterlegten Kennung.",
           "data": {
@@ -254,7 +287,7 @@
             }
           }
         },
-        "reconfigure": {
+        "details_reconfigure": {
           "title": "Fahrzeug bearbeiten",
           "description": "Aktueller Wert der Kennungs-Entität der Wallbox: {identification_hint}. Manche Wallboxen melden nur das Ende der vollständigen, aufgedruckten Seriennummer; in dem Fall den fehlenden, vorangestellten Teil beim Anlegen einer Karte unten von Hand ergänzen. Der Abgleich prüft das Ende der hinterlegten Kennung.",
           "data": {
@@ -309,14 +342,6 @@
               }
             }
           }
-        },
-        "charge_state_mapping": {
-          "title": "Ladezustand-Zuordnung",
-          "description": "Jeden Rohwert einer der vier Ladezustandsklassen zuordnen. Ein nicht zugeordneter Wert gilt bis zur Zuordnung als connected_idle.\n\n{reference}"
-        },
-        "charge_type_mapping": {
-          "title": "Ladeart-Zuordnung",
-          "description": "Jeden Rohwert, wo bekannt, ac oder dc zuordnen. Ein nicht zugeordneter Wert bleibt offen.\n\n{reference}"
         }
       }
     }
@@ -353,42 +378,6 @@
         "type": "Typ",
         "active": "Gültig (nicht gesperrt)"
       }
-    },
-    "state_mapping": {
-      "fields": {
-        "raw_value": "Rohwert",
-        "class": "Klasse"
-      }
-    },
-    "plug_state_class": {
-      "options": {
-        "connected": "Verbunden",
-        "not_connected": "Nicht verbunden",
-        "unmapped": "Noch nicht klassifiziert"
-      }
-    },
-    "error_class": {
-      "options": {
-        "ok": "OK",
-        "error": "Fehler",
-        "unmapped": "Noch nicht klassifiziert"
-      }
-    },
-    "charge_state_class": {
-      "options": {
-        "charging": "Lädt",
-        "connected_idle": "Verbunden, lädt nicht",
-        "disconnected": "Nicht verbunden",
-        "error": "Fehler",
-        "unmapped": "Noch nicht klassifiziert"
-      }
-    },
-    "charge_type_class": {
-      "options": {
-        "ac": "AC",
-        "dc": "DC",
-        "unmapped": "Noch nicht klassifiziert"
-      }
     }
   },
   "issues": {
@@ -399,6 +388,14 @@
     "role_unit_changed": {
       "title": "Einheit geändert",
       "description": "Die der Rolle {role} von \"{subentry_title}\" zugeordnete Entität meldet jetzt eine andere Einheit als bei der Zuordnung. Die Rolle wird bis zur Klärung nicht gelesen. Im Dialog der Rolle die Entität erneut auswählen, um die neue Einheit zu bestätigen."
+    },
+    "unknown_mapping_value": {
+      "title": "Unbekannter Rohwert",
+      "description": "Die Rolle {role} von \"{subentry_title}\" meldete den Rohwert \"{raw_value}\", den das Mapping des gewählten Geräts nicht kennt. Behoben wird das durch ein aktualisiertes Mapping in der Integration, nicht durch eine Zuordnung von Hand."
+    },
+    "mapping_source_below_min_version": {
+      "title": "Mapping-Quelle veraltet oder fehlt",
+      "description": "Die Quellintegration für \"{device}\", gewählt bei \"{subentry_title}\", ist nicht installiert oder älter als {integration_name} {min_version}. Die Erfassung läuft weiter; zur Behebung die Quellintegration aktualisieren oder installieren."
     }
   }
 }

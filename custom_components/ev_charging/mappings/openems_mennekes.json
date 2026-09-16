@@ -1,0 +1,46 @@
+{
+  "format_version": 1,
+  "id": "openems_mennekes",
+  "kind": "wallbox",
+  "integration": {
+    "domain": "openems",
+    "name": "FENECON FEMS / OpenEMS (ha_openems)",
+    "min_version": "1.7.2"
+  },
+  "device": {
+    "manufacturer": "Mennekes",
+    "model": "Amtron (Modbus)",
+    "source_component": [
+      "Evcs.Mennekes",
+      "Evse.ChargePoint.Mennekes"
+    ]
+  },
+  "roles": {
+    "plug_state": {
+      "source_channel": "VehicleState",
+      "values": {
+        "undefined": "neutral",
+        "no_ev_connected_to_the_evse": "not_connected",
+        "ev_connected_to_the_evse_but_not_ready_for_charging": "connected",
+        "connected_and_ready_for_charging_ventilation_is_not_required": "connected",
+        "connected_ready_for_charging_and_ventilation_is_required": "connected",
+        "electrical_short_to_earth_on_the_controller_of_the_evse_no_power_supply": "neutral"
+      }
+    },
+    "error": {
+      "source_channel": "OcppCpStatus",
+      "values": {
+        "undefined": "neutral",
+        "available": "ok",
+        "preparing": "ok",
+        "charging": "ok",
+        "suspendedevse": "ok",
+        "suspendedev": "ok",
+        "finishing": "ok",
+        "reserved": "ok",
+        "unavailable": "ok",
+        "faulted": "error"
+      }
+    }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "format_version": 1,
+  "id": "openems_hardybarth",
+  "kind": "wallbox",
+  "integration": {
+    "domain": "openems",
+    "name": "FENECON FEMS / OpenEMS (ha_openems)",
+    "min_version": "1.7.2"
+  },
+  "device": {
+    "manufacturer": "Hardy Barth",
+    "model": "cPH2 / Salia",
+    "source_component": [
+      "Evse.ChargePoint.HardyBarth"
+    ]
+  },
+  "roles": {
+    "plug_state": {
+      "source_channel": "Status",
+      "values": {
+        "undefined": "neutral",
+        "no_vehicle_connected_a": "not_connected",
+        "vehicle_connected_not_charging_b": "connected",
+        "vehicle_connected_and_charging_c": "connected",
+        "charging_with_ventilation_required_d": "connected",
+        "error_communication_problem_e": "neutral",
+        "error_serious_fault_f": "neutral"
+      }
+    },
+    "error": {
+      "source_channel": "Status",
+      "values": {
+        "undefined": "neutral",
+        "no_vehicle_connected_a": "ok",
+        "vehicle_connected_not_charging_b": "ok",
+        "vehicle_connected_and_charging_c": "ok",
+        "charging_with_ventilation_required_d": "ok",
+        "error_communication_problem_e": "error",
+        "error_serious_fault_f": "error"
+      }
+    }
+  }
+}

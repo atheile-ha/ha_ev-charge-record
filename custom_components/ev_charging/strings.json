@@ -74,6 +74,26 @@
       },
       "step": {
         "user": {
+          "title": "Choose wallbox device",
+          "description": "Choose the wallbox model this integration should read plug and error state classes from. Only devices whose source integration is installed and current enough are offered.\n\n{excluded}",
+          "data": {
+            "mapping_id": "Device"
+          },
+          "data_description": {
+            "mapping_id": "Determines how the plug state and error roles below are classified. Entities are assigned on the next screen"
+          }
+        },
+        "reconfigure": {
+          "title": "Change wallbox device",
+          "description": "Choose the wallbox model this integration should read plug and error state classes from. Only devices whose source integration is installed and current enough are offered.\n\n{excluded}",
+          "data": {
+            "mapping_id": "Device"
+          },
+          "data_description": {
+            "mapping_id": "Determines how the plug state and error roles below are classified. Entities are assigned on the next screen"
+          }
+        },
+        "details": {
           "title": "Add wallbox",
           "data": {
             "name": "Name",
@@ -122,7 +142,7 @@
             }
           }
         },
-        "reconfigure": {
+        "details_reconfigure": {
           "title": "Edit wallbox",
           "data": {
             "name": "Name",
@@ -170,14 +190,6 @@
               }
             }
           }
-        },
-        "plug_state_mapping": {
-          "title": "Plug state mapping",
-          "description": "Assign each raw value reported by the plug state entity to a class. A value left unmapped defaults to connected until it is classified.\n\n{reference}"
-        },
-        "error_mapping": {
-          "title": "Error mapping",
-          "description": "Assign each raw value reported by the error entity to a class. A value left unmapped defaults to ok until it is classified.\n\n{reference}"
         }
       }
     },
@@ -195,10 +207,31 @@
         "duplicate_card": "A card identifier is entered twice, or already belongs to another active vehicle.",
         "identification_required": "An active vehicle needs at least one card or identification via the vehicle's own integration.",
         "invalid_card_uid": "This value can never be a card identifier.",
-        "identify_by_vehicle_api_requires_roles": "Identification via the vehicle's own integration requires the charge_state and location roles to be assigned."
+        "identify_by_vehicle_api_requires_roles": "Identification via the vehicle's own integration requires the charge_state and location roles to be assigned.",
+        "charge_state_requires_mapping": "Assigning charge_state or charge_type requires a device. Restart and choose one on the first screen."
       },
       "step": {
         "user": {
+          "title": "Choose vehicle device",
+          "description": "Choose the vehicle model this integration should read charge state and charge type from, if any. Leave empty for a guest vehicle or one without a charge state entity. Only devices whose source integration is installed and current enough are offered.\n\n{excluded}",
+          "data": {
+            "mapping_id": "Device"
+          },
+          "data_description": {
+            "mapping_id": "Determines how the charge_state and charge_type roles below are classified. Entities are assigned on the next screen. Leave empty if neither role applies"
+          }
+        },
+        "reconfigure": {
+          "title": "Change vehicle device",
+          "description": "Choose the vehicle model this integration should read charge state and charge type from, if any. Leave empty for a guest vehicle or one without a charge state entity. Only devices whose source integration is installed and current enough are offered.\n\n{excluded}",
+          "data": {
+            "mapping_id": "Device"
+          },
+          "data_description": {
+            "mapping_id": "Determines how the charge_state and charge_type roles below are classified. Entities are assigned on the next screen. Leave empty if neither role applies"
+          }
+        },
+        "details": {
           "title": "Add vehicle",
           "description": "Current value reported by the wallbox's identification entity: {identification_hint}. Some wallboxes report only the end of the full serial number printed on the card; if so, prepend the missing leading part by hand when entering a card below. Matching happens against the end of the stored value.",
           "data": {
@@ -254,7 +287,7 @@
             }
           }
         },
-        "reconfigure": {
+        "details_reconfigure": {
           "title": "Edit vehicle",
           "description": "Current value reported by the wallbox's identification entity: {identification_hint}. Some wallboxes report only the end of the full serial number printed on the card; if so, prepend the missing leading part by hand when entering a card below. Matching happens against the end of the stored value.",
           "data": {
@@ -309,14 +342,6 @@
               }
             }
           }
-        },
-        "charge_state_mapping": {
-          "title": "Charge state mapping",
-          "description": "Assign each raw value to one of the four charge state classes. A value left unmapped defaults to connected_idle until it is classified.\n\n{reference}"
-        },
-        "charge_type_mapping": {
-          "title": "Charge type mapping",
-          "description": "Assign each raw value to ac or dc, where known. A value left unmapped stays undetermined.\n\n{reference}"
         }
       }
     }
@@ -353,42 +378,6 @@
         "type": "Type",
         "active": "Valid (not locked)"
       }
-    },
-    "state_mapping": {
-      "fields": {
-        "raw_value": "Raw value",
-        "class": "Class"
-      }
-    },
-    "plug_state_class": {
-      "options": {
-        "connected": "Connected",
-        "not_connected": "Not connected",
-        "unmapped": "Not yet classified"
-      }
-    },
-    "error_class": {
-      "options": {
-        "ok": "OK",
-        "error": "Error",
-        "unmapped": "Not yet classified"
-      }
-    },
-    "charge_state_class": {
-      "options": {
-        "charging": "Charging",
-        "connected_idle": "Connected, idle",
-        "disconnected": "Disconnected",
-        "error": "Error",
-        "unmapped": "Not yet classified"
-      }
-    },
-    "charge_type_class": {
-      "options": {
-        "ac": "AC",
-        "dc": "DC",
-        "unmapped": "Not yet classified"
-      }
     }
   },
   "issues": {
@@ -399,6 +388,14 @@
     "role_unit_changed": {
       "title": "Unit changed",
       "description": "The entity assigned to the {role} role of \"{subentry_title}\" now reports a different unit than when it was assigned. The role is not read until this is resolved. Open the role's dialog and re-select the entity to confirm the new unit."
+    },
+    "unknown_mapping_value": {
+      "title": "Unrecognized raw value",
+      "description": "The {role} role of \"{subentry_title}\" reported the raw value \"{raw_value}\", which the assigned device's mapping does not know. This is resolved by an updated mapping in the integration, not by a manual assignment."
+    },
+    "mapping_source_below_min_version": {
+      "title": "Mapping source outdated or missing",
+      "description": "The source integration for \"{device}\", chosen for \"{subentry_title}\", is not installed or older than {integration_name} {min_version}. Data collection continues; update or install the source integration to resolve this."
     }
   }
 }

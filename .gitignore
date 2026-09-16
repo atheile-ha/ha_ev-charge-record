@@ -18,7 +18,7 @@ secrets.yaml
 !custom_components/ev_charging/manifest.json
 !custom_components/ev_charging/strings.json
 !custom_components/ev_charging/translations/*.json
-!custom_components/ev_charging/presets/*.json
+!custom_components/ev_charging/mappings/*.json
 !hacs.json
 !frontend/package.json
 !frontend/tsconfig.json

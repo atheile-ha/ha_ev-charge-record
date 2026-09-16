@@ -1,0 +1,51 @@
+{
+  "format_version": 1,
+  "id": "openems_heidelberg_connect",
+  "kind": "wallbox",
+  "integration": {
+    "domain": "openems",
+    "name": "FENECON FEMS / OpenEMS (ha_openems)",
+    "min_version": "1.7.2"
+  },
+  "device": {
+    "manufacturer": "Heidelberg",
+    "model": "Energy Control Connect",
+    "source_component": [
+      "Evse.ChargePoint.Heidelberg.Connect"
+    ]
+  },
+  "roles": {
+    "plug_state": {
+      "source_channel": "ChargingState",
+      "values": {
+        "undefined_pre_a1": "neutral",
+        "a1": "not_connected",
+        "a2": "not_connected",
+        "b1": "connected",
+        "b2": "connected",
+        "c1": "connected",
+        "c2": "connected",
+        "derating": "connected",
+        "e": "neutral",
+        "f": "neutral",
+        "car_error": "neutral"
+      }
+    },
+    "error": {
+      "source_channel": "ChargingState",
+      "values": {
+        "undefined_pre_a1": "neutral",
+        "a1": "ok",
+        "a2": "ok",
+        "b1": "ok",
+        "b2": "ok",
+        "c1": "ok",
+        "c2": "ok",
+        "derating": "ok",
+        "e": "error",
+        "f": "ok",
+        "car_error": "error"
+      }
+    }
+  }
+}

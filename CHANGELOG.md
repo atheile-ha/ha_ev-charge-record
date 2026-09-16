@@ -4,6 +4,24 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.3.0] - 2026-09-16
+
+### Hinzugefügt
+
+- Mitgelieferte Mapping-Dateien für zehn Geräte (KEBA P40, KEBA P20/P30 über UDP, Webasto Next, Spelsberg SMART, ABL eMH, Alfen Eve, Hardy Barth cPH2/Salia, Heidelberg Energy Control Connect, Mennekes Amtron, Mercedes Me) im Ordner `mappings/`
+- Gerätewahl als erster Schritt im Wallbox- und im Fahrzeug-Subentry: Zustandsklassen kommen ausschließlich aus der gewählten Mapping-Datei
+- Hinweis im Gerätedialog auf Geräte, deren Quellintegration nicht installiert oder zu alt ist
+- Repair Issue, wenn die Quellintegration eines bereits gewählten Geräts unter die Mindestversion fällt
+
+### Geändert
+
+- Der Zuordnungsschritt für Steckerzustand, Fehler, Ladezustand und Ladeart entfällt vollständig; die Klassifikation kommt aus der gewählten Mapping-Datei
+- Schemaversion des Config Entrys und der Subentries auf 4 angehoben, bestehende Einträge werden migriert; das gewählte Gerät ist danach neu zu vergeben
+
+### Entfernt
+
+- Presets, Recorder-Abfrage und freie Eingabe zur Ermittlung von Zustandszuordnungen
+
 ## [0.2.2] - 2026-09-15
 
 ### Geändert

@@ -2,20 +2,16 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Callable
-from datetime import timedelta
-from pathlib import Path
-from typing import Any
 
-import homeassistant.util.dt as dt_util
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from awesomeversion import AwesomeVersion
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.entity_registry import EventEntityRegistryUpdatedData
 from homeassistant.helpers.event import async_track_entity_registry_updated_event
+from homeassistant.loader import IntegrationNotFound, async_get_integration
 
 from .const import (
     CHARGE_STATE_DEFAULT,
@@ -23,10 +19,8 @@ from .const import (
     DOMAIN,
     ENERGY_UNIT_FACTORS_TO_KWH,
     ERROR_CLASS_OK,
-    MAPPING_UNMAPPED,
     PLUG_STATE_CONNECTED,
     POWER_UNIT_FACTORS_TO_KW,
-    RECORDER_STATE_LOOKBACK_DAYS,
 )
 from .models import EntityRole
 
@@ -64,14 +58,6 @@ def resolve_entity_id(hass: HomeAssistant, role: EntityRole | None) -> str | Non
         entry = er.async_get(hass).async_get(role.registry_entry_id)
         return entry.entity_id if entry is not None else None
     return role.entity_id
-
-
-def resolve_platform(hass: HomeAssistant, role: EntityRole | None) -> str | None:
-    """Return the integration domain backing a role's entity, if known."""
-    if role is None or role.registry_entry_id is None:
-        return None
-    entry = er.async_get(hass).async_get(role.registry_entry_id)
-    return entry.platform if entry is not None else None
 
 
 def resolve_current_unit(hass: HomeAssistant, role: EntityRole | None) -> str | None:
@@ -224,98 +210,15 @@ def async_track_role_registry(
     return _unsub
 
 
-async def async_query_recorder_states(hass: HomeAssistant, entity_id: str) -> set[str]:
-    """Return the distinct raw states observed for entity_id over the trailing period.
+async def async_integration_meets_min_version(
+    hass: HomeAssistant, domain: str, min_version: str
+) -> bool | None:
+    """Return whether an installed integration is at least min_version.
 
-    Runs the blocking recorder query in the executor.
+    Returns None if the integration is not installed at all (4.7, O20).
     """
-    from homeassistant.components.recorder import history
-
-    end_time = dt_util.utcnow()
-    start_time = end_time - timedelta(days=RECORDER_STATE_LOOKBACK_DAYS)
-
-    def _query() -> set[str]:
-        changes = history.state_changes_during_period(
-            hass,
-            start_time,
-            end_time,
-            entity_id,
-            no_attributes=True,
-            include_start_time_state=False,
-        )
-        return {
-            state.state
-            for state in changes.get(entity_id, [])
-            if state.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE)
-        }
-
-    return await hass.async_add_executor_job(_query)
-
-
-def load_preset(path: Path) -> dict[str, Any]:
-    """Read and parse a bundled preset JSON file.
-
-    Blocking; call via the executor.
-    """
-    with path.open(encoding="utf-8") as handle:
-        return json.load(handle)
-
-
-def format_preset_reference(preset_role: dict[str, Any]) -> str:
-    """Format a preset role's reference code table as readable text for a dialog."""
-    lines = [
-        f"{entry['code']} = {entry['meaning']} ({entry['class']})"
-        for entry in preset_role.get("codes", [])
-    ]
-    note = preset_role.get("cable_variant_note")
-    if note:
-        lines.append(note)
-    return "\n".join(lines)
-
-
-def build_mapping_rows(
-    *,
-    existing: dict[str, str],
-    preset_values: dict[str, str] | None,
-    discovered: set[str],
-) -> list[dict[str, str]]:
-    """Merge an existing mapping, direct preset values, and recorder-discovered values.
-
-    Existing entries take priority, then preset entries, then newly
-    discovered values, which start out as MAPPING_UNMAPPED.
-    """
-    rows: dict[str, str] = dict(existing)
-    for raw_value, klass in (preset_values or {}).items():
-        rows.setdefault(raw_value, klass)
-    for raw_value in discovered:
-        rows.setdefault(raw_value, MAPPING_UNMAPPED)
-    return [{"raw_value": raw_value, "class": klass} for raw_value, klass in rows.items()]
-
-
-def mapping_from_rows(rows: list[dict[str, Any]]) -> dict[str, str]:
-    """Convert submitted mapping rows back into a raw_value-to-class mapping.
-
-    Rows left at MAPPING_UNMAPPED, or with an empty raw value, are dropped.
-    """
-    mapping: dict[str, str] = {}
-    for row in rows:
-        raw_value = str(row.get("raw_value", "")).strip()
-        klass = row.get("class")
-        if not raw_value or not klass or klass == MAPPING_UNMAPPED:
-            continue
-        mapping[raw_value] = klass
-    return mapping
-
-
-def find_preset(presets_dir: Path, platform: str | None) -> dict[str, Any] | None:
-    """Return the bundled preset matching platform, if any.
-
-    Blocking; call via the executor.
-    """
-    if platform is None:
+    try:
+        integration = await async_get_integration(hass, domain)
+    except IntegrationNotFound:
         return None
-    for preset_path in sorted(presets_dir.glob("*.json")):
-        data = load_preset(preset_path)
-        if data.get("platform") == platform:
-            return data
-    return None
+    return AwesomeVersion(integration.version) >= AwesomeVersion(min_version)

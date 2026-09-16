@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import voluptuous as vol
@@ -14,6 +13,7 @@ from homeassistant.config_entries import (
     ConfigSubentryFlow,
     SubentryFlowResult,
 )
+from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import SectionConfig, section
 from homeassistant.helpers.selector import (
     BooleanSelector,
@@ -27,12 +27,10 @@ from homeassistant.helpers.selector import (
     TextSelector,
 )
 
-from . import resolver
+from . import mappings, resolver
 from .const import (
     CARD_TYPE_EMAID,
     CARD_TYPE_RFID,
-    CHARGE_STATE_CLASSES,
-    CHARGE_TYPES,
     CONF_VEHICLE_SEQUENCE,
     CONF_WALLBOX_SEQUENCE,
     COST_MODE_DYNAMIC,
@@ -43,16 +41,13 @@ from .const import (
     DEFAULT_POWER_THRESHOLD_KW,
     DEFAULT_START_DEBOUNCE_S,
     DOMAIN,
-    ERROR_CLASSES,
     INVALID_CARD_UIDS,
-    MAPPING_UNMAPPED,
     MAX_IDENTIFICATION_WINDOW_S,
     MAX_START_DEBOUNCE_S,
     MAX_UPDATE_INTERVAL_S,
     MIN_IDENTIFICATION_WINDOW_S,
     MIN_START_DEBOUNCE_S,
     MIN_UPDATE_INTERVAL_S,
-    PLUG_STATE_CLASSES,
     SOLAR_VALUATIONS,
     SUBENTRY_TYPE_VEHICLE,
     SUBENTRY_TYPE_WALLBOX,
@@ -61,8 +56,6 @@ from .const import (
     WALLBOX_ID_PREFIX,
 )
 from .models import Card, EntityRole, HubSettings, Vehicle, Wallbox, normalize_card_uid
-
-PRESETS_DIR = Path(__file__).parent / "presets"
 
 # Shown in the vehicle dialog's identification hint when no value can be read.
 NO_IDENTIFICATION_HINT = "-"
@@ -73,83 +66,40 @@ def _entity_id(role: EntityRole | None) -> str | None:
     return role.entity_id if role is not None else None
 
 
-def _is_binary_sensor(entity_id: str) -> bool:
-    """Return whether entity_id belongs to the binary_sensor domain."""
-    return entity_id.startswith("binary_sensor.")
+async def _async_device_choices(
+    hass: HomeAssistant, *, kind: str, current_mapping_id: str | None
+) -> tuple[list[SelectOptionDict], str]:
+    """Return selectable device options for kind, plus an excluded-devices hint (O19, O20).
 
-
-async def _async_mapping_step(
-    flow: ConfigSubentryFlow,
-    *,
-    step_id: str,
-    user_input: dict[str, Any] | None,
-    entity_id: str,
-    preset_role_key: str,
-    classes: tuple[str, ...],
-    class_translation_key: str,
-    existing: dict[str, str],
-) -> tuple[dict[str, str] | None, SubentryFlowResult | None]:
-    """Handle one step of a state mapping (4.7): preset, recorder, free entry.
-
-    Returns (mapping, None) once the user has submitted rows, or once a
-    bundled preset already covers every candidate value with nothing left to
-    classify. Returns (None, form_result) to show the step's form only when
-    something remains for the user to decide.
+    A device is offered when its source integration is installed and at
+    least min_version, or when it is the subentry's already-chosen device:
+    reconfiguring never silently drops the current choice, even if its
+    integration was since removed or downgraded.
     """
-    if user_input is not None:
-        return resolver.mapping_from_rows(user_input["mapping"]), None
+    all_mappings = await mappings.async_get_mappings(hass)
+    candidates = mappings.mappings_for_kind(all_mappings, kind)
 
-    hass = flow.hass
-    role = resolver.build_role(hass, entity_id)
-    platform = resolver.resolve_platform(hass, role)
-    preset = await hass.async_add_executor_job(resolver.find_preset, PRESETS_DIR, platform)
-    preset_data = (preset or {}).get(preset_role_key)
-    preset_values = preset_data.get("values") if preset_data else None
-    reference = resolver.format_preset_reference(preset_data) if preset_data else ""
-
-    discovered = await resolver.async_query_recorder_states(hass, entity_id)
-    rows = resolver.build_mapping_rows(
-        existing=existing, preset_values=preset_values, discovered=discovered
-    )
-
-    if preset_values and all(row["class"] != MAPPING_UNMAPPED for row in rows):
-        return resolver.mapping_from_rows(rows), None
-
-    schema = vol.Schema(
-        {
-            vol.Required("mapping", default=rows): ObjectSelector(
-                ObjectSelectorConfig(
-                    multiple=True,
-                    label_field="raw_value",
-                    translation_key="state_mapping",
-                    fields={
-                        "raw_value": {"selector": TextSelector(), "required": True},
-                        "class": {
-                            "selector": SelectSelector(
-                                SelectSelectorConfig(
-                                    options=[*classes, MAPPING_UNMAPPED],
-                                    translation_key=class_translation_key,
-                                )
-                            ),
-                            "required": True,
-                        },
-                    },
-                )
-            ),
-        }
-    )
-    form = flow.async_show_form(
-        step_id=step_id,
-        data_schema=schema,
-        description_placeholders={"reference": reference},
-    )
-    return None, form
+    options: list[SelectOptionDict] = []
+    excluded_lines: list[str] = []
+    for candidate in candidates:
+        meets = await resolver.async_integration_meets_min_version(
+            hass, candidate.integration_domain, candidate.min_version
+        )
+        if meets or candidate.id == current_mapping_id:
+            options.append(SelectOptionDict(value=candidate.id, label=candidate.device_label))
+        else:
+            status = "not installed" if meets is None else "too old"
+            excluded_lines.append(
+                f"{candidate.device_label} ({candidate.integration_name}, {status}, "
+                f">= {candidate.min_version} required)"
+            )
+    return options, "\n".join(excluded_lines)
 
 
 class EvChargingConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for ev_charging."""
 
-    VERSION = 3
+    VERSION = 4
     MINOR_VERSION = 1
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
@@ -305,23 +255,65 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
         return self.hass.config_entries.async_get_known_entry(self.handler[0])
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
-        """Create the wallbox subentry. Only one instance is allowed."""
+        """Choose the wallbox's device. Only one wallbox instance is allowed."""
         if self._entry.get_subentries_of_type(SUBENTRY_TYPE_WALLBOX):
             return self.async_abort(reason="single_wallbox_allowed")
-        return await self._async_step(user_input, subentry=None)
+        return await self._async_device_step(user_input, subentry=None)
 
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> SubentryFlowResult:
-        """Edit the existing wallbox subentry."""
-        return await self._async_step(user_input, subentry=self._get_reconfigure_subentry())
+        """Change the wallbox's chosen device."""
+        return await self._async_device_step(user_input, subentry=self._get_reconfigure_subentry())
 
-    async def _async_step(
+    async def _async_device_step(
         self, user_input: dict[str, Any] | None, *, subentry: ConfigSubentry | None
     ) -> SubentryFlowResult:
+        """Device choice (O19): always the first step, mandatory for a wallbox.
+
+        plug_state is always mandatory (5.1), so a wallbox always needs a
+        mapping to classify it.
+        """
         step_id = "reconfigure" if subentry else "user"
-        defaults = Wallbox.from_dict(subentry.data) if subentry else None
         self._subentry = subentry
+        current_mapping_id = Wallbox.from_dict(subentry.data).mapping_id if subentry else None
+
+        if user_input is not None:
+            self._pending = {"mapping_id": user_input["mapping_id"]}
+            if subentry is not None:
+                return await self.async_step_details_reconfigure()
+            return await self.async_step_details()
+
+        options, excluded = await _async_device_choices(
+            self.hass, kind=SUBENTRY_TYPE_WALLBOX, current_mapping_id=current_mapping_id
+        )
+        schema = vol.Schema(
+            {
+                vol.Required("mapping_id", default=current_mapping_id): SelectSelector(
+                    SelectSelectorConfig(options=options)
+                ),
+            }
+        )
+        return self.async_show_form(
+            step_id=step_id, data_schema=schema, description_placeholders={"excluded": excluded}
+        )
+
+    async def async_step_details(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Wallbox master data and entity roles, entered after the device is chosen."""
+        return await self._async_details_step(user_input, step_id="details")
+
+    async def async_step_details_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Wallbox master data and entity roles, entered after the device is chosen (edit)."""
+        return await self._async_details_step(user_input, step_id="details_reconfigure")
+
+    async def _async_details_step(
+        self, user_input: dict[str, Any] | None, *, step_id: str
+    ) -> SubentryFlowResult:
+        defaults = Wallbox.from_dict(self._subentry.data) if self._subentry else None
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -333,8 +325,8 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
             user_input["model"] = user_input.get("model") or None
             errors = self._validate(user_input)
             if not errors:
-                self._pending = user_input
-                return await self.async_step_plug_state_mapping()
+                self._pending.update(user_input)
+                return self._finish()
 
         return self.async_show_form(
             step_id=step_id, data_schema=self._schema(defaults=defaults), errors=errors
@@ -362,51 +354,6 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
             errors["energy_total"] = "energy_counter_required"
         return errors
 
-    async def async_step_plug_state_mapping(
-        self, user_input: dict[str, Any] | None = None
-    ) -> SubentryFlowResult:
-        """Map the wallbox's raw plug state values onto connected/not_connected (4.7)."""
-        existing = self._subentry_wallbox().plug_state_mapping if self._subentry else {}
-        mapping, form = await _async_mapping_step(
-            self,
-            step_id="plug_state_mapping",
-            user_input=user_input,
-            entity_id=self._pending["plug_state"],
-            preset_role_key="plug_state",
-            classes=PLUG_STATE_CLASSES,
-            class_translation_key="plug_state_class",
-            existing=existing,
-        )
-        if form is not None:
-            return form
-        self._pending["plug_state_mapping"] = mapping
-
-        error_entity = self._pending.get("error")
-        if error_entity and not _is_binary_sensor(error_entity):
-            return await self.async_step_error_mapping()
-        self._pending["error_mapping"] = {}
-        return self._finish()
-
-    async def async_step_error_mapping(
-        self, user_input: dict[str, Any] | None = None
-    ) -> SubentryFlowResult:
-        """Map the wallbox error entity's raw state values onto ok/error (E29, 4.7)."""
-        existing = self._subentry_wallbox().error_mapping if self._subentry else {}
-        mapping, form = await _async_mapping_step(
-            self,
-            step_id="error_mapping",
-            user_input=user_input,
-            entity_id=self._pending["error"],
-            preset_role_key="error",
-            classes=ERROR_CLASSES,
-            class_translation_key="error_class",
-            existing=existing,
-        )
-        if form is not None:
-            return form
-        self._pending["error_mapping"] = mapping
-        return self._finish()
-
     def _subentry_wallbox(self) -> Wallbox:
         assert self._subentry is not None
         return Wallbox.from_dict(self._subentry.data)
@@ -422,14 +369,13 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
             power_threshold_kw=data["power_threshold_kw"],
             start_debounce_s=data["start_debounce_s"],
             identification_window_s=data["identification_window_s"],
+            mapping_id=data["mapping_id"],
             charge_power=resolver.build_role(self.hass, data.get("charge_power")),
             energy_total=resolver.build_role(self.hass, data.get("energy_total")),
             energy_session=resolver.build_role(self.hass, data.get("energy_session")),
             plug_state=resolver.build_role(self.hass, data.get("plug_state")),
-            plug_state_mapping=data["plug_state_mapping"],
             identification=resolver.build_role(self.hass, data.get("identification")),
             error=resolver.build_role(self.hass, data.get("error")),
-            error_mapping=data["error_mapping"],
         )
 
         if self._subentry:
@@ -533,21 +479,65 @@ class VehicleSubentryFlow(ConfigSubentryFlow):
         return self.hass.config_entries.async_get_known_entry(self.handler[0])
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
-        """Create a new vehicle subentry."""
-        return await self._async_step(user_input, subentry=None)
+        """Choose the vehicle's device, if any."""
+        return await self._async_device_step(user_input, subentry=None)
 
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> SubentryFlowResult:
-        """Edit an existing vehicle subentry."""
-        return await self._async_step(user_input, subentry=self._get_reconfigure_subentry())
+        """Change the vehicle's chosen device."""
+        return await self._async_device_step(user_input, subentry=self._get_reconfigure_subentry())
 
-    async def _async_step(
+    async def _async_device_step(
         self, user_input: dict[str, Any] | None, *, subentry: ConfigSubentry | None
     ) -> SubentryFlowResult:
+        """Device choice (O19): always the first step, optional for a vehicle.
+
+        charge_state and charge_type are optional roles (5.2); a guest
+        vehicle or one tracked only via soc/odometer/location needs no
+        device at all. Becomes mandatory only once one of those roles is
+        assigned, checked in the details step.
+        """
         step_id = "reconfigure" if subentry else "user"
-        defaults = Vehicle.from_dict(subentry.data) if subentry else None
         self._subentry = subentry
+        current_mapping_id = Vehicle.from_dict(subentry.data).mapping_id if subentry else None
+
+        if user_input is not None:
+            self._pending = {"mapping_id": user_input.get("mapping_id")}
+            if subentry is not None:
+                return await self.async_step_details_reconfigure()
+            return await self.async_step_details()
+
+        options, excluded = await _async_device_choices(
+            self.hass, kind=SUBENTRY_TYPE_VEHICLE, current_mapping_id=current_mapping_id
+        )
+        schema = vol.Schema(
+            {
+                vol.Optional("mapping_id", default=current_mapping_id): vol.Any(
+                    None, SelectSelector(SelectSelectorConfig(options=options))
+                ),
+            }
+        )
+        return self.async_show_form(
+            step_id=step_id, data_schema=schema, description_placeholders={"excluded": excluded}
+        )
+
+    async def async_step_details(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Vehicle master data and entity roles, entered after the device choice."""
+        return await self._async_details_step(user_input, step_id="details")
+
+    async def async_step_details_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Vehicle master data and entity roles, entered after the device choice (edit)."""
+        return await self._async_details_step(user_input, step_id="details_reconfigure")
+
+    async def _async_details_step(
+        self, user_input: dict[str, Any] | None, *, step_id: str
+    ) -> SubentryFlowResult:
+        defaults = Vehicle.from_dict(self._subentry.data) if self._subentry else None
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -556,12 +546,12 @@ class VehicleSubentryFlow(ConfigSubentryFlow):
             user_input["vin"] = user_input.get("vin") or None
             user_input["manufacturer"] = user_input.get("manufacturer") or None
             user_input["model"] = user_input.get("model") or None
-            own_subentry_id = subentry.subentry_id if subentry else None
+            own_subentry_id = self._subentry.subentry_id if self._subentry else None
             cards, errors = self._validate(user_input, own_subentry_id=own_subentry_id)
             if not errors:
-                self._pending = user_input
+                self._pending.update(user_input)
                 self._pending["cards"] = cards
-                return await self.async_step_charge_state_mapping()
+                return self._finish()
 
         return self.async_show_form(
             step_id=step_id,
@@ -598,6 +588,11 @@ class VehicleSubentryFlow(ConfigSubentryFlow):
             not user_input.get("charge_state") or not user_input.get("location")
         ):
             errors["identify_by_vehicle_api"] = "identify_by_vehicle_api_requires_roles"
+
+        if (
+            user_input.get("charge_state") or user_input.get("charge_type")
+        ) and not self._pending.get("mapping_id"):
+            errors["base"] = "charge_state_requires_mapping"
 
         raw_cards = user_input.pop("cards", [])
 
@@ -636,56 +631,6 @@ class VehicleSubentryFlow(ConfigSubentryFlow):
                 return True
         return False
 
-    async def async_step_charge_state_mapping(
-        self, user_input: dict[str, Any] | None = None
-    ) -> SubentryFlowResult:
-        """Map the vehicle's raw charge state values onto the four classes (4.7)."""
-        entity_id = self._pending.get("charge_state")
-        if not entity_id:
-            self._pending["charge_state_mapping"] = {}
-            return await self.async_step_charge_type_mapping()
-
-        existing = self._subentry_vehicle().charge_state_mapping if self._subentry else {}
-        mapping, form = await _async_mapping_step(
-            self,
-            step_id="charge_state_mapping",
-            user_input=user_input,
-            entity_id=entity_id,
-            preset_role_key="charge_state",
-            classes=CHARGE_STATE_CLASSES,
-            class_translation_key="charge_state_class",
-            existing=existing,
-        )
-        if form is not None:
-            return form
-        self._pending["charge_state_mapping"] = mapping
-        return await self.async_step_charge_type_mapping()
-
-    async def async_step_charge_type_mapping(
-        self, user_input: dict[str, Any] | None = None
-    ) -> SubentryFlowResult:
-        """Map the vehicle's raw charge type values onto ac/dc (4.7)."""
-        entity_id = self._pending.get("charge_type")
-        if not entity_id:
-            self._pending["charge_type_mapping"] = {}
-            return self._finish()
-
-        existing = self._subentry_vehicle().charge_type_mapping if self._subentry else {}
-        mapping, form = await _async_mapping_step(
-            self,
-            step_id="charge_type_mapping",
-            user_input=user_input,
-            entity_id=entity_id,
-            preset_role_key="charge_type",
-            classes=CHARGE_TYPES,
-            class_translation_key="charge_type_class",
-            existing=existing,
-        )
-        if form is not None:
-            return form
-        self._pending["charge_type_mapping"] = mapping
-        return self._finish()
-
     def _subentry_vehicle(self) -> Vehicle:
         assert self._subentry is not None
         return Vehicle.from_dict(self._subentry.data)
@@ -703,13 +648,12 @@ class VehicleSubentryFlow(ConfigSubentryFlow):
             cost_mode=data["cost_mode"],
             cards=data["cards"],
             identify_by_vehicle_api=data.get("identify_by_vehicle_api", False),
+            mapping_id=data.get("mapping_id"),
             soc=resolver.build_role(self.hass, data.get("soc")),
             soc_target=resolver.build_role(self.hass, data.get("soc_target")),
             odometer=resolver.build_role(self.hass, data.get("odometer")),
             charge_state=resolver.build_role(self.hass, data.get("charge_state")),
-            charge_state_mapping=data["charge_state_mapping"],
             charge_type=resolver.build_role(self.hass, data.get("charge_type")),
-            charge_type_mapping=data["charge_type_mapping"],
             energy_session=resolver.build_role(self.hass, data.get("energy_session")),
             location=resolver.build_role(self.hass, data.get("location")),
             charge_end=resolver.build_role(self.hass, data.get("charge_end")),

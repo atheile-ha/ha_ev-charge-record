@@ -7,12 +7,16 @@ from custom_components.ev_charging.const import (
     SUBENTRY_TYPE_WALLBOX,
     TITLE,
 )
-from custom_components.ev_charging.models import EntityRole, Wallbox
+from custom_components.ev_charging.models import EntityRole, Vehicle, Wallbox
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    MockModule,
+    mock_integration,
+)
 
 CURRENT_DATA = {
     "wallbox_seq": 0,
@@ -75,7 +79,7 @@ async def test_migrate_entry_adds_hub_settings(hass: HomeAssistant) -> None:
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert entry.version == 3
+    assert entry.version == 4
     assert entry.minor_version == 1
     assert entry.data == CURRENT_DATA
 
@@ -98,7 +102,7 @@ async def test_migrate_entry_v2_adds_grid_and_price_roles(hass: HomeAssistant) -
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert entry.version == 3
+    assert entry.version == 4
     assert entry.data == CURRENT_DATA
 
 
@@ -280,3 +284,122 @@ async def test_setup_creates_no_entities(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
 
     assert [state.entity_id for state in hass.states.async_all()] == []
+
+
+async def test_migrate_entry_discards_stored_state_mappings(hass: HomeAssistant) -> None:
+    """v3 to v4 drops the old per-value mappings; mapping_id defaults to unset."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title=TITLE,
+        data=CURRENT_DATA,
+        version=3,
+        minor_version=1,
+        subentries_data=[
+            {
+                "data": {
+                    **_wallbox_subentry_data(
+                        charge_power=EntityRole(entity_id="sensor.wallbox_power")
+                    ),
+                    "plug_state_mapping": {"5": "connected"},
+                    "error_mapping": {"4": "error"},
+                },
+                "subentry_type": SUBENTRY_TYPE_WALLBOX,
+                "title": "Carport",
+                "unique_id": None,
+            },
+            {
+                "data": {
+                    **Vehicle(id="v001", name="GLB 250+ EQ", capacity_kwh=85.0).to_dict(),
+                    "charge_state_mapping": {"0": "charging"},
+                    "charge_type_mapping": {"13": "ac"},
+                },
+                "subentry_type": SUBENTRY_TYPE_VEHICLE,
+                "title": "GLB 250+ EQ",
+                "unique_id": None,
+            },
+        ],
+    )
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.version == 4
+    wallbox_data = next(
+        sub.data for sub in entry.subentries.values() if sub.subentry_type == SUBENTRY_TYPE_WALLBOX
+    )
+    vehicle_data = next(
+        sub.data for sub in entry.subentries.values() if sub.subentry_type == SUBENTRY_TYPE_VEHICLE
+    )
+    assert "plug_state_mapping" not in wallbox_data
+    assert "error_mapping" not in wallbox_data
+    assert wallbox_data["mapping_id"] is None
+    assert "charge_state_mapping" not in vehicle_data
+    assert "charge_type_mapping" not in vehicle_data
+    assert vehicle_data["mapping_id"] is None
+
+
+async def test_mapping_source_below_min_version_creates_repair_issue(hass: HomeAssistant) -> None:
+    """A chosen device whose source integration fell below min_version is flagged (4.7, O20)."""
+    mock_integration(hass, MockModule("openems", partial_manifest={"version": "1.0.0"}))
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title=TITLE,
+        data=CURRENT_DATA,
+        version=3,
+        minor_version=1,
+        subentries_data=[
+            {
+                "data": {
+                    **_wallbox_subentry_data(
+                        charge_power=EntityRole(entity_id="sensor.wallbox_power")
+                    ),
+                    "mapping_id": "openems_keba_p40",
+                },
+                "subentry_type": SUBENTRY_TYPE_WALLBOX,
+                "title": "Carport",
+                "unique_id": None,
+            }
+        ],
+    )
+    entry.add_to_hass(hass)
+    subentry = next(iter(entry.subentries.values()))
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    issue_id = problems.mapping_source_below_min_version_issue_id(subentry.subentry_id)
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
+
+
+async def test_mapping_source_at_min_version_creates_no_repair_issue(hass: HomeAssistant) -> None:
+    """No issue is created once the source integration meets min_version again."""
+    mock_integration(hass, MockModule("openems", partial_manifest={"version": "1.7.2"}))
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title=TITLE,
+        data=CURRENT_DATA,
+        version=3,
+        minor_version=1,
+        subentries_data=[
+            {
+                "data": {
+                    **_wallbox_subentry_data(
+                        charge_power=EntityRole(entity_id="sensor.wallbox_power")
+                    ),
+                    "mapping_id": "openems_keba_p40",
+                },
+                "subentry_type": SUBENTRY_TYPE_WALLBOX,
+                "title": "Carport",
+                "unique_id": None,
+            }
+        ],
+    )
+    entry.add_to_hass(hass)
+    subentry = next(iter(entry.subentries.values()))
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    issue_id = problems.mapping_source_below_min_version_issue_id(subentry.subentry_id)
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from . import problems, resolver
+from . import mappings, problems, resolver
 from .const import (
     CONF_VEHICLE_SEQUENCE,
     CONF_WALLBOX_SEQUENCE,
@@ -106,6 +106,30 @@ def _watch_roles(
             )
 
 
+async def _async_check_mapping_min_version(
+    hass: HomeAssistant, *, subentry_id: str, subentry_title: str, mapping_id: str | None
+) -> None:
+    """Check a subentry's chosen mapping source against its min_version (4.7, O20)."""
+    if mapping_id is None:
+        return
+    all_mappings = await mappings.async_get_mappings(hass)
+    mapping = all_mappings.get(mapping_id)
+    if mapping is None:
+        return
+    meets = await resolver.async_integration_meets_min_version(
+        hass, mapping.integration_domain, mapping.min_version
+    )
+    problems.check_mapping_source_below_min_version(
+        hass,
+        below_min_version=meets is not True,
+        subentry_id=subentry_id,
+        subentry_title=subentry_title,
+        device_label=mapping.device_label,
+        integration_name=mapping.integration_name,
+        min_version=mapping.min_version,
+    )
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: EvChargingConfigEntry) -> bool:
     """Set up ev_charging from a config entry."""
     unsub_listeners: list[callable] = []
@@ -128,6 +152,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: EvChargingConfigEntry) -
                 roles=_wallbox_roles(wallbox),
                 unsub_listeners=unsub_listeners,
             )
+            await _async_check_mapping_min_version(
+                hass,
+                subentry_id=subentry.subentry_id,
+                subentry_title=subentry.title,
+                mapping_id=wallbox.mapping_id,
+            )
         elif subentry.subentry_type == SUBENTRY_TYPE_VEHICLE:
             vehicle = Vehicle.from_dict(subentry.data)
             _watch_roles(
@@ -136,6 +166,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: EvChargingConfigEntry) -
                 subentry_title=subentry.title,
                 roles=_vehicle_roles(vehicle),
                 unsub_listeners=unsub_listeners,
+            )
+            await _async_check_mapping_min_version(
+                hass,
+                subentry_id=subentry.subentry_id,
+                subentry_title=subentry.title,
+                mapping_id=vehicle.mapping_id,
             )
 
     entry.runtime_data = EvChargingRuntimeData(unsub_listeners=unsub_listeners)
@@ -187,6 +223,24 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.config_entries.async_update_entry(entry, data=data, version=3, minor_version=1)
         _LOGGER.info(
             "Migrated ev_charging config entry %s from version %s to 3.1",
+            entry.entry_id,
+            from_version,
+        )
+
+    if entry.version == 3:
+        from_version = f"{entry.version}.{entry.minor_version}"
+        for subentry in entry.subentries.values():
+            if subentry.subentry_type == SUBENTRY_TYPE_WALLBOX:
+                wallbox = Wallbox.from_dict(subentry.data)
+                hass.config_entries.async_update_subentry(entry, subentry, data=wallbox.to_dict())
+            elif subentry.subentry_type == SUBENTRY_TYPE_VEHICLE:
+                vehicle = Vehicle.from_dict(subentry.data)
+                hass.config_entries.async_update_subentry(entry, subentry, data=vehicle.to_dict())
+
+        hass.config_entries.async_update_entry(entry, version=4, minor_version=1)
+        _LOGGER.info(
+            "Migrated ev_charging config entry %s from version %s to 4.1, discarding stored "
+            "state mappings; wallboxes and vehicles need their mapping device reassigned",
             entry.entry_id,
             from_version,
         )

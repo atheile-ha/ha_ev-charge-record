@@ -100,6 +100,14 @@ CHARGE_STATE_DEFAULT = CHARGE_STATE_CONNECTED_IDLE
 
 CHARGE_TYPES = CURRENT_TYPES
 
+# A raw value with no meaning for a given role (E31, 4.7). Leaves the last
+# valid class of that role unchanged; distinct from a value missing from the
+# mapping entirely, which is unresolved and repair-worthy.
+MAPPING_CLASS_NEUTRAL = "neutral"
+
+# Only this mapping file format is understood (4.7).
+MAPPING_FORMAT_VERSION = 1
+
 # Wallbox entity roles (5.1).
 ROLE_CHARGE_POWER = "charge_power"
 ROLE_ENERGY_TOTAL = "energy_total"
@@ -132,15 +140,8 @@ POWER_UNIT_FACTORS_TO_KW = {"kW": 1.0, "W": 0.001, "MW": 1000.0}
 ENERGY_UNIT_FACTORS_TO_KWH = {"kWh": 1.0, "Wh": 0.001, "MWh": 1000.0}
 DISTANCE_UNIT_FACTORS_TO_KM = {"km": 1.0, "m": 0.001, "mi": 1.609344}
 
-RECORDER_STATE_LOOKBACK_DAYS = 90
-
-# Sentinel selectable in a mapping step's class field, for a raw value that is
-# not yet assigned a class. Rows left at this value are not stored; the
-# value falls back to its runtime default until it is mapped explicitly.
-# Used as a selector translation key, so it must match [a-z0-9-_]+ without a
-# leading or trailing hyphen or underscore.
-MAPPING_UNMAPPED = "unmapped"
-
 # Repair issue translation keys (12.3).
 ISSUE_ROLE_ENTITY_REMOVED = "role_entity_removed"
 ISSUE_ROLE_UNIT_CHANGED = "role_unit_changed"
+ISSUE_UNKNOWN_MAPPING_VALUE = "unknown_mapping_value"
+ISSUE_MAPPING_SOURCE_BELOW_MIN_VERSION = "mapping_source_below_min_version"

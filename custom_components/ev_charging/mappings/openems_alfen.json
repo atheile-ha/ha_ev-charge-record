@@ -1,0 +1,49 @@
+{
+  "format_version": 1,
+  "id": "openems_alfen",
+  "kind": "wallbox",
+  "integration": {
+    "domain": "openems",
+    "name": "FENECON FEMS / OpenEMS (ha_openems)",
+    "min_version": "1.7.2"
+  },
+  "device": {
+    "manufacturer": "Alfen",
+    "model": "Eve (Modbus)",
+    "source_component": [
+      "Evse.ChargePoint.Alfen"
+    ]
+  },
+  "roles": {
+    "plug_state": {
+      "source_channel": "Mode3State",
+      "values": {
+        "undefined": "neutral",
+        "a_no_ev_connected": "not_connected",
+        "b1_ev_connected_charging_not_allowed": "connected",
+        "b2_ev_connected_charging_allowed": "connected",
+        "c1_ev_ready_to_charge_charging_not_allowed": "connected",
+        "c2_charging": "connected",
+        "d1_ev_ready_to_charge_with_ventilation_charging_not_allowed": "connected",
+        "d2_charging_with_ventilation": "connected",
+        "e_error_short_circuit_or_no_power": "neutral",
+        "f_error_charge_point_unavailable": "neutral"
+      }
+    },
+    "error": {
+      "source_channel": "Mode3State",
+      "values": {
+        "undefined": "neutral",
+        "a_no_ev_connected": "ok",
+        "b1_ev_connected_charging_not_allowed": "ok",
+        "b2_ev_connected_charging_allowed": "ok",
+        "c1_ev_ready_to_charge_charging_not_allowed": "ok",
+        "c2_charging": "ok",
+        "d1_ev_ready_to_charge_with_ventilation_charging_not_allowed": "ok",
+        "d2_charging_with_ventilation": "ok",
+        "e_error_short_circuit_or_no_power": "error",
+        "f_error_charge_point_unavailable": "error"
+      }
+    }
+  }
+}

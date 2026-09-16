@@ -1,0 +1,62 @@
+{
+  "format_version": 1,
+  "id": "mbapi2020_mercedes_me",
+  "kind": "vehicle",
+  "integration": {
+    "domain": "mbapi2020",
+    "name": "Mercedes-Benz (mbapi2020)",
+    "min_version": "0.29.2"
+  },
+  "device": {
+    "manufacturer": "Mercedes-Benz",
+    "model": "Vehicles with Mercedes me connect"
+  },
+  "roles": {
+    "charge_state": {
+      "source_entity_suffix": "chargingstatus",
+      "values": {
+        "0": "charging",
+        "1": "connected_idle",
+        "2": "connected_idle",
+        "3": "disconnected",
+        "4": "error",
+        "5": "charging",
+        "6": "charging",
+        "7": "connected_idle",
+        "8": "connected_idle",
+        "9": "charging",
+        "10": "charging",
+        "11": "charging",
+        "12": "connected_idle",
+        "13": "charging",
+        "14": "charging",
+        "15": "connected_idle",
+        "16": "connected_idle",
+        "error": "neutral"
+      }
+    },
+    "charge_type": {
+      "source_entity_suffix": "chargingstatus",
+      "values": {
+        "0": "neutral",
+        "1": "neutral",
+        "2": "neutral",
+        "3": "neutral",
+        "4": "neutral",
+        "5": "ac",
+        "6": "dc",
+        "7": "neutral",
+        "8": "neutral",
+        "9": "neutral",
+        "10": "ac",
+        "11": "dc",
+        "12": "neutral",
+        "13": "ac",
+        "14": "dc",
+        "15": "neutral",
+        "16": "neutral",
+        "error": "neutral"
+      }
+    }
+  }
+}

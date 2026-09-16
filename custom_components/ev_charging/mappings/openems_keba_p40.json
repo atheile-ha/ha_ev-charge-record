@@ -1,0 +1,54 @@
+{
+  "format_version": 1,
+  "id": "openems_keba_p40",
+  "kind": "wallbox",
+  "integration": {
+    "domain": "openems",
+    "name": "FENECON FEMS / OpenEMS (ha_openems)",
+    "min_version": "1.7.2"
+  },
+  "device": {
+    "manufacturer": "KEBA",
+    "model": "KeContact P40",
+    "source_component": [
+      "Evcs.Keba.P40",
+      "Evse.ChargePoint.Keba.Modbus"
+    ]
+  },
+  "roles": {
+    "plug_state": {
+      "source_channel": "CableState",
+      "values": {
+        "undefined": "neutral",
+        "unplugged": "not_connected",
+        "plugged_on_wallbox_not_ev": "not_connected",
+        "plugged_on_wallbox_and_locked_not_ev": "not_connected",
+        "plugged_not_locked_on_ev": "connected",
+        "plugged_and_locked": "connected"
+      },
+      "note_key": "cable_variant"
+    },
+    "error": {
+      "source_channel": "ChargingState",
+      "values": {
+        "undefined": "neutral",
+        "start-up_of_the_charging_station": "ok",
+        "not_ready_for_charging": "ok",
+        "ready_for_charging_waiting_for_ev": "ok",
+        "charging": "ok",
+        "error": "error",
+        "charging_is_temporarily_interrupted": "ok"
+      }
+    },
+    "identification": {
+      "register": {
+        "function_code": 3,
+        "address": 1500,
+        "count": 2,
+        "unit_id_default": 255,
+        "decode": "uint32_big_endian_word_order",
+        "format": "hex_upper_8"
+      }
+    }
+  }
+}
