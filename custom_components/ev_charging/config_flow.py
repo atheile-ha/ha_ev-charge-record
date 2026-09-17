@@ -17,6 +17,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import SectionConfig, section
 from homeassistant.helpers.selector import (
     BooleanSelector,
+    ConstantSelector,
+    ConstantSelectorConfig,
     EntitySelector,
     ObjectSelector,
     ObjectSelectorConfig,
@@ -68,10 +70,17 @@ def _entity_id(role: EntityRole | None) -> str | None:
     return role.entity_id if role is not None else None
 
 
+async def _async_selector_translations(hass: HomeAssistant) -> dict[str, str]:
+    """Return this integration's "selector" category translations for the active language."""
+    return await async_get_translations(
+        hass, hass.config.language, "selector", integrations=[DOMAIN]
+    )
+
+
 async def _async_device_choices(
     hass: HomeAssistant, *, kind: str, current_mapping_id: str | None
-) -> tuple[list[SelectOptionDict], str]:
-    """Return selectable device options for kind, plus an excluded-devices hint (O19, O20).
+) -> tuple[list[SelectOptionDict], list[str]]:
+    """Return selectable device options for kind, plus texts for excluded devices (O19, O20).
 
     A device is offered when its source integration is installed and at
     least min_version, or when it is the subentry's already-chosen device:
@@ -80,9 +89,12 @@ async def _async_device_choices(
     """
     all_mappings = await mappings.async_get_mappings(hass)
     candidates = mappings.mappings_for_kind(all_mappings, kind)
+    translations = await _async_selector_translations(hass)
+    not_installed = translations[f"component.{DOMAIN}.selector.mapping_status.not_installed"]
+    too_old = translations[f"component.{DOMAIN}.selector.mapping_status.too_old"]
 
     options: list[SelectOptionDict] = []
-    excluded_lines: list[str] = []
+    excluded_texts: list[str] = []
     for candidate in candidates:
         meets = await resolver.async_integration_meets_min_version(
             hass, candidate.integration_domain, candidate.min_version
@@ -90,11 +102,30 @@ async def _async_device_choices(
         if meets or candidate.id == current_mapping_id:
             options.append(SelectOptionDict(value=candidate.id, label=candidate.device_label))
         else:
-            status = "not installed" if meets is None else "too old"
-            excluded_lines.append(
-                f"{candidate.device_label}: {status}, >= {candidate.min_version} required"
+            template = not_installed if meets is None else too_old
+            excluded_texts.append(
+                template.format(device=candidate.device_label, min_version=candidate.min_version)
             )
-    return options, "\n".join(excluded_lines)
+    return options, excluded_texts
+
+
+def _excluded_devices_section(excluded_texts: list[str]) -> dict[Any, Any]:
+    """Return schema entries for a collapsed section listing excluded devices, if any.
+
+    Each device gets its own read-only ConstantSelector field: HA does not
+    support embedded line breaks in a single field's text, and the field's
+    own name is never shown for a constant selector, so a dynamic key per
+    device needs no matching translation.
+    """
+    if not excluded_texts:
+        return {}
+    fields = {
+        vol.Optional(f"excluded_{index}", default=True): ConstantSelector(
+            ConstantSelectorConfig(value=True, label=text)
+        )
+        for index, text in enumerate(excluded_texts)
+    }
+    return {vol.Required("excluded"): section(vol.Schema(fields), SectionConfig(collapsed=True))}
 
 
 async def _async_no_vehicle_integration_label(hass: HomeAssistant) -> str:
@@ -103,9 +134,7 @@ async def _async_no_vehicle_integration_label(hass: HomeAssistant) -> str:
     Unlike device options, this text is not a proper noun from a mapping
     file and must come from translations/ like any other user-visible text.
     """
-    translations = await async_get_translations(
-        hass, hass.config.language, "selector", integrations=[DOMAIN]
-    )
+    translations = await _async_selector_translations(hass)
     return translations[f"component.{DOMAIN}.selector.vehicle_mapping_id.options.none"]
 
 
@@ -297,7 +326,7 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
                 return await self.async_step_details_reconfigure()
             return await self.async_step_details()
 
-        options, excluded = await _async_device_choices(
+        options, excluded_texts = await _async_device_choices(
             self.hass, kind=SUBENTRY_TYPE_WALLBOX, current_mapping_id=current_mapping_id
         )
         schema = vol.Schema(
@@ -305,11 +334,10 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
                 vol.Required("mapping_id", default=current_mapping_id): SelectSelector(
                     SelectSelectorConfig(options=options)
                 ),
+                **_excluded_devices_section(excluded_texts),
             }
         )
-        return self.async_show_form(
-            step_id=step_id, data_schema=schema, description_placeholders={"excluded": excluded}
-        )
+        return self.async_show_form(step_id=step_id, data_schema=schema)
 
     async def async_step_details(
         self, user_input: dict[str, Any] | None = None
@@ -525,7 +553,7 @@ class VehicleSubentryFlow(ConfigSubentryFlow):
                 return await self.async_step_details_reconfigure()
             return await self.async_step_details()
 
-        options, excluded = await _async_device_choices(
+        options, excluded_texts = await _async_device_choices(
             self.hass, kind=SUBENTRY_TYPE_VEHICLE, current_mapping_id=current_mapping_id
         )
         no_integration_label = await _async_no_vehicle_integration_label(self.hass)
@@ -538,11 +566,10 @@ class VehicleSubentryFlow(ConfigSubentryFlow):
                 vol.Required(
                     "mapping_id", default=current_mapping_id or NO_VEHICLE_INTEGRATION
                 ): SelectSelector(SelectSelectorConfig(options=all_options)),
+                **_excluded_devices_section(excluded_texts),
             }
         )
-        return self.async_show_form(
-            step_id=step_id, data_schema=schema, description_placeholders={"excluded": excluded}
-        )
+        return self.async_show_form(step_id=step_id, data_schema=schema)
 
     async def async_step_details(
         self, user_input: dict[str, Any] | None = None

@@ -4,6 +4,16 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.3.3] - 2026-09-17
+
+### Geändert
+
+- Nicht angebotene Geräte/Integrationen stehen jetzt in einem eingeklappten Abschnitt „Derzeit nicht installierte Integrationen“ am Ende des Gerätedialogs statt im Beschreibungstext
+
+### Behoben
+
+- Hinweistext zu nicht angebotenen Geräten war fest auf Englisch codiert statt aus `translations/` zu kommen
+
 ## [0.3.2] - 2026-09-17
 
 ### Hinzugefügt
@@ -17,7 +27,6 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 - Feld „Gerät“ im Fahrzeugdialog umbenannt in „Fahrzeugintegration“, Auswahltext für Mercedes Me gekürzt auf „Mercedes me connect“
 - Fahrzeug ohne Online-Anbindung ist jetzt eine eigene Auswahlmöglichkeit („Fahrzeug ohne Online-Anbindung“) statt eines leeren Felds
 - Beschreibungstext der Fahrzeugintegration präzisiert
-- Erklärungstexte der Entitätsrollen nennen jetzt die üblicherweise erwartete Einheit (Ladeleistung Wallbox in W, Energiezähler in kWh, Kilometerstand/Reichweite in km, Ladeleistung Fahrzeug in kW)
 
 ## [0.3.1] - 2026-09-17
 

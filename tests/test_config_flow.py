@@ -92,6 +92,7 @@ def _mock_source_integrations(hass: HomeAssistant) -> None:
     """Make the mapped source integrations appear installed and current enough (4.7, O20)."""
     mock_integration(hass, MockModule("openems", partial_manifest={"version": "1.7.2"}))
     mock_integration(hass, MockModule("mbapi2020", partial_manifest={"version": "0.29.2"}))
+    mock_integration(hass, MockModule("myskoda", partial_manifest={"version": "1.36.1"}))
 
 
 async def test_user_flow_creates_entry(hass: HomeAssistant) -> None:
@@ -242,6 +243,16 @@ def _mapping_id_options(data_schema: Any) -> set[str]:
     return {option["value"] for option in selector.config["options"]}
 
 
+def _excluded_texts(data_schema: Any) -> list[str]:
+    """Return the texts shown in a device-choice form's collapsed excluded-devices section."""
+    schema = data_schema.schema
+    key = next((key for key in schema if str(key) == "excluded"), None)
+    if key is None:
+        return []
+    inner_schema = schema[key].schema.schema
+    return [selector.config["label"] for selector in inner_schema.values()]
+
+
 async def test_wallbox_device_step_is_shown_first(hass: HomeAssistant) -> None:
     """The wallbox flow's first step is the mandatory device choice (O19)."""
     entry = await _setup_hub(hass)
@@ -267,7 +278,36 @@ async def test_wallbox_device_choice_excludes_devices_below_min_version(
     )
 
     assert WALLBOX_MAPPING_ID not in _mapping_id_options(result["data_schema"])
-    assert "KEBA" in result["description_placeholders"]["excluded"]
+    assert any("KEBA" in text for text in _excluded_texts(result["data_schema"]))
+
+
+async def test_wallbox_device_choice_has_no_excluded_section_when_nothing_is_excluded(
+    hass: HomeAssistant,
+) -> None:
+    """No collapsed section appears when every mapped device's source is available."""
+    entry = await _setup_hub(hass)
+
+    result = await hass.config_entries.subentries.async_init(
+        (entry.entry_id, SUBENTRY_TYPE_WALLBOX), context={"source": SOURCE_USER}
+    )
+
+    assert _excluded_texts(result["data_schema"]) == []
+
+
+async def test_vehicle_device_choice_excluded_text_is_translated(hass: HomeAssistant) -> None:
+    """The excluded-devices text comes from translations, not a hardcoded language (4.7)."""
+    hass.config.language = "de"
+    mock_integration(hass, MockModule("mbapi2020", partial_manifest={"version": "0.1.0"}))
+    entry = await _setup_hub(hass)
+
+    result = await hass.config_entries.subentries.async_init(
+        (entry.entry_id, SUBENTRY_TYPE_VEHICLE), context={"source": SOURCE_USER}
+    )
+
+    texts = _excluded_texts(result["data_schema"])
+    assert any(
+        "Mercedes me connect" in text and "Quellintegration älter als" in text for text in texts
+    )
 
 
 async def test_wallbox_reconfigure_keeps_the_current_device_even_if_now_too_old(

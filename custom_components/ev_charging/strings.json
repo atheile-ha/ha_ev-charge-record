@@ -75,22 +75,32 @@
       "step": {
         "user": {
           "title": "Choose wallbox device",
-          "description": "Choose the wallbox model this integration should read plug and error state classes from. Only devices whose source integration is installed and current enough are offered.\n\n{excluded}",
+          "description": "Choose the wallbox model this integration should read plug and error state classes from. Only devices whose source integration is installed and current enough are offered.",
           "data": {
             "mapping_id": "Wallbox"
           },
           "data_description": {
             "mapping_id": "Determines how the plug state and error roles below are classified. Entities are assigned on the next screen"
+          },
+          "sections": {
+            "excluded": {
+              "name": "Currently not installed integrations"
+            }
           }
         },
         "reconfigure": {
           "title": "Change wallbox device",
-          "description": "Choose the wallbox model this integration should read plug and error state classes from. Only devices whose source integration is installed and current enough are offered.\n\n{excluded}",
+          "description": "Choose the wallbox model this integration should read plug and error state classes from. Only devices whose source integration is installed and current enough are offered.",
           "data": {
             "mapping_id": "Wallbox"
           },
           "data_description": {
             "mapping_id": "Determines how the plug state and error roles below are classified. Entities are assigned on the next screen"
+          },
+          "sections": {
+            "excluded": {
+              "name": "Currently not installed integrations"
+            }
           }
         },
         "details": {
@@ -119,9 +129,9 @@
                 "error": "Error"
               },
               "data_description": {
-                "charge_power": "Required. Power the wallbox delivers, typically in W",
-                "energy_total": "Continuously increasing overall counter, typically in kWh. At least one energy counter is required",
-                "energy_session": "Counter that resets at the start of each charging session, typically in kWh. At least one energy counter is required",
+                "charge_power": "Required. Power the wallbox delivers",
+                "energy_total": "Continuously increasing overall counter. At least one energy counter is required",
+                "energy_session": "Counter that resets at the start of each charging session. At least one energy counter is required",
                 "plug_state": "Required. Entity with status values of the wallbox's cable connection",
                 "identification": "RFID or eMAID reported by the wallbox, if available",
                 "error": "Entity indicating an error state of the wallbox"
@@ -168,9 +178,9 @@
                 "error": "Error"
               },
               "data_description": {
-                "charge_power": "Required. Power the wallbox delivers, typically in W",
-                "energy_total": "Continuously increasing overall counter, typically in kWh. At least one energy counter is required",
-                "energy_session": "Counter that resets at the start of each charging session, typically in kWh. At least one energy counter is required",
+                "charge_power": "Required. Power the wallbox delivers",
+                "energy_total": "Continuously increasing overall counter. At least one energy counter is required",
+                "energy_session": "Counter that resets at the start of each charging session. At least one energy counter is required",
                 "plug_state": "Required. Entity with status values of the wallbox's cable connection",
                 "identification": "RFID or eMAID reported by the wallbox, if available",
                 "error": "Entity indicating an error state of the wallbox"
@@ -213,22 +223,32 @@
       "step": {
         "user": {
           "title": "Choose vehicle integration",
-          "description": "Choose the online service this vehicle connects through, if any.\n\n{excluded}",
+          "description": "Choose the online service this vehicle connects through, if any.",
           "data": {
             "mapping_id": "Vehicle integration"
           },
           "data_description": {
             "mapping_id": "An online connection is required so that charging and connection states are recognized correctly. Without one, charging session data (for example odometer reading or state of charge) may need to be filled in manually"
+          },
+          "sections": {
+            "excluded": {
+              "name": "Currently not installed integrations"
+            }
           }
         },
         "reconfigure": {
           "title": "Change vehicle integration",
-          "description": "Choose the online service this vehicle connects through, if any.\n\n{excluded}",
+          "description": "Choose the online service this vehicle connects through, if any.",
           "data": {
             "mapping_id": "Vehicle integration"
           },
           "data_description": {
             "mapping_id": "An online connection is required so that charging and connection states are recognized correctly. Without one, charging session data (for example odometer reading or state of charge) may need to be filled in manually"
+          },
+          "sections": {
+            "excluded": {
+              "name": "Currently not installed integrations"
+            }
           }
         },
         "details": {
@@ -276,15 +296,15 @@
               "data_description": {
                 "soc": "Battery state of charge, in percent",
                 "soc_target": "Target state of charge, in percent. Display only",
-                "odometer": "Odometer reading, typically in km",
+                "odometer": "Odometer reading",
                 "charge_state": "Charge state of the vehicle",
                 "charge_type": "Charge type of the vehicle - if the vehicle reports AC/DC separately",
                 "plug_state": "Connection state of the vehicle - fills in a disconnected state for a charge_state that never reports one on its own",
-                "energy_session": "Energy reported by the vehicle for the current session, typically in kWh",
+                "energy_session": "Energy reported by the vehicle for the current session",
                 "location": "Device tracker entity of the vehicle",
                 "charge_end": "Estimated charge end, as a timestamp or a string",
-                "charge_power": "Charging power reported by the vehicle, typically in kW - display only",
-                "range": "Remaining range, typically in km - display only"
+                "charge_power": "Charging power reported by the vehicle - display only",
+                "range": "Remaining range - display only"
               }
             }
           }
@@ -334,15 +354,15 @@
               "data_description": {
                 "soc": "Battery state of charge, in percent",
                 "soc_target": "Target state of charge, in percent. Display only",
-                "odometer": "Odometer reading, typically in km",
+                "odometer": "Odometer reading",
                 "charge_state": "Charge state of the vehicle",
                 "charge_type": "Charge type of the vehicle - if the vehicle reports AC/DC separately",
                 "plug_state": "Connection state of the vehicle - fills in a disconnected state for a charge_state that never reports one on its own",
-                "energy_session": "Energy reported by the vehicle for the current session, typically in kWh",
+                "energy_session": "Energy reported by the vehicle for the current session",
                 "location": "Device tracker entity of the vehicle",
                 "charge_end": "Estimated charge end, as a timestamp or a string",
-                "charge_power": "Charging power reported by the vehicle, typically in kW - display only",
-                "range": "Remaining range, typically in km - display only"
+                "charge_power": "Charging power reported by the vehicle - display only",
+                "range": "Remaining range - display only"
               }
             }
           }
@@ -355,6 +375,10 @@
       "options": {
         "none": "Vehicle without online connection"
       }
+    },
+    "mapping_status": {
+      "not_installed": "{device}: source integration not installed, {min_version} or newer required",
+      "too_old": "{device}: source integration older than {min_version}"
     },
     "current_type": {
       "options": {
