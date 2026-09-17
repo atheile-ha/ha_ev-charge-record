@@ -4,6 +4,12 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.3.4] - 2026-09-17
+
+### Behoben
+
+- Übersetzungsstruktur für den Hinweistext zu nicht angebotenen Geräten entsprach nicht dem von `hassfest` geforderten Schema für die Kategorie `selector`
+
 ## [0.3.3] - 2026-09-17
 
 ### Geändert

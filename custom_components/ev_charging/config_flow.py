@@ -90,8 +90,10 @@ async def _async_device_choices(
     all_mappings = await mappings.async_get_mappings(hass)
     candidates = mappings.mappings_for_kind(all_mappings, kind)
     translations = await _async_selector_translations(hass)
-    not_installed = translations[f"component.{DOMAIN}.selector.mapping_status.not_installed"]
-    too_old = translations[f"component.{DOMAIN}.selector.mapping_status.too_old"]
+    not_installed = translations[
+        f"component.{DOMAIN}.selector.mapping_status.options.not_installed"
+    ]
+    too_old = translations[f"component.{DOMAIN}.selector.mapping_status.options.too_old"]
 
     options: list[SelectOptionDict] = []
     excluded_texts: list[str] = []

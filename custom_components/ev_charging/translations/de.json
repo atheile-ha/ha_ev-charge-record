@@ -377,8 +377,10 @@
       }
     },
     "mapping_status": {
-      "not_installed": "{device}: Quellintegration nicht installiert, {min_version} oder neuer erforderlich",
-      "too_old": "{device}: Quellintegration älter als {min_version}"
+      "options": {
+        "not_installed": "{device}: Quellintegration nicht installiert, {min_version} oder neuer erforderlich",
+        "too_old": "{device}: Quellintegration älter als {min_version}"
+      }
     },
     "current_type": {
       "options": {

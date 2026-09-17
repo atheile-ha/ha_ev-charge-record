@@ -377,8 +377,10 @@
       }
     },
     "mapping_status": {
-      "not_installed": "{device}: source integration not installed, {min_version} or newer required",
-      "too_old": "{device}: source integration older than {min_version}"
+      "options": {
+        "not_installed": "{device}: source integration not installed, {min_version} or newer required",
+        "too_old": "{device}: source integration older than {min_version}"
+      }
     },
     "current_type": {
       "options": {
