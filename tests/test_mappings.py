@@ -17,6 +17,7 @@ SHIPPED_IDS = {
     "openems_heidelberg_connect",
     "openems_mennekes",
     "mbapi2020_mercedes_me",
+    "myskoda_skoda",
 }
 
 
@@ -70,6 +71,29 @@ def test_mercedes_me_charge_state_and_type_match_the_concept() -> None:
     assert charge_type["11"] == "dc"
     assert charge_type["9"] == "neutral"
     assert charge_type["error"] == "neutral"
+
+
+def test_skoda_charge_state_and_plug_state_match_the_concept() -> None:
+    """The Škoda mapping's charge_state, charge_type and plug_state match chapter 4.7.
+
+    connect_cable is deliberately connected_idle, not disconnected: the
+    source integration's own maintainers confirmed it fires while the cable
+    is physically connected but no power is flowing.
+    """
+    loaded = mappings.load_all(mappings.MAPPINGS_DIR)
+    skoda = loaded["myskoda_skoda"]
+
+    assert skoda.kind == SUBENTRY_TYPE_VEHICLE
+    assert skoda.role_values("charge_state") == {
+        "ready_for_charging": "connected_idle",
+        "connect_cable": "connected_idle",
+        "conserving": "connected_idle",
+        "charging": "charging",
+        "charging_interrupted": "connected_idle",
+        "error": "error",
+    }
+    assert skoda.role_values("charge_type") == {"ac": "ac", "dc": "dc", "off": "neutral"}
+    assert skoda.role_values("plug_state") == {"on": "connected", "off": "not_connected"}
 
 
 def test_malformed_file_is_skipped(tmp_path) -> None:
@@ -144,6 +168,7 @@ def _write_minimal(path, *, mapping_id: str, plug_state_class: str = "not_connec
                 "integration": {
                     "domain": "openems",
                     "name": "Test",
+                    "short_name": "Test",
                     "min_version": "1.0.0",
                 },
                 "device": {"manufacturer": "Test", "model": "Model"},

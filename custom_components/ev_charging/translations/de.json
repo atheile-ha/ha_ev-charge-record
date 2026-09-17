@@ -77,7 +77,7 @@
           "title": "Wallbox-Gerät wählen",
           "description": "Wallbox-Modell wählen, aus dessen Mapping-Datei Stecker- und Fehlerzustand klassifiziert werden. Angeboten werden nur Geräte, deren Quellintegration installiert und ausreichend aktuell ist.\n\n{excluded}",
           "data": {
-            "mapping_id": "Gerät"
+            "mapping_id": "Wallbox"
           },
           "data_description": {
             "mapping_id": "Bestimmt, wie die Rollen Steckerzustand und Fehler unten klassifiziert werden. Entitäten werden im nächsten Schritt zugeordnet"
@@ -87,7 +87,7 @@
           "title": "Wallbox-Gerät ändern",
           "description": "Wallbox-Modell wählen, aus dessen Mapping-Datei Stecker- und Fehlerzustand klassifiziert werden. Angeboten werden nur Geräte, deren Quellintegration installiert und ausreichend aktuell ist.\n\n{excluded}",
           "data": {
-            "mapping_id": "Gerät"
+            "mapping_id": "Wallbox"
           },
           "data_description": {
             "mapping_id": "Bestimmt, wie die Rollen Steckerzustand und Fehler unten klassifiziert werden. Entitäten werden im nächsten Schritt zugeordnet"
@@ -119,9 +119,9 @@
                 "error": "Fehler"
               },
               "data_description": {
-                "charge_power": "Erforderlich. Leistung, die die Wallbox liefert",
-                "energy_total": "Kontinuierlich steigender Gesamtzähler. Mindestens ein Energiezähler ist erforderlich",
-                "energy_session": "Zähler, der bei jedem Ladevorgang zurückgesetzt wird. Mindestens ein Energiezähler ist erforderlich",
+                "charge_power": "Erforderlich. Leistung, die die Wallbox liefert, üblicherweise in W",
+                "energy_total": "Kontinuierlich steigender Gesamtzähler, üblicherweise in kWh. Mindestens ein Energiezähler ist erforderlich",
+                "energy_session": "Zähler, der bei jedem Ladevorgang zurückgesetzt wird, üblicherweise in kWh. Mindestens ein Energiezähler ist erforderlich",
                 "plug_state": "Erforderlich. Entität mit Zustandswerten der Kabelverbindung an der Wallbox",
                 "identification": "Von der Wallbox gemeldete RFID- oder eMAID-Kennung, falls vorhanden",
                 "error": "Entität, die einen Fehlerzustand der Wallbox anzeigt"
@@ -168,9 +168,9 @@
                 "error": "Fehler"
               },
               "data_description": {
-                "charge_power": "Erforderlich. Leistung, die die Wallbox liefert",
-                "energy_total": "Kontinuierlich steigender Gesamtzähler. Mindestens ein Energiezähler ist erforderlich",
-                "energy_session": "Zähler, der bei jedem Ladevorgang zurückgesetzt wird. Mindestens ein Energiezähler ist erforderlich",
+                "charge_power": "Erforderlich. Leistung, die die Wallbox liefert, üblicherweise in W",
+                "energy_total": "Kontinuierlich steigender Gesamtzähler, üblicherweise in kWh. Mindestens ein Energiezähler ist erforderlich",
+                "energy_session": "Zähler, der bei jedem Ladevorgang zurückgesetzt wird, üblicherweise in kWh. Mindestens ein Energiezähler ist erforderlich",
                 "plug_state": "Erforderlich. Entität mit Zustandswerten der Kabelverbindung an der Wallbox",
                 "identification": "Von der Wallbox gemeldete RFID- oder eMAID-Kennung, falls vorhanden",
                 "error": "Entität, die einen Fehlerzustand der Wallbox anzeigt"
@@ -212,23 +212,23 @@
       },
       "step": {
         "user": {
-          "title": "Fahrzeug-Gerät wählen",
-          "description": "Fahrzeugmodell wählen, aus dessen Mapping-Datei Ladezustand und Ladeart klassifiziert werden, falls vorhanden. Leer lassen bei einem Gastfahrzeug oder einem Fahrzeug ohne Ladezustands-Entität. Angeboten werden nur Geräte, deren Quellintegration installiert und ausreichend aktuell ist.\n\n{excluded}",
+          "title": "Fahrzeugintegration wählen",
+          "description": "Online-Anbindung wählen, über die dieses Fahrzeug verbunden ist, falls vorhanden.\n\n{excluded}",
           "data": {
-            "mapping_id": "Gerät"
+            "mapping_id": "Fahrzeugintegration"
           },
           "data_description": {
-            "mapping_id": "Bestimmt, wie die Rollen charge_state und charge_type unten klassifiziert werden. Entitäten werden im nächsten Schritt zugeordnet. Leer lassen, wenn keine der beiden Rollen genutzt wird"
+            "mapping_id": "Angabe der Einbindung notwendig, damit Erkennung Lade- und Verbindungszustände korrekt erkannt werden können. Ohne Online-Anbindung kann ein manuelles Nachpflegen von Daten (z.B. KM-Stand, SOC, etc.) zu einem Ladevorgang erforderlich sein."
           }
         },
         "reconfigure": {
-          "title": "Fahrzeug-Gerät ändern",
-          "description": "Fahrzeugmodell wählen, aus dessen Mapping-Datei Ladezustand und Ladeart klassifiziert werden, falls vorhanden. Leer lassen bei einem Gastfahrzeug oder einem Fahrzeug ohne Ladezustands-Entität. Angeboten werden nur Geräte, deren Quellintegration installiert und ausreichend aktuell ist.\n\n{excluded}",
+          "title": "Fahrzeugintegration ändern",
+          "description": "Online-Anbindung wählen, über die dieses Fahrzeug verbunden ist, falls vorhanden.\n\n{excluded}",
           "data": {
-            "mapping_id": "Gerät"
+            "mapping_id": "Fahrzeugintegration"
           },
           "data_description": {
-            "mapping_id": "Bestimmt, wie die Rollen charge_state und charge_type unten klassifiziert werden. Entitäten werden im nächsten Schritt zugeordnet. Leer lassen, wenn keine der beiden Rollen genutzt wird"
+            "mapping_id": "Angabe der Einbindung notwendig, damit Erkennung Lade- und Verbindungszustände korrekt erkannt werden können. Ohne Online-Anbindung kann ein manuelles Nachpflegen von Daten (z.B. KM-Stand, SOC, etc.) zu einem Ladevorgang erforderlich sein."
           }
         },
         "details": {
@@ -266,6 +266,7 @@
                 "odometer": "Kilometerstand",
                 "charge_state": "Ladezustand (Fahrzeug)",
                 "charge_type": "Ladeart",
+                "plug_state": "Verbindungszustand",
                 "energy_session": "Sessionenergie",
                 "location": "Standort",
                 "charge_end": "Ladeende",
@@ -278,11 +279,12 @@
                 "odometer": "Kilometerstand",
                 "charge_state": "Ladezustand des Fahrzeuges",
                 "charge_type": "Ladeart des Fahrzeuges - sofern von Fahrzeug AC/DC separat übermittelt wird",
-                "energy_session": "Vom Fahrzeug gemeldete Energie der laufenden Session",
+                "plug_state": "Verbindungszustand des Fahrzeuges - ergänzt einen nicht verbundenen Zustand, wenn charge_state diesen nicht selbst meldet",
+                "energy_session": "Vom Fahrzeug gemeldete Energie der laufenden Session, üblicherweise in kWh",
                 "location": "Device Tracker Entität des Fahrzeuges",
                 "charge_end": "Voraussichtliches Ladeende, als Zeitstempel oder Zeichenkette",
-                "charge_power": "Vom Fahrzeug gemeldete Ladeleistung - nur Anzeige",
-                "range": "Verbleibende Reichweite - nur Anzeige"
+                "charge_power": "Vom Fahrzeug gemeldete Ladeleistung, üblicherweise in kW - nur Anzeige",
+                "range": "Verbleibende Reichweite, üblicherweise in km - nur Anzeige"
               }
             }
           }
@@ -322,6 +324,7 @@
                 "odometer": "Kilometerstand",
                 "charge_state": "Ladezustand (Fahrzeug)",
                 "charge_type": "Ladeart",
+                "plug_state": "Verbindungszustand",
                 "energy_session": "Sessionenergie",
                 "location": "Standort",
                 "charge_end": "Ladeende",
@@ -334,11 +337,12 @@
                 "odometer": "Kilometerstand",
                 "charge_state": "Ladezustand des Fahrzeuges",
                 "charge_type": "Ladeart des Fahrzeuges - sofern von Fahrzeug AC/DC separat übermittelt wird",
-                "energy_session": "Vom Fahrzeug gemeldete Energie der laufenden Session",
+                "plug_state": "Verbindungszustand des Fahrzeuges - ergänzt einen nicht verbundenen Zustand, wenn charge_state diesen nicht selbst meldet",
+                "energy_session": "Vom Fahrzeug gemeldete Energie der laufenden Session, üblicherweise in kWh",
                 "location": "Device Tracker Entität des Fahrzeuges",
                 "charge_end": "Voraussichtliches Ladeende, als Zeitstempel oder Zeichenkette",
-                "charge_power": "Vom Fahrzeug gemeldete Ladeleistung - nur Anzeige",
-                "range": "Verbleibende Reichweite - nur Anzeige"
+                "charge_power": "Vom Fahrzeug gemeldete Ladeleistung, üblicherweise in kW - nur Anzeige",
+                "range": "Verbleibende Reichweite, üblicherweise in km - nur Anzeige"
               }
             }
           }
@@ -347,6 +351,11 @@
     }
   },
   "selector": {
+    "vehicle_mapping_id": {
+      "options": {
+        "none": "Fahrzeug ohne Online-Anbindung"
+      }
+    },
     "current_type": {
       "options": {
         "ac": "AC",

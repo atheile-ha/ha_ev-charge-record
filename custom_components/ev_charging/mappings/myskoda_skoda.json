@@ -1,0 +1,43 @@
+{
+  "format_version": 1,
+  "id": "myskoda_skoda",
+  "kind": "vehicle",
+  "integration": {
+    "domain": "myskoda",
+    "name": "MySkoda (myskoda)",
+    "short_name": "My Skoda",
+    "min_version": "1.36.1"
+  },
+  "device": {
+    "manufacturer": "Škoda",
+    "model": "Vehicles with MySkoda connect"
+  },
+  "roles": {
+    "charge_state": {
+      "source_entity_suffix": "charging_state",
+      "values": {
+        "ready_for_charging": "connected_idle",
+        "connect_cable": "connected_idle",
+        "conserving": "connected_idle",
+        "charging": "charging",
+        "charging_interrupted": "connected_idle",
+        "error": "error"
+      }
+    },
+    "charge_type": {
+      "source_entity_suffix": "charge_type",
+      "values": {
+        "ac": "ac",
+        "dc": "dc",
+        "off": "neutral"
+      }
+    },
+    "plug_state": {
+      "source_entity_suffix": "charger_connected",
+      "values": {
+        "on": "connected",
+        "off": "not_connected"
+      }
+    }
+  }
+}

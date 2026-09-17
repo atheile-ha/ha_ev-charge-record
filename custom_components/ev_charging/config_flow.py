@@ -26,6 +26,7 @@ from homeassistant.helpers.selector import (
     SelectSelectorMode,
     TextSelector,
 )
+from homeassistant.helpers.translation import async_get_translations
 
 from . import mappings, resolver
 from .const import (
@@ -48,6 +49,7 @@ from .const import (
     MIN_IDENTIFICATION_WINDOW_S,
     MIN_START_DEBOUNCE_S,
     MIN_UPDATE_INTERVAL_S,
+    NO_VEHICLE_INTEGRATION,
     SOLAR_VALUATIONS,
     SUBENTRY_TYPE_VEHICLE,
     SUBENTRY_TYPE_WALLBOX,
@@ -93,6 +95,18 @@ async def _async_device_choices(
                 f"{candidate.device_label}: {status}, >= {candidate.min_version} required"
             )
     return options, "\n".join(excluded_lines)
+
+
+async def _async_no_vehicle_integration_label(hass: HomeAssistant) -> str:
+    """Return the translated label for "no online integration" in the vehicle device step.
+
+    Unlike device options, this text is not a proper noun from a mapping
+    file and must come from translations/ like any other user-visible text.
+    """
+    translations = await async_get_translations(
+        hass, hass.config.language, "selector", integrations=[DOMAIN]
+    )
+    return translations[f"component.{DOMAIN}.selector.vehicle_mapping_id.options.none"]
 
 
 class EvChargingConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -494,7 +508,8 @@ class VehicleSubentryFlow(ConfigSubentryFlow):
 
         charge_state and charge_type are optional roles (5.2); a guest
         vehicle or one tracked only via soc/odometer/location needs no
-        device at all. Becomes mandatory only once one of those roles is
+        device at all, selected explicitly as NO_VEHICLE_INTEGRATION rather
+        than left blank. Becomes mandatory only once one of those roles is
         assigned, checked in the details step.
         """
         step_id = "reconfigure" if subentry else "user"
@@ -502,7 +517,10 @@ class VehicleSubentryFlow(ConfigSubentryFlow):
         current_mapping_id = Vehicle.from_dict(subentry.data).mapping_id if subentry else None
 
         if user_input is not None:
-            self._pending = {"mapping_id": user_input.get("mapping_id")}
+            raw_mapping_id = user_input["mapping_id"]
+            self._pending = {
+                "mapping_id": None if raw_mapping_id == NO_VEHICLE_INTEGRATION else raw_mapping_id
+            }
             if subentry is not None:
                 return await self.async_step_details_reconfigure()
             return await self.async_step_details()
@@ -510,11 +528,16 @@ class VehicleSubentryFlow(ConfigSubentryFlow):
         options, excluded = await _async_device_choices(
             self.hass, kind=SUBENTRY_TYPE_VEHICLE, current_mapping_id=current_mapping_id
         )
+        no_integration_label = await _async_no_vehicle_integration_label(self.hass)
+        all_options = [
+            SelectOptionDict(value=NO_VEHICLE_INTEGRATION, label=no_integration_label),
+            *options,
+        ]
         schema = vol.Schema(
             {
-                vol.Optional("mapping_id", default=current_mapping_id): vol.Any(
-                    None, SelectSelector(SelectSelectorConfig(options=options))
-                ),
+                vol.Required(
+                    "mapping_id", default=current_mapping_id or NO_VEHICLE_INTEGRATION
+                ): SelectSelector(SelectSelectorConfig(options=all_options)),
             }
         )
         return self.async_show_form(
@@ -653,6 +676,7 @@ class VehicleSubentryFlow(ConfigSubentryFlow):
             odometer=resolver.build_role(self.hass, data.get("odometer")),
             charge_state=resolver.build_role(self.hass, data.get("charge_state")),
             charge_type=resolver.build_role(self.hass, data.get("charge_type")),
+            plug_state=resolver.build_role(self.hass, data.get("plug_state")),
             energy_session=resolver.build_role(self.hass, data.get("energy_session")),
             location=resolver.build_role(self.hass, data.get("location")),
             charge_end=resolver.build_role(self.hass, data.get("charge_end")),
@@ -746,6 +770,9 @@ class VehicleSubentryFlow(ConfigSubentryFlow):
                             ): vol.Any(None, EntitySelector()),
                             vol.Optional(
                                 "charge_type", default=_entity_id(d.charge_type) if d else None
+                            ): vol.Any(None, EntitySelector()),
+                            vol.Optional(
+                                "plug_state", default=_entity_id(d.plug_state) if d else None
                             ): vol.Any(None, EntitySelector()),
                             vol.Optional(
                                 "energy_session",

@@ -5,6 +5,7 @@
   "integration": {
     "domain": "openems",
     "name": "FENECON FEMS / OpenEMS (ha_openems)",
+    "short_name": "FENECON FEMS",
     "min_version": "1.7.2"
   },
   "device": {

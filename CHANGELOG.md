@@ -4,11 +4,26 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.3.2] - 2026-09-17
+
+### Hinzugefügt
+
+- Mitgelieferte Mapping-Datei für Škoda-Fahrzeuge mit MySkoda connect
+- Neue optionale Fahrzeugrolle `plug_state`, klassifiziert wie die gleichnamige Wallbox-Rolle
+
+### Geändert
+
+- Feld „Gerät“ im Wallbox-Dialog umbenannt in „Wallbox“
+- Feld „Gerät“ im Fahrzeugdialog umbenannt in „Fahrzeugintegration“, Auswahltext für Mercedes Me gekürzt auf „Mercedes me connect“
+- Fahrzeug ohne Online-Anbindung ist jetzt eine eigene Auswahlmöglichkeit („Fahrzeug ohne Online-Anbindung“) statt eines leeren Felds
+- Beschreibungstext der Fahrzeugintegration präzisiert
+- Erklärungstexte der Entitätsrollen nennen jetzt die üblicherweise erwartete Einheit (Ladeleistung Wallbox in W, Energiezähler in kWh, Kilometerstand/Reichweite in km, Ladeleistung Fahrzeug in kW)
+
 ## [0.3.1] - 2026-09-17
 
 ### Geändert
 
-- Geräteauswahl nennt neben Hersteller und Modell auch die Quellintegration, etwa „KEBA KeContact P40 (FENECON FEMS / OpenEMS)“
+- Geräteauswahl nennt neben Hersteller und Modell auch die Quellintegration, etwa „KEBA KeContact P40 (via FENECON FEMS)“
 
 ## [0.3.0] - 2026-09-16
 

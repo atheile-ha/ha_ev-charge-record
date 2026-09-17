@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 from custom_components.ev_charging.const import (
     DOMAIN,
+    NO_VEHICLE_INTEGRATION,
     SUBENTRY_TYPE_VEHICLE,
     SUBENTRY_TYPE_WALLBOX,
     TITLE,
@@ -203,7 +204,7 @@ async def _add_vehicle(
             (entry.entry_id, SUBENTRY_TYPE_VEHICLE), context={"source": SOURCE_USER}
         )
     result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {"mapping_id": mapping_id}
+        result["flow_id"], {"mapping_id": mapping_id or NO_VEHICLE_INTEGRATION}
     )
     if result.get("step_id") in ("details", "details_reconfigure"):
         result = await hass.config_entries.subentries.async_configure(result["flow_id"], payload)
@@ -476,7 +477,7 @@ async def test_vehicle_requires_capacity_unless_guest(hass: HomeAssistant) -> No
         (entry.entry_id, SUBENTRY_TYPE_VEHICLE), context={"source": SOURCE_USER}
     )
     result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {"mapping_id": None}
+        result["flow_id"], {"mapping_id": NO_VEHICLE_INTEGRATION}
     )
     no_capacity = {k: v for k, v in VEHICLE_INPUT.items() if k != "capacity_kwh"}
     result = await hass.config_entries.subentries.async_configure(result["flow_id"], no_capacity)
@@ -592,7 +593,7 @@ async def test_card_type_selector_uses_fixed_labels(hass: HomeAssistant) -> None
         (entry.entry_id, SUBENTRY_TYPE_VEHICLE), context={"source": SOURCE_USER}
     )
     result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {"mapping_id": None}
+        result["flow_id"], {"mapping_id": NO_VEHICLE_INTEGRATION}
     )
     schema = result["data_schema"].schema
     cards_key = next(key for key in schema if str(key) == "cards")
@@ -784,7 +785,7 @@ async def test_identification_hint_shows_current_wallbox_value(hass: HomeAssista
         (entry.entry_id, SUBENTRY_TYPE_VEHICLE), context={"source": SOURCE_USER}
     )
     result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {"mapping_id": None}
+        result["flow_id"], {"mapping_id": NO_VEHICLE_INTEGRATION}
     )
 
     assert result["description_placeholders"]["identification_hint"] == "BAEB2194"
@@ -800,7 +801,7 @@ async def test_identification_hint_is_blank_without_a_readable_value(
         (entry.entry_id, SUBENTRY_TYPE_VEHICLE), context={"source": SOURCE_USER}
     )
     result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {"mapping_id": None}
+        result["flow_id"], {"mapping_id": NO_VEHICLE_INTEGRATION}
     )
 
     assert result["description_placeholders"]["identification_hint"] == "-"

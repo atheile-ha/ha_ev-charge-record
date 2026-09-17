@@ -63,6 +63,7 @@ class DeviceMapping:
     kind: str
     integration_domain: str
     integration_name: str
+    integration_short_name: str
     min_version: str
     device_manufacturer: str
     device_model: str
@@ -77,8 +78,16 @@ class DeviceMapping:
         integration, not from the device itself. Naming it in the label
         prevents picking this entry for an unrelated connection path. Device
         and integration names are proper nouns, not translated.
+
+        A wallbox is one of several devices behind a shared gateway
+        integration, so it is named by manufacturer and model with the
+        integration as a short qualifier. A vehicle mapping corresponds to
+        exactly one connected service, so the integration's short name alone
+        already identifies it; repeating device.model would just restate it.
         """
-        return f"{self.device_manufacturer} {self.device_model} ({self.integration_name})"
+        if self.kind == SUBENTRY_TYPE_VEHICLE:
+            return self.integration_short_name
+        return f"{self.device_manufacturer} {self.device_model} (via {self.integration_short_name})"
 
     def role_values(self, role: str) -> dict[str, str]:
         """Return a role's raw-value-to-class mapping, or an empty dict if the role has none."""
@@ -164,10 +173,14 @@ def _parse_mapping(raw: Any, *, filename: str) -> DeviceMapping | None:
         return None
     domain = integration.get("domain")
     name = integration.get("name")
+    short_name = integration.get("short_name")
     min_version = integration.get("min_version")
-    if not all(isinstance(value, str) and value for value in (domain, name, min_version)):
+    if not all(
+        isinstance(value, str) and value for value in (domain, name, short_name, min_version)
+    ):
         _LOGGER.error(
-            "Mapping %s: integration.domain, .name and .min_version are required", mapping_id
+            "Mapping %s: integration.domain, .name, .short_name and .min_version are required",
+            mapping_id,
         )
         return None
     if not isinstance(device, dict):
@@ -194,6 +207,7 @@ def _parse_mapping(raw: Any, *, filename: str) -> DeviceMapping | None:
         kind=kind,
         integration_domain=domain,
         integration_name=name,
+        integration_short_name=short_name,
         min_version=min_version,
         device_manufacturer=manufacturer,
         device_model=model,

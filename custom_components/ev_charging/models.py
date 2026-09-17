@@ -195,6 +195,11 @@ class Vehicle:
     odometer: EntityRole | None = None
     charge_state: EntityRole | None = None
     charge_type: EntityRole | None = None
+    # Vehicle-side connection state (5.2), classified via the chosen mapping
+    # like the wallbox's own plug_state. Some vehicle integrations'
+    # charge_state never reports a disconnected value of its own; plug_state
+    # fills that gap from a separate entity, e.g. a connectivity binary_sensor.
+    plug_state: EntityRole | None = None
     energy_session: EntityRole | None = None
     location: EntityRole | None = None
     charge_end: EntityRole | None = None
@@ -221,6 +226,7 @@ class Vehicle:
             "odometer": _role_to_dict(self.odometer),
             "charge_state": _role_to_dict(self.charge_state),
             "charge_type": _role_to_dict(self.charge_type),
+            "plug_state": _role_to_dict(self.plug_state),
             "energy_session": _role_to_dict(self.energy_session),
             "location": _role_to_dict(self.location),
             "charge_end": _role_to_dict(self.charge_end),
@@ -249,6 +255,7 @@ class Vehicle:
             odometer=_role_from_dict(data.get("odometer")),
             charge_state=_role_from_dict(data.get("charge_state")),
             charge_type=_role_from_dict(data.get("charge_type")),
+            plug_state=_role_from_dict(data.get("plug_state")),
             energy_session=_role_from_dict(data.get("energy_session")),
             location=_role_from_dict(data.get("location")),
             charge_end=_role_from_dict(data.get("charge_end")),

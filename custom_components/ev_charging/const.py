@@ -108,6 +108,11 @@ MAPPING_CLASS_NEUTRAL = "neutral"
 # Only this mapping file format is understood (4.7).
 MAPPING_FORMAT_VERSION = 1
 
+# Selectable in the vehicle device-choice step in place of a mapping id, for a
+# vehicle with no connected online integration (5.2). Never stored: resolves
+# to mapping_id = None.
+NO_VEHICLE_INTEGRATION = "none"
+
 # Wallbox entity roles (5.1).
 ROLE_CHARGE_POWER = "charge_power"
 ROLE_ENERGY_TOTAL = "energy_total"

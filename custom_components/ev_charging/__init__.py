@@ -51,6 +51,7 @@ def _vehicle_roles(vehicle: Vehicle) -> list[tuple[str, EntityRole | None, bool]
         ("odometer", vehicle.odometer, True),
         ("charge_state", vehicle.charge_state, False),
         ("charge_type", vehicle.charge_type, False),
+        ("plug_state", vehicle.plug_state, False),
         ("energy_session", vehicle.energy_session, True),
         ("location", vehicle.location, False),
         ("charge_end", vehicle.charge_end, False),
