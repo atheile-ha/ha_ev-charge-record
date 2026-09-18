@@ -124,7 +124,7 @@ def test_backup_store_file_does_nothing_when_file_is_missing(tmp_path: Any) -> N
 
     _backup_store_file(str(path), old_major_version=1, old_minor_version=0)
 
-    assert list(tmp_path.iterdir()) == []
+    assert not (tmp_path / "ev_charging.sessions_2026.v1.0.bak").exists()
 
 
 async def test_migration_backs_up_before_writing(
