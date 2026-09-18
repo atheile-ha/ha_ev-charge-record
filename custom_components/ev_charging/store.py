@@ -26,6 +26,17 @@ _SESSIONS_FILENAME_RE = re.compile(r"^ev_charging\.sessions_(\d{4})$")
 _DATA_YEAR_STORES = "session_year_stores"
 
 
+def _backup_store_file(path: str, old_major_version: int, old_minor_version: int) -> None:
+    """Copy a store file aside before it is overwritten by a migration.
+
+    Does nothing if the file does not exist, which is the normal case for a
+    store that has never been migrated before.
+    """
+    if not os.path.exists(path):
+        return
+    shutil.copy2(path, f"{path}.v{old_major_version}.{old_minor_version}.bak")
+
+
 class _MigratingStore(Store[dict[str, Any]]):
     """A Store that backs up its file before applying a schema migration."""
 
@@ -33,7 +44,7 @@ class _MigratingStore(Store[dict[str, Any]]):
         self, old_major_version: int, old_minor_version: int, old_data: dict[str, Any]
     ) -> dict[str, Any]:
         await self.hass.async_add_executor_job(
-            self._backup_file, old_major_version, old_minor_version
+            _backup_store_file, self.path, old_major_version, old_minor_version
         )
         _LOGGER.info(
             "Migrating %s from schema %s.%s to %s.%s",
@@ -44,13 +55,6 @@ class _MigratingStore(Store[dict[str, Any]]):
             self.minor_version,
         )
         return old_data
-
-    def _backup_file(self, old_major_version: int, old_minor_version: int) -> None:
-        """Copy the current file aside before it is overwritten by a migration."""
-        if not os.path.exists(self.path):
-            return
-        backup_path = f"{self.path}.v{old_major_version}.{old_minor_version}.bak"
-        shutil.copy2(self.path, backup_path)
 
 
 class SessionYearStore:

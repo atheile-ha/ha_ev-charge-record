@@ -2,14 +2,33 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 from custom_components.ev_charging import services
-from custom_components.ev_charging.const import ATTR_CONFIRM, DOMAIN, SERVICE_DELETE_ALL_DATA
+from custom_components.ev_charging.const import (
+    ATTR_CONFIRM,
+    DOMAIN,
+    SERVICE_DELETE_ALL_DATA,
+    store_key_sessions,
+)
 from custom_components.ev_charging.models import Session
 from custom_components.ev_charging.store import SessionYearStore
 from homeassistant.core import Context, HomeAssistant
 from homeassistant.exceptions import ServiceValidationError, Unauthorized
 from pytest_homeassistant_custom_component.common import MockUser
+
+
+def _touch_year_files(storage_dir: str, years: list[int]) -> None:
+    """Create the real files async_list_session_years scans for.
+
+    Store I/O is mocked to an in-memory dict under the test harness and
+    never reaches real disk, so the directory scan needs real files placed
+    directly, alongside the actual (mocked) session content below.
+    """
+    os.makedirs(storage_dir, exist_ok=True)
+    for year in years:
+        open(os.path.join(storage_dir, store_key_sessions(year)), "w", encoding="utf-8").close()
 
 
 async def _add_user(hass: HomeAssistant, *, is_admin: bool) -> MockUser:
@@ -72,6 +91,7 @@ async def test_delete_all_data_clears_every_year_for_admin_with_confirmation(
     )
     await SessionYearStore(hass, 2025).async_save([session])
     await SessionYearStore(hass, 2026).async_save([session])
+    await hass.async_add_executor_job(_touch_year_files, hass.config.path(".storage"), [2025, 2026])
 
     await hass.services.async_call(
         DOMAIN,

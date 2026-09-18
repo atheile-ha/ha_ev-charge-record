@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
+from typing import Any
+from unittest.mock import patch
 
+from custom_components.ev_charging.const import store_key_sessions
 from custom_components.ev_charging.models import Session
-from custom_components.ev_charging.store import SessionYearStore, async_list_session_years
+from custom_components.ev_charging.store import (
+    SessionYearStore,
+    _backup_store_file,
+    async_list_session_years,
+)
 from homeassistant.core import HomeAssistant
 
 
@@ -65,10 +71,20 @@ async def test_concurrent_saves_do_not_interleave(hass: HomeAssistant) -> None:
     assert loaded_ids == {"first-a", "first-b"} or loaded_ids == {"second-a", "second-b"}
 
 
+def _touch_year_files(storage_dir: str, years: list[int]) -> None:
+    """Create empty files at the real paths a Store would write to on disk.
+
+    Store I/O is mocked to an in-memory dict under the test harness, so
+    exercising the directory scan itself needs real files placed directly.
+    """
+    os.makedirs(storage_dir, exist_ok=True)
+    for year in years:
+        open(os.path.join(storage_dir, store_key_sessions(year)), "w", encoding="utf-8").close()
+
+
 async def test_async_list_session_years_finds_existing_stores(hass: HomeAssistant) -> None:
     """Only years with an actual store file are reported."""
-    await SessionYearStore(hass, 2025).async_save([_session("x")])
-    await SessionYearStore(hass, 2026).async_save([_session("y")])
+    await hass.async_add_executor_job(_touch_year_files, hass.config.path(".storage"), [2025, 2026])
 
     assert await async_list_session_years(hass) == [2025, 2026]
 
@@ -78,28 +94,36 @@ async def test_async_list_session_years_empty_without_storage_dir(hass: HomeAssi
     assert await async_list_session_years(hass) == []
 
 
-def _write_legacy_file(storage_dir: str) -> str:
-    """Write a store file at an older minor version, return its path."""
-    os.makedirs(storage_dir, exist_ok=True)
-    path = os.path.join(storage_dir, "ev_charging.sessions_2026")
-    with open(path, "w", encoding="utf-8") as handle:
-        json.dump(
-            {
-                "version": 1,
-                "minor_version": 0,
-                "key": "ev_charging.sessions_2026",
-                "data": {"sessions": []},
-            },
-            handle,
-        )
-    return path
+def test_backup_store_file_copies_existing_file_aside(tmp_path: Any) -> None:
+    """The pre-migration file survives unchanged at a version-tagged path."""
+    path = tmp_path / "ev_charging.sessions_2026"
+    path.write_text('{"version": 1, "minor_version": 0, "data": {}}', encoding="utf-8")
+
+    _backup_store_file(str(path), old_major_version=1, old_minor_version=0)
+
+    backup_path = tmp_path / "ev_charging.sessions_2026.v1.0.bak"
+    assert backup_path.read_text(encoding="utf-8") == path.read_text(encoding="utf-8")
 
 
-async def test_migration_backs_up_the_old_file_before_writing(hass: HomeAssistant) -> None:
-    """A schema migration keeps a copy of the pre-migration file (6.1)."""
-    path = await hass.async_add_executor_job(_write_legacy_file, hass.config.path(".storage"))
+def test_backup_store_file_does_nothing_when_file_is_missing(tmp_path: Any) -> None:
+    """A store that has never been written yet has nothing to back up."""
+    path = tmp_path / "ev_charging.sessions_2026"
 
-    store = SessionYearStore(hass, 2026)
-    await store.async_load()
+    _backup_store_file(str(path), old_major_version=1, old_minor_version=0)
 
-    assert await hass.async_add_executor_job(os.path.exists, f"{path}.v1.0.bak")
+    assert list(tmp_path.iterdir()) == []
+
+
+async def test_migration_backs_up_before_writing(
+    hass: HomeAssistant, hass_storage: dict[str, Any]
+) -> None:
+    """Loading a store at an older schema version triggers the backup (6.1)."""
+    key = store_key_sessions(2026)
+    hass_storage[key] = {"version": 1, "minor_version": 0, "data": {"sessions": []}}
+
+    with patch("custom_components.ev_charging.store._backup_store_file") as backup:
+        await SessionYearStore(hass, 2026).async_load()
+
+    assert backup.call_count == 1
+    _path, old_major, old_minor = backup.call_args[0]
+    assert (old_major, old_minor) == (1, 0)

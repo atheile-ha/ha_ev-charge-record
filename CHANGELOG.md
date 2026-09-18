@@ -4,6 +4,12 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.3.6] - 2026-09-18
+
+### Geändert
+
+- Sicherungskopie vor einer Schemamigration ist jetzt eine eigenständige, unabhängig testbare Funktion
+
 ## [0.3.5] - 2026-09-18
 
 ### Hinzugefügt
