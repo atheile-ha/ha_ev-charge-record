@@ -7,6 +7,7 @@ import os
 from typing import Any
 from unittest.mock import patch
 
+import pytest
 from custom_components.ev_charging.const import store_key_sessions
 from custom_components.ev_charging.models import Session
 from custom_components.ev_charging.store import (
@@ -15,6 +16,18 @@ from custom_components.ev_charging.store import (
     async_list_session_years,
 )
 from homeassistant.core import HomeAssistant
+
+
+@pytest.fixture
+def hass_config_dir(hass_tmp_config_dir: str) -> str:
+    """Give this module's hass a private config dir instead of the shared default.
+
+    async_list_session_years and the migration backup touch real files
+    directly; the plugin's default config dir is a fixed path shared by
+    every test in the run, so real files written there would leak between
+    tests.
+    """
+    return hass_tmp_config_dir
 
 
 def _session(session_id: str) -> Session:

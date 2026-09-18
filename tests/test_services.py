@@ -19,6 +19,17 @@ from homeassistant.exceptions import ServiceValidationError, Unauthorized
 from pytest_homeassistant_custom_component.common import MockUser
 
 
+@pytest.fixture
+def hass_config_dir(hass_tmp_config_dir: str) -> str:
+    """Give this module's hass a private config dir instead of the shared default.
+
+    _touch_year_files below writes real files directly; the plugin's default
+    config dir is a fixed path shared by every test in the run, so real
+    files written there would leak between tests.
+    """
+    return hass_tmp_config_dir
+
+
 def _touch_year_files(storage_dir: str, years: list[int]) -> None:
     """Create the real files async_list_session_years scans for.
 
