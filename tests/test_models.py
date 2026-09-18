@@ -6,6 +6,8 @@ import pytest
 from custom_components.ev_charging.models import (
     Card,
     HubSettings,
+    Phase,
+    Session,
     Vehicle,
     Wallbox,
     normalize_card_uid,
@@ -117,3 +119,104 @@ def test_hub_settings_from_dict_applies_defaults_for_missing_fields() -> None:
     assert settings.geocoding_enabled is True
     assert settings.geocoding_contact is None
     assert settings.estimate_uncertain_threshold_pct == 5
+
+
+def test_phase_round_trips_through_dict() -> None:
+    """A phase survives a to_dict/from_dict round trip unchanged."""
+    phase = Phase(
+        start="2026-09-05T18:12:04+02:00",
+        end="2026-09-05T20:00:00+02:00",
+        duration_min=108.0,
+        energy_kwh=12.5,
+        energy_grid_kwh=3.0,
+        energy_solar_kwh=9.5,
+        cost=0.9,
+        power_avg_kw=6.9,
+        power_max_kw=11.0,
+    )
+    assert Phase.from_dict(phase.to_dict()) == phase
+
+
+def test_phase_from_dict_defaults_optional_fields_to_none() -> None:
+    """A phase with only a start, as with an external session, loads with null fields."""
+    phase = Phase.from_dict({"start": "2026-09-05T18:12:04+02:00"})
+    assert phase.end is None
+    assert phase.energy_kwh is None
+    assert phase.power_max_kw is None
+
+
+def test_phase_is_frozen() -> None:
+    """A phase cannot be mutated after creation."""
+    phase = Phase(start="2026-09-05T18:12:04+02:00")
+    with pytest.raises(FrozenInstanceError):
+        phase.end = "2026-09-05T20:00:00+02:00"  # type: ignore[misc]
+
+
+def test_session_round_trips_through_dict_with_phases() -> None:
+    """A session including its phases survives a to_dict/from_dict round trip."""
+    session = Session(
+        id="2026-09-05T18:12:04_v002",
+        location="home",
+        plug_start="2026-09-05T18:12:04+02:00",
+        identification_source="rfid",
+        vehicle_id="v002",
+        vehicle_name="GLB 250+ EQ",
+        capacity_kwh=85.0,
+        wallbox_id="wb001",
+        card_uid="BAEB2194",
+        card_label="Karte GLB",
+        plug_end="2026-09-07T09:40:11+02:00",
+        plug_duration_min=2608.0,
+        charge_duration_min=412.0,
+        pause_duration_min=2196.0,
+        phase_count=1,
+        phases_recorded=True,
+        soc_start=42.0,
+        soc_end=100.0,
+        odometer_km=7699.0,
+        energy_measured_kwh=48.213,
+        energy_measured_session_kwh=48.207,
+        energy_raw_kwh=49.30,
+        energy_kwh=48.213,
+        energy_grid_kwh=12.104,
+        energy_solar_kwh=36.109,
+        cost=4.87,
+        charge_type="ac",
+        charge_type_source="wallbox_config",
+        power_avg_kw=7.02,
+        status="complete",
+        open_fields=("soc_end",),
+        modified_fields=("energy_billed_kwh",),
+        phases=(Phase(start="2026-09-05T18:12:04+02:00", end="2026-09-07T09:40:11+02:00"),),
+    )
+    assert Session.from_dict(session.to_dict()) == session
+
+
+def test_session_from_dict_applies_defaults_for_missing_optional_fields() -> None:
+    """Loading a sparse dict, as an unassigned session, yields sensible defaults."""
+    session = Session.from_dict(
+        {
+            "id": "2026-09-05T18:12:04_wb001",
+            "location": "home",
+            "plug_start": "2026-09-05T18:12:04+02:00",
+            "identification_source": "unresolved",
+        }
+    )
+    assert session.vehicle_id is None
+    assert session.identification_conflict is False
+    assert session.charge_type == "unknown"
+    assert session.status == "complete"
+    assert session.open_fields == ()
+    assert session.phases == ()
+
+
+def test_session_is_frozen() -> None:
+    """A session cannot be mutated after creation."""
+    session = Session(
+        id="2026-09-05T18:12:04_v002",
+        location="home",
+        plug_start="2026-09-05T18:12:04+02:00",
+        identification_source="rfid",
+    )
+    with pytest.raises(FrozenInstanceError):
+        session.status = "flagged"  # type: ignore[misc]

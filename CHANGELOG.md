@@ -4,6 +4,14 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.3.5] - 2026-09-18
+
+### Hinzugefügt
+
+- Datenmodell für Sessions und Ladephasen
+- Jahresweise Session-Speicherung mit Schemaversion, Migrationsfunktion und Sicherungskopie vor einer Migration
+- Service `delete_all_data` mit Pflichtbestätigung, nur für Administratoren
+
 ## [0.3.4] - 2026-09-17
 
 ### Behoben

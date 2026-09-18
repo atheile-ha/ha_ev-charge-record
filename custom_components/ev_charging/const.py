@@ -98,7 +98,48 @@ CHARGE_STATE_CLASSES = (
 # An unmapped charge state value falls back to this class (I15).
 CHARGE_STATE_DEFAULT = CHARGE_STATE_CONNECTED_IDLE
 
-CHARGE_TYPES = CURRENT_TYPES
+CHARGE_TYPE_UNKNOWN = "unknown"
+CHARGE_TYPES = (*CURRENT_TYPES, CHARGE_TYPE_UNKNOWN)
+
+CHARGE_TYPE_SOURCE_ENTITY = "entity"
+CHARGE_TYPE_SOURCE_WALLBOX_CONFIG = "wallbox_config"
+CHARGE_TYPE_SOURCE_HEURISTIC = "heuristic"
+CHARGE_TYPE_SOURCES = (
+    CHARGE_TYPE_SOURCE_ENTITY,
+    CHARGE_TYPE_SOURCE_WALLBOX_CONFIG,
+    CHARGE_TYPE_SOURCE_HEURISTIC,
+)
+
+# Session identification sources (6.2, 7.8).
+IDENTIFICATION_SOURCE_RFID = "rfid"
+IDENTIFICATION_SOURCE_EMAID = "emaid"
+IDENTIFICATION_SOURCE_VEHICLE_API = "vehicle_api"
+IDENTIFICATION_SOURCE_MANUAL = "manual"
+IDENTIFICATION_SOURCE_UNRESOLVED = "unresolved"
+IDENTIFICATION_SOURCES = (
+    IDENTIFICATION_SOURCE_RFID,
+    IDENTIFICATION_SOURCE_EMAID,
+    IDENTIFICATION_SOURCE_VEHICLE_API,
+    IDENTIFICATION_SOURCE_MANUAL,
+    IDENTIFICATION_SOURCE_UNRESOLVED,
+)
+
+# Session location (6.2, 7.4).
+LOCATION_HOME = "home"
+LOCATION_HOME_NO_WALLBOX = "home_no_wallbox"
+LOCATION_EXTERNAL = "external"
+LOCATIONS = (LOCATION_HOME, LOCATION_HOME_NO_WALLBOX, LOCATION_EXTERNAL)
+
+# Session status (6.2).
+SESSION_STATUS_COMPLETE = "complete"
+SESSION_STATUS_FOLLOWUP_OPEN = "followup_open"
+SESSION_STATUS_FLAGGED = "flagged"
+SESSION_STATUSES = (SESSION_STATUS_COMPLETE, SESSION_STATUS_FOLLOWUP_OPEN, SESSION_STATUS_FLAGGED)
+
+# Session store schema (6.1). Present from the first version so a future
+# schema change has an async_migrate_func to extend rather than add.
+STORAGE_VERSION_SESSIONS = 1
+STORAGE_MINOR_VERSION_SESSIONS = 1
 
 # A raw value with no meaning for a given role (E31, 4.7). Leaves the last
 # valid class of that role unchanged; distinct from a value missing from the
@@ -144,6 +185,9 @@ ROLE_PRICE_FEED_IN = "price_feed_in"
 POWER_UNIT_FACTORS_TO_KW = {"kW": 1.0, "W": 0.001, "MW": 1000.0}
 ENERGY_UNIT_FACTORS_TO_KWH = {"kWh": 1.0, "Wh": 0.001, "MWh": 1000.0}
 DISTANCE_UNIT_FACTORS_TO_KM = {"km": 1.0, "m": 0.001, "mi": 1.609344}
+
+SERVICE_DELETE_ALL_DATA = "delete_all_data"
+ATTR_CONFIRM = "confirm"
 
 # Repair issue translation keys (12.3).
 ISSUE_ROLE_ENTITY_REMOVED = "role_entity_removed"

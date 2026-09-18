@@ -1,6 +1,6 @@
 [project]
 name = "ev-charging"
-version = "0.3.4"
+version = "0.3.5"
 description = "Home Assistant integration for EV charging session tracking"
 requires-python = ">=3.14"
 

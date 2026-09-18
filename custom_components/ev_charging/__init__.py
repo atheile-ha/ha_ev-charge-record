@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from . import mappings, problems, resolver
+from . import mappings, problems, resolver, services
 from .const import (
     CONF_VEHICLE_SEQUENCE,
     CONF_WALLBOX_SEQUENCE,
@@ -176,6 +176,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EvChargingConfigEntry) -
             )
 
     entry.runtime_data = EvChargingRuntimeData(unsub_listeners=unsub_listeners)
+    services.async_setup_services(hass)
     return True
 
 
@@ -183,6 +184,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: EvChargingConfigEntry) 
     """Unload a config entry."""
     for unsub in entry.runtime_data.unsub_listeners:
         unsub()
+    services.async_unload_services(hass)
     return True
 
 

@@ -1,0 +1,6 @@
+delete_all_data:
+  fields:
+    confirm:
+      required: true
+      selector:
+        boolean:

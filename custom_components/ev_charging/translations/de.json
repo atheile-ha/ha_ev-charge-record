@@ -415,6 +415,18 @@
       }
     }
   },
+  "services": {
+    "delete_all_data": {
+      "name": "Alle Daten löschen",
+      "description": "Löscht alle gespeicherten Ladevorgänge aller Jahre unwiderruflich.",
+      "fields": {
+        "confirm": {
+          "name": "Bestätigen",
+          "description": "Muss auf true gesetzt werden. Die Löschung kann nicht rückgängig gemacht werden."
+        }
+      }
+    }
+  },
   "issues": {
     "role_entity_removed": {
       "title": "Zugeordnete Entität entfernt",

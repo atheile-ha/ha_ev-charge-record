@@ -415,6 +415,18 @@
       }
     }
   },
+  "services": {
+    "delete_all_data": {
+      "name": "Delete all data",
+      "description": "Permanently deletes every stored charging session of every year.",
+      "fields": {
+        "confirm": {
+          "name": "Confirm",
+          "description": "Must be set to true. The deletion cannot be undone."
+        }
+      }
+    }
+  },
   "issues": {
     "role_entity_removed": {
       "title": "Assigned entity removed",

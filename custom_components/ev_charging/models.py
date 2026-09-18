@@ -7,6 +7,7 @@ from typing import Any
 
 from .const import (
     CARD_TYPE_RFID,
+    CHARGE_TYPE_UNKNOWN,
     COST_MODE_DYNAMIC,
     DEFAULT_ESTIMATE_UNCERTAIN_THRESHOLD_PCT,
     DEFAULT_GEOCODING_ENABLED,
@@ -15,6 +16,7 @@ from .const import (
     DEFAULT_POWER_THRESHOLD_KW,
     DEFAULT_START_DEBOUNCE_S,
     DEFAULT_UPDATE_INTERVAL_S,
+    SESSION_STATUS_COMPLETE,
     SOLAR_VALUATION_FEED_IN_TARIFF,
 )
 
@@ -326,4 +328,233 @@ class HubSettings:
             price_grid_fixed=data.get("price_grid_fixed"),
             price_feed_in=_role_from_dict(data.get("price_feed_in")),
             price_feed_in_fixed=data.get("price_feed_in_fixed"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class Phase:
+    """A single charging phase within a session (6.3).
+
+    An external session without a wallbox counter carries only the time
+    range; the energy, cost and power fields stay null.
+    """
+
+    start: str
+    end: str | None = None
+    duration_min: float | None = None
+    energy_kwh: float | None = None
+    energy_grid_kwh: float | None = None
+    energy_solar_kwh: float | None = None
+    cost: float | None = None
+    power_avg_kw: float | None = None
+    power_max_kw: float | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a plain dict."""
+        return {
+            "start": self.start,
+            "end": self.end,
+            "duration_min": self.duration_min,
+            "energy_kwh": self.energy_kwh,
+            "energy_grid_kwh": self.energy_grid_kwh,
+            "energy_solar_kwh": self.energy_solar_kwh,
+            "cost": self.cost,
+            "power_avg_kw": self.power_avg_kw,
+            "power_max_kw": self.power_max_kw,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Phase:
+        """Deserialize from a plain dict."""
+        return cls(
+            start=data["start"],
+            end=data.get("end"),
+            duration_min=data.get("duration_min"),
+            energy_kwh=data.get("energy_kwh"),
+            energy_grid_kwh=data.get("energy_grid_kwh"),
+            energy_solar_kwh=data.get("energy_solar_kwh"),
+            cost=data.get("cost"),
+            power_avg_kw=data.get("power_avg_kw"),
+            power_max_kw=data.get("power_max_kw"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class Session:
+    """A single charging session (6.2).
+
+    vehicle_id stays null for as long as a session is not assigned to a
+    vehicle (7.8). energy_measured_kwh, energy_measured_session_kwh,
+    energy_vehicle_kwh, energy_raw_kwh and energy_billed_kwh are each
+    written by at most one source and never overwritten; energy_kwh is
+    always derived from them (8.4). cost carries only the dynamically
+    determined amount; there is no fixed-price field.
+    """
+
+    id: str
+    location: str
+    plug_start: str
+    identification_source: str
+
+    vehicle_id: str | None = None
+    vehicle_name: str | None = None
+    capacity_kwh: float | None = None
+    wallbox_id: str | None = None
+    card_uid: str | None = None
+    card_label: str | None = None
+    identification_conflict: bool = False
+
+    plug_end: str | None = None
+    plug_duration_min: float | None = None
+    charge_duration_min: float | None = None
+    pause_duration_min: float | None = None
+    phase_count: int = 0
+    phases_recorded: bool = True
+
+    soc_start: float | None = None
+    soc_end: float | None = None
+    odometer_km: float | None = None
+
+    energy_measured_kwh: float | None = None
+    energy_measured_session_kwh: float | None = None
+    energy_vehicle_kwh: float | None = None
+    energy_raw_kwh: float | None = None
+    energy_estimated_kwh: float | None = None
+    energy_billed_kwh: float | None = None
+    energy_kwh: float | None = None
+    energy_grid_kwh: float | None = None
+    energy_solar_kwh: float | None = None
+    energy_unallocated_kwh: float = 0.0
+    estimate_uncertain: bool = False
+
+    cost: float | None = None
+    charge_type: str = CHARGE_TYPE_UNKNOWN
+    charge_type_source: str | None = None
+    power_avg_kw: float | None = None
+    address: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    location_reported_at: str | None = None
+    location_conflict: bool = False
+    address_retry_pending: bool = False
+    provider: str | None = None
+    note: str | None = None
+
+    charge_error: bool = False
+    status: str = SESSION_STATUS_COMPLETE
+    open_fields: tuple[str, ...] = field(default_factory=tuple)
+    created_at: str | None = None
+    modified_at: str | None = None
+    modified_fields: tuple[str, ...] = field(default_factory=tuple)
+    phases: tuple[Phase, ...] = field(default_factory=tuple)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a plain dict."""
+        return {
+            "id": self.id,
+            "vehicle_id": self.vehicle_id,
+            "vehicle_name": self.vehicle_name,
+            "capacity_kwh": self.capacity_kwh,
+            "wallbox_id": self.wallbox_id,
+            "card_uid": self.card_uid,
+            "card_label": self.card_label,
+            "location": self.location,
+            "identification_source": self.identification_source,
+            "identification_conflict": self.identification_conflict,
+            "plug_start": self.plug_start,
+            "plug_end": self.plug_end,
+            "plug_duration_min": self.plug_duration_min,
+            "charge_duration_min": self.charge_duration_min,
+            "pause_duration_min": self.pause_duration_min,
+            "phase_count": self.phase_count,
+            "phases_recorded": self.phases_recorded,
+            "soc_start": self.soc_start,
+            "soc_end": self.soc_end,
+            "odometer_km": self.odometer_km,
+            "energy_measured_kwh": self.energy_measured_kwh,
+            "energy_measured_session_kwh": self.energy_measured_session_kwh,
+            "energy_vehicle_kwh": self.energy_vehicle_kwh,
+            "energy_raw_kwh": self.energy_raw_kwh,
+            "energy_estimated_kwh": self.energy_estimated_kwh,
+            "energy_billed_kwh": self.energy_billed_kwh,
+            "energy_kwh": self.energy_kwh,
+            "energy_grid_kwh": self.energy_grid_kwh,
+            "energy_solar_kwh": self.energy_solar_kwh,
+            "energy_unallocated_kwh": self.energy_unallocated_kwh,
+            "estimate_uncertain": self.estimate_uncertain,
+            "cost": self.cost,
+            "charge_type": self.charge_type,
+            "charge_type_source": self.charge_type_source,
+            "power_avg_kw": self.power_avg_kw,
+            "address": self.address,
+            "latitude": self.latitude,
+            "longitude": self.longitude,
+            "location_reported_at": self.location_reported_at,
+            "location_conflict": self.location_conflict,
+            "address_retry_pending": self.address_retry_pending,
+            "provider": self.provider,
+            "note": self.note,
+            "charge_error": self.charge_error,
+            "status": self.status,
+            "open_fields": list(self.open_fields),
+            "created_at": self.created_at,
+            "modified_at": self.modified_at,
+            "modified_fields": list(self.modified_fields),
+            "phases": [phase.to_dict() for phase in self.phases],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Session:
+        """Deserialize from a plain dict."""
+        return cls(
+            id=data["id"],
+            vehicle_id=data.get("vehicle_id"),
+            vehicle_name=data.get("vehicle_name"),
+            capacity_kwh=data.get("capacity_kwh"),
+            wallbox_id=data.get("wallbox_id"),
+            card_uid=data.get("card_uid"),
+            card_label=data.get("card_label"),
+            location=data["location"],
+            identification_source=data["identification_source"],
+            identification_conflict=data.get("identification_conflict", False),
+            plug_start=data["plug_start"],
+            plug_end=data.get("plug_end"),
+            plug_duration_min=data.get("plug_duration_min"),
+            charge_duration_min=data.get("charge_duration_min"),
+            pause_duration_min=data.get("pause_duration_min"),
+            phase_count=data.get("phase_count", 0),
+            phases_recorded=data.get("phases_recorded", True),
+            soc_start=data.get("soc_start"),
+            soc_end=data.get("soc_end"),
+            odometer_km=data.get("odometer_km"),
+            energy_measured_kwh=data.get("energy_measured_kwh"),
+            energy_measured_session_kwh=data.get("energy_measured_session_kwh"),
+            energy_vehicle_kwh=data.get("energy_vehicle_kwh"),
+            energy_raw_kwh=data.get("energy_raw_kwh"),
+            energy_estimated_kwh=data.get("energy_estimated_kwh"),
+            energy_billed_kwh=data.get("energy_billed_kwh"),
+            energy_kwh=data.get("energy_kwh"),
+            energy_grid_kwh=data.get("energy_grid_kwh"),
+            energy_solar_kwh=data.get("energy_solar_kwh"),
+            energy_unallocated_kwh=data.get("energy_unallocated_kwh", 0.0),
+            estimate_uncertain=data.get("estimate_uncertain", False),
+            cost=data.get("cost"),
+            charge_type=data.get("charge_type", CHARGE_TYPE_UNKNOWN),
+            charge_type_source=data.get("charge_type_source"),
+            power_avg_kw=data.get("power_avg_kw"),
+            address=data.get("address"),
+            latitude=data.get("latitude"),
+            longitude=data.get("longitude"),
+            location_reported_at=data.get("location_reported_at"),
+            location_conflict=data.get("location_conflict", False),
+            address_retry_pending=data.get("address_retry_pending", False),
+            provider=data.get("provider"),
+            note=data.get("note"),
+            charge_error=data.get("charge_error", False),
+            status=data.get("status", SESSION_STATUS_COMPLETE),
+            open_fields=tuple(data.get("open_fields", [])),
+            created_at=data.get("created_at"),
+            modified_at=data.get("modified_at"),
+            modified_fields=tuple(data.get("modified_fields", [])),
+            phases=tuple(Phase.from_dict(phase) for phase in data.get("phases", [])),
         )
