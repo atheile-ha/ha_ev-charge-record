@@ -5,20 +5,33 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
+from homeassistant.components import frontend, panel_custom
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.loader import async_get_integration
 
-from . import mappings, problems, resolver, services
+from . import mappings, problems, resolver, services, websocket
 from .const import (
     CONF_VEHICLE_SEQUENCE,
     CONF_WALLBOX_SEQUENCE,
+    DOMAIN,
+    FRONTEND_BUNDLE_FILENAME,
+    FRONTEND_STATIC_URL_PATH,
+    PANEL_ICON,
+    PANEL_URL_PATH,
+    PANEL_WEBCOMPONENT,
     SUBENTRY_TYPE_VEHICLE,
     SUBENTRY_TYPE_WALLBOX,
+    TITLE,
 )
 from .models import EntityRole, HubSettings, Vehicle, Wallbox
 
 _LOGGER = logging.getLogger(__name__)
+
+_DATA_STATIC_PATH_REGISTERED = "frontend_static_path_registered"
 
 
 @dataclass
@@ -26,6 +39,9 @@ class EvChargingRuntimeData:
     """Runtime data attached to the config entry while it is set up."""
 
     unsub_listeners: list[Callable[[], None]]
+    # URL under which the frontend bundle was registered, None if the frontend
+    # integration is not loaded and nothing was registered.
+    bundle_url: str | None = None
 
 
 type EvChargingConfigEntry = ConfigEntry[EvChargingRuntimeData]
@@ -131,6 +147,42 @@ async def _async_check_mapping_min_version(
     )
 
 
+async def _async_register_frontend(hass: HomeAssistant) -> str | None:
+    """Serve the frontend bundle and register the panel and the dashboard cards.
+
+    Returns the bundle URL, or None if the frontend integration is not loaded.
+    The URL carries the integration version, so browsers fetch the new bundle
+    after an update instead of reusing a cached one.
+    """
+    if "frontend" not in hass.config.components:
+        _LOGGER.warning("The frontend integration is not loaded; panel and cards are unavailable")
+        return None
+
+    integration = await async_get_integration(hass, DOMAIN)
+    bundle_url = f"{FRONTEND_STATIC_URL_PATH}?v={integration.version}"
+
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    if not domain_data.get(_DATA_STATIC_PATH_REGISTERED):
+        bundle_path = Path(__file__).parent / "frontend" / FRONTEND_BUNDLE_FILENAME
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(FRONTEND_STATIC_URL_PATH, str(bundle_path), cache_headers=True)]
+        )
+        domain_data[_DATA_STATIC_PATH_REGISTERED] = True
+
+    frontend.add_extra_js_url(hass, bundle_url)
+    if not frontend.async_panel_exists(hass, PANEL_URL_PATH):
+        await panel_custom.async_register_panel(
+            hass,
+            frontend_url_path=PANEL_URL_PATH,
+            webcomponent_name=PANEL_WEBCOMPONENT,
+            sidebar_title=TITLE,
+            sidebar_icon=PANEL_ICON,
+            module_url=bundle_url,
+            require_admin=False,
+        )
+    return bundle_url
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: EvChargingConfigEntry) -> bool:
     """Set up ev_charging from a config entry."""
     unsub_listeners: list[callable] = []
@@ -175,7 +227,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: EvChargingConfigEntry) -
                 mapping_id=vehicle.mapping_id,
             )
 
-    entry.runtime_data = EvChargingRuntimeData(unsub_listeners=unsub_listeners)
+    websocket.async_setup_websocket(hass)
+    bundle_url = await _async_register_frontend(hass)
+    entry.runtime_data = EvChargingRuntimeData(
+        unsub_listeners=unsub_listeners, bundle_url=bundle_url
+    )
     services.async_setup_services(hass)
     return True
 
@@ -184,6 +240,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: EvChargingConfigEntry) 
     """Unload a config entry."""
     for unsub in entry.runtime_data.unsub_listeners:
         unsub()
+    if entry.runtime_data.bundle_url is not None:
+        frontend.async_remove_panel(hass, PANEL_URL_PATH, warn_if_unknown=False)
+        frontend.remove_extra_js_url(hass, entry.runtime_data.bundle_url)
     services.async_unload_services(hass)
     return True
 

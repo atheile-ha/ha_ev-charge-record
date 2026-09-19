@@ -5,6 +5,9 @@ import { resolve } from "node:path";
 // The output is committed so HACS ships it without a Node toolchain.
 // No runtime dependency may be external: Lit is compiled into the bundle.
 export default defineConfig({
+  define: {
+    "process.env.NODE_ENV": '"production"',
+  },
   build: {
     lib: {
       entry: resolve(__dirname, "src/main.ts"),

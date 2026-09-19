@@ -22,6 +22,22 @@ Die Integration führt keine Steuerung aus.
 
 Herstellerunabhängig. Die Zuordnung erfolgt über normalisierte Rollen bei der Einrichtung.
 
+## Panel und Karten
+
+Nach dem Einrichten erscheint in der Seitenleiste das Panel „EV Charging“. Es zeigt die erfassten Ladevorgänge und ist für alle angemeldeten Benutzer lesbar.
+
+- Übersicht: Monatsauswahl, Summen für Energie, Kosten und Ladedauer, Anzahl der Ladevorgänge und der offenen Nacherfassungen, Monatsbalken über das Jahr
+- Detailliste: Ladevorgänge des Monats mit Filtern für Fahrzeug, Ladeort, Ladeart, Karte und Status. Jeder Eintrag lässt sich aufklappen und zeigt Zeiten, Ladestand, Kilometerstand, Netz- und Sonnenanteil sowie die Ladephasen
+
+Ladevorgänge ohne Fahrzeug werden als „Nicht zugeordnet“ geführt und zählen in die Summen. Ladevorgänge über mehrere Tage werden dem Monat des Ansteckens zugeordnet. Geschätzte Werte sind mit ~ gekennzeichnet.
+
+In der Kartenauswahl eines Dashboards stehen zwei Karten zur Verfügung, sie erscheinen unter ihrem Kartentyp:
+
+| Karte | Inhalt |
+|---|---|
+| `ev-charging-panel-card` | dieselben Ansichten wie das Panel, für eine Dashboard-Ansicht vom Typ Panel |
+| `ev-charging-recent-card` | die letzten Ladevorgänge, Einstellung `count` (1 bis 20, Standard 3) |
+
 ## Kennungen (RFID/eMAID)
 
 Beim Fahrzeug wird stets die vollständige, aufgedruckte Seriennummer hinterlegt. Meldet die Wallbox nur einen
@@ -51,7 +67,7 @@ pytest
 ```
 
 ```bash
-cd frontend && npm install && npm run build
+cd frontend && npm install && npm run typecheck && npm test && npm run build
 ```
 
 Das gebaute Bundle wird committet.

@@ -10,8 +10,9 @@
     "noImplicitOverride": true,
     "experimentalDecorators": true,
     "useDefineForClassFields": false,
+    "resolveJsonModule": true,
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src"]
+  "include": ["src", "test"]
 }

@@ -4,6 +4,19 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.3.7] - 2026-09-19
+
+### Hinzugefügt
+
+- Panel „EV Charging“ in der Seitenleiste mit den Ansichten Übersicht (Monatsauswahl, Summen für Energie, Kosten und Ladedauer, Monatsbalken über das Jahr) und Detailliste (Filter für Fahrzeug, Ladeort, Ladeart, Karte und Status, aufklappbare Ladevorgänge mit Phasen)
+- Lovelace-Karte `ev-charging-panel-card` mit denselben Ansichten wie das Panel, für eine Dashboard-Ansicht vom Typ Panel
+- Lovelace-Karte `ev-charging-recent-card` mit den letzten Ladevorgängen, Einstellung `count` (Standard 3)
+- Ladevorgänge ohne Fahrzeug erscheinen als „Nicht zugeordnet“, sind filterbar und zählen in den Summen
+- Geschätzte Energiewerte sind mit einer Tilde gekennzeichnet
+- WebSocket-Kommandos `ev_charging/sessions/list`, `ev_charging/sessions/stats`, `ev_charging/sessions/open` und `ev_charging/vehicles/list`, für alle angemeldeten Benutzer lesbar
+- Frontend-Bundle `ev-charging.js`, ausgeliefert mit der Integrationsversion im Skriptpfad
+- `frontend`, `http`, `panel_custom` und `websocket_api` als `after_dependencies` im Manifest
+
 ## [0.3.6] - 2026-09-18
 
 ### Geändert

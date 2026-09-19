@@ -21,6 +21,7 @@ secrets.yaml
 !custom_components/ev_charging/mappings/*.json
 !hacs.json
 !frontend/package.json
+!frontend/package-lock.json
 !frontend/tsconfig.json
 !.vscode/*.json
 

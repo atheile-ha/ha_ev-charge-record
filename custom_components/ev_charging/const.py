@@ -189,6 +189,18 @@ DISTANCE_UNIT_FACTORS_TO_KM = {"km": 1.0, "m": 0.001, "mi": 1.609344}
 SERVICE_DELETE_ALL_DATA = "delete_all_data"
 ATTR_CONFIRM = "confirm"
 
+# Frontend. The bundle holds the panel and all dashboard cards; it is served
+# from a path of its own so it never collides with the panel's route.
+PANEL_URL_PATH = "ev_charging"
+PANEL_WEBCOMPONENT = "ev-charging-panel"
+PANEL_ICON = "mdi:ev-station"
+FRONTEND_BUNDLE_FILENAME = "ev-charging.js"
+FRONTEND_STATIC_URL_PATH = "/ev_charging_static/ev-charging.js"
+
+# sessions/list without a year returns this many of the newest sessions.
+DEFAULT_RECENT_LIMIT = 10
+MAX_LIST_LIMIT = 500
+
 # Repair issue translation keys (12.3).
 ISSUE_ROLE_ENTITY_REMOVED = "role_entity_removed"
 ISSUE_ROLE_UNIT_CHANGED = "role_unit_changed"

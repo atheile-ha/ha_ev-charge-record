@@ -220,3 +220,27 @@ def test_session_is_frozen() -> None:
     )
     with pytest.raises(FrozenInstanceError):
         session.status = "flagged"  # type: ignore[misc]
+
+
+@pytest.mark.parametrize(
+    ("fields", "expected"),
+    [
+        ({"energy_kwh": 5.0, "energy_estimated_kwh": 5.0}, True),
+        ({"energy_kwh": 5.0, "energy_measured_kwh": 5.0}, False),
+        ({"energy_kwh": 5.0, "energy_billed_kwh": 5.0, "energy_estimated_kwh": 6.0}, False),
+        ({"energy_kwh": 5.0, "energy_vehicle_kwh": 5.0}, False),
+        ({"energy_kwh": None}, False),
+    ],
+)
+def test_session_energy_is_an_estimate_only_without_a_higher_ranked_source(
+    fields: dict, expected: bool
+) -> None:
+    """energy_kwh counts as estimated when billed, measured and vehicle energy are all absent."""
+    session = Session(
+        id="a",
+        location="home",
+        plug_start="2026-09-05T18:12:04+02:00",
+        identification_source="manual",
+        **fields,
+    )
+    assert session.energy_is_estimate is expected

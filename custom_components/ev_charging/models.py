@@ -448,6 +448,21 @@ class Session:
     modified_fields: tuple[str, ...] = field(default_factory=tuple)
     phases: tuple[Phase, ...] = field(default_factory=tuple)
 
+    @property
+    def energy_is_estimate(self) -> bool:
+        """Whether energy_kwh is only estimated from the state of charge.
+
+        energy_kwh takes the first available of billed, measured, vehicle and
+        estimated energy, so it is an estimate exactly when none of the
+        three preceding sources is present.
+        """
+        return (
+            self.energy_kwh is not None
+            and self.energy_billed_kwh is None
+            and self.energy_measured_kwh is None
+            and self.energy_vehicle_kwh is None
+        )
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict."""
         return {
