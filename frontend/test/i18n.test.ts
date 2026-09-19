@@ -10,7 +10,13 @@ function prefixed(options: Record<string, string>): Record<string, string> {
 }
 
 function fakeHass(callWS: HomeAssistant["callWS"], language = "de"): HomeAssistant {
-  return { language, locale: { language }, config: { currency: "EUR", time_zone: "UTC" }, callWS };
+  return {
+    language,
+    locale: { language },
+    config: { currency: "EUR", time_zone: "UTC" },
+    callWS,
+    connection: { subscribeMessage: vi.fn() },
+  };
 }
 
 describe("makeTranslate", () => {

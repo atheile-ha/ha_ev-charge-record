@@ -504,7 +504,28 @@
         "field_cost": "Cost",
         "field_address": "Address",
         "recent_title": "Recent sessions",
-        "card_count": "Number of sessions"
+        "card_count": "Number of sessions",
+        "live_title": "Charging",
+        "live_idle": "No charging session running",
+        "live_no_wallbox": "No wallbox is configured",
+        "live_state_candidate": "Detecting",
+        "live_state_charging": "Charging",
+        "live_state_paused": "Paused",
+        "live_state_error": "Error",
+        "live_state_awaiting_final": "Finishing",
+        "live_vehicle_guest": "Guest vehicle",
+        "live_soc": "State of charge",
+        "live_soc_target": "target {target} %",
+        "live_power": "Power",
+        "live_energy": "Energy",
+        "live_solar_share": "{percent} % solar",
+        "live_cost": "Cost",
+        "live_price": "Price per kWh",
+        "live_charge_time": "Charging time",
+        "live_plug_time": "Plugged in",
+        "live_charge_end": "Expected end",
+        "month_solar_share": "Solar share",
+        "field_vehicle_id": "Vehicle"
       }
     }
   },
@@ -536,6 +557,82 @@
     "mapping_source_below_min_version": {
       "title": "Mapping source outdated or missing",
       "description": "The source integration for \"{device}\", chosen for \"{subentry_title}\", is not installed or older than {integration_name} {min_version}. Data collection continues; update or install the source integration to resolve this."
+    },
+    "unknown_card": {
+      "title": "Card not held by a vehicle",
+      "description": "A charging session at \"{wallbox_title}\" started with a card that no active vehicle holds. The session is recorded in full and stays unassigned. If the card belongs to a vehicle, add it to that vehicle."
+    },
+    "energy_counter_switched": {
+      "title": "Energy counter switched",
+      "description": "The energy counter previously used at \"{wallbox_title}\" did not increase during charging while the other one did. The capture now uses {counter}. Check the counter assignment in the wallbox dialog."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "wallbox_state": {
+        "name": "Wallbox state",
+        "state": {
+          "idle": "Idle",
+          "candidate": "Detecting",
+          "charging": "Charging",
+          "paused": "Paused",
+          "error": "Error",
+          "awaiting_final": "Finishing"
+        }
+      },
+      "active_vehicle": {
+        "name": "Active vehicle"
+      },
+      "session_cost": {
+        "name": "Session cost"
+      },
+      "session_energy_grid": {
+        "name": "Session energy grid"
+      },
+      "session_energy_solar": {
+        "name": "Session energy solar"
+      },
+      "price_effective": {
+        "name": "Price effective"
+      },
+      "open_followups": {
+        "name": "Open followups"
+      },
+      "active_vehicle_soc": {
+        "name": "Active vehicle SoC"
+      },
+      "active_vehicle_soc_target": {
+        "name": "Active vehicle SoC target"
+      },
+      "active_vehicle_charge_state": {
+        "name": "Active vehicle charge state",
+        "state": {
+          "charging": "Charging",
+          "connected_idle": "Connected, not charging",
+          "disconnected": "Disconnected",
+          "error": "Error"
+        }
+      },
+      "active_vehicle_charge_end": {
+        "name": "Active vehicle charge end"
+      },
+      "session_soc_start": {
+        "name": "Session SoC start"
+      },
+      "session_odometer_start": {
+        "name": "Session odometer start"
+      },
+      "session_duration_net": {
+        "name": "Session duration net"
+      },
+      "grid_share": {
+        "name": "Grid share"
+      }
+    },
+    "binary_sensor": {
+      "wallbox_session": {
+        "name": "Wallbox session"
+      }
     }
   }
 }

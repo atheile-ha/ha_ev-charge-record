@@ -10,6 +10,8 @@ from custom_components.ev_charging.models import (
     Session,
     Vehicle,
     Wallbox,
+    derive_energy_kwh,
+    merge_shortest_pauses,
     normalize_card_uid,
 )
 
@@ -244,3 +246,42 @@ def test_session_energy_is_an_estimate_only_without_a_higher_ranked_source(
         **fields,
     )
     assert session.energy_is_estimate is expected
+
+
+def test_derived_energy_takes_the_first_available_source_in_order() -> None:
+    """Billed, then measured, then vehicle, then estimated energy."""
+    assert derive_energy_kwh(9.0, 8.0, 7.0, 6.0) == 9.0
+    assert derive_energy_kwh(None, 8.0, 7.0, 6.0) == 8.0
+    assert derive_energy_kwh(None, None, 7.0, 6.0) == 7.0
+    assert derive_energy_kwh(None, None, None, 6.0) == 6.0
+    assert derive_energy_kwh(None, None, None, None) is None
+
+
+def _phase(start: str, end: str, energy: float) -> Phase:
+    return Phase(start=start, end=end, duration_min=None, energy_kwh=energy, power_max_kw=energy)
+
+
+def test_merge_shortest_pauses_joins_across_the_shortest_gap() -> None:
+    """Three phases reduced to two are joined where the pause between them is shortest."""
+    phases = (
+        _phase("2026-09-05T10:00:00+02:00", "2026-09-05T10:30:00+02:00", 1.0),
+        _phase("2026-09-05T11:00:00+02:00", "2026-09-05T11:30:00+02:00", 2.0),
+        _phase("2026-09-05T11:40:00+02:00", "2026-09-05T12:00:00+02:00", 4.0),
+    )
+
+    merged = merge_shortest_pauses(phases, 2)
+
+    assert len(merged) == 2
+    assert merged[0] == phases[0]
+    assert merged[1].start == "2026-09-05T11:00:00+02:00"
+    assert merged[1].end == "2026-09-05T12:00:00+02:00"
+    assert merged[1].energy_kwh == 6.0
+    assert merged[1].power_max_kw == 4.0
+    assert merged[1].duration_min == 60.0
+
+
+def test_merge_shortest_pauses_leaves_a_short_list_alone() -> None:
+    """A list within the limit is returned unchanged."""
+    phases = (_phase("2026-09-05T10:00:00+02:00", "2026-09-05T10:30:00+02:00", 1.0),)
+
+    assert merge_shortest_pauses(phases, 200) == phases

@@ -8,6 +8,7 @@ import {
   formatDurationWhole,
   formatEnergy,
   formatEnergyWhole,
+  formatPricePerKwh,
   monthName,
 } from "../src/format";
 
@@ -86,5 +87,19 @@ describe("dates", () => {
   it("names months in the locale", () => {
     expect(monthName(9, "en", "long")).toBe("September");
     expect(monthName(3, "de", "long")).toBe("März");
+  });
+});
+
+describe("formatPricePerKwh", () => {
+  it("keeps four digits of a small price", () => {
+    expect(formatPricePerKwh(0.1443, "en", "EUR")).toBe("€0.1443 / kWh");
+  });
+
+  it("shows at least three digits", () => {
+    expect(formatPricePerKwh(0.3, "en", "EUR")).toBe("€0.300 / kWh");
+  });
+
+  it("shows a dash for a missing value", () => {
+    expect(formatPricePerKwh(null, "en", "EUR")).toBe(EMPTY);
   });
 });

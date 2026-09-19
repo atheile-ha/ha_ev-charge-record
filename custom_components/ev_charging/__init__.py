@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -10,6 +11,7 @@ from pathlib import Path
 from homeassistant.components import frontend, panel_custom
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.loader import async_get_integration
 
@@ -28,10 +30,13 @@ from .const import (
     TITLE,
 )
 from .models import EntityRole, HubSettings, Vehicle, Wallbox
+from .session_manager import SessionManager
 
 _LOGGER = logging.getLogger(__name__)
 
 _DATA_STATIC_PATH_REGISTERED = "frontend_static_path_registered"
+
+PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR]
 
 
 @dataclass
@@ -42,6 +47,8 @@ class EvChargingRuntimeData:
     # URL under which the frontend bundle was registered, None if the frontend
     # integration is not loaded and nothing was registered.
     bundle_url: str | None = None
+    # Captures the sessions of the wallbox. None if no wallbox is configured.
+    manager: SessionManager | None = None
 
 
 type EvChargingConfigEntry = ConfigEntry[EvChargingRuntimeData]
@@ -147,23 +154,37 @@ async def _async_check_mapping_min_version(
     )
 
 
+def _bundle_digest(path: Path) -> str | None:
+    """Return a short digest of the bundle file, or None if it cannot be read."""
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+    except OSError:
+        return None
+
+
 async def _async_register_frontend(hass: HomeAssistant) -> str | None:
     """Serve the frontend bundle and register the panel and the dashboard cards.
 
     Returns the bundle URL, or None if the frontend integration is not loaded.
-    The URL carries the integration version, so browsers fetch the new bundle
-    after an update instead of reusing a cached one.
+    The URL carries the integration version and a digest of the bundle file,
+    so browsers and the companion apps fetch a changed bundle instead of
+    reusing a cached one, even when the version did not change.
     """
     if "frontend" not in hass.config.components:
         _LOGGER.warning("The frontend integration is not loaded; panel and cards are unavailable")
         return None
 
     integration = await async_get_integration(hass, DOMAIN)
+    bundle_path = Path(__file__).parent / "frontend" / FRONTEND_BUNDLE_FILENAME
+    digest = await hass.async_add_executor_job(_bundle_digest, bundle_path)
+    if digest is None:
+        _LOGGER.warning("The frontend bundle %s cannot be read", bundle_path)
     bundle_url = f"{FRONTEND_STATIC_URL_PATH}?v={integration.version}"
+    if digest is not None:
+        bundle_url += f"&h={digest}"
 
     domain_data = hass.data.setdefault(DOMAIN, {})
     if not domain_data.get(_DATA_STATIC_PATH_REGISTERED):
-        bundle_path = Path(__file__).parent / "frontend" / FRONTEND_BUNDLE_FILENAME
         await hass.http.async_register_static_paths(
             [StaticPathConfig(FRONTEND_STATIC_URL_PATH, str(bundle_path), cache_headers=True)]
         )
@@ -229,15 +250,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: EvChargingConfigEntry) -
 
     websocket.async_setup_websocket(hass)
     bundle_url = await _async_register_frontend(hass)
+    manager = SessionManager(hass, entry)
+    if not await manager.async_setup():
+        manager = None
     entry.runtime_data = EvChargingRuntimeData(
-        unsub_listeners=unsub_listeners, bundle_url=bundle_url
+        unsub_listeners=unsub_listeners, bundle_url=bundle_url, manager=manager
     )
     services.async_setup_services(hass)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: EvChargingConfigEntry) -> bool:
     """Unload a config entry."""
+    if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        return False
+    if entry.runtime_data.manager is not None:
+        await entry.runtime_data.manager.async_unload()
     for unsub in entry.runtime_data.unsub_listeners:
         unsub()
     if entry.runtime_data.bundle_url is not None:

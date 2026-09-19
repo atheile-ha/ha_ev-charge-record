@@ -58,6 +58,23 @@ export function formatCost(value: number | null, locale: string, currency: strin
   }
 }
 
+// A price per kWh needs more digits than an amount: 0.1443, not 0.14.
+export function formatPricePerKwh(value: number | null, locale: string, currency: string): string {
+  if (value === null) {
+    return EMPTY;
+  }
+  try {
+    return `${new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 3,
+      maximumFractionDigits: 4,
+    }).format(value)} / kWh`;
+  } catch {
+    return `${number(value, locale, 4)} ${currency} / kWh`;
+  }
+}
+
 export function formatDuration(minutes: number | null): string {
   if (minutes === null) {
     return EMPTY;

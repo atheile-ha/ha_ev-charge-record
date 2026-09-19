@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 import voluptuous as vol
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import ServiceValidationError, Unauthorized
 from homeassistant.helpers import config_validation as cv
@@ -34,6 +35,9 @@ async def _async_handle_delete_all_data(hass: HomeAssistant, call: ServiceCall) 
     years = await async_list_session_years(hass)
     for year in years:
         await SessionYearStore(hass, year).async_save([])
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if entry.state is ConfigEntryState.LOADED and entry.runtime_data.manager is not None:
+            await entry.runtime_data.manager.async_refresh_followups()
     _LOGGER.info("Deleted all ev_charging session data for years: %s", years)
 
 

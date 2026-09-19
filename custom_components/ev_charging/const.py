@@ -73,6 +73,52 @@ FINAL_VALUES_GRACE_S = 2
 ERROR_DEBOUNCE_S = 5
 SESSION_TIMEOUT_H = 12
 
+# Runtime behavior of the session capture.
+POWER_TOLERANCE_FACTOR = 1.15
+# A counter step is judged against at least this much elapsed time, so the
+# quantization of a coarse counter cannot make a single tick look impossible.
+MIN_PLAUSIBILITY_INTERVAL_S = 60
+GRID_POWER_WINDOW_S = 60
+MAX_PHASES = 200
+PERSIST_INTERVAL_S = 120
+COUNTER_CHECK_INTERVAL_S = 60
+LIVE_PUSH_INTERVAL_S = 1
+# Relative deviation between the two energy counters above which a session is flagged.
+COUNTER_DEVIATION_TOLERANCE = 0.05
+# The mean charging power above which a session without a reported charge type
+# is treated as DC.
+DC_POWER_THRESHOLD_KW = 25
+
+# Wallbox session states. Published as the state of the wallbox state
+# sensor; completed is transient and never a resting state.
+SESSION_STATE_IDLE = "idle"
+SESSION_STATE_CANDIDATE = "candidate"
+SESSION_STATE_CHARGING = "charging"
+SESSION_STATE_PAUSED = "paused"
+SESSION_STATE_ERROR = "error"
+SESSION_STATE_AWAITING_FINAL = "awaiting_final"
+SESSION_STATES = (
+    SESSION_STATE_IDLE,
+    SESSION_STATE_CANDIDATE,
+    SESSION_STATE_CHARGING,
+    SESSION_STATE_PAUSED,
+    SESSION_STATE_ERROR,
+    SESSION_STATE_AWAITING_FINAL,
+)
+
+# Values of the active vehicle sensor when no vehicle name applies.
+ACTIVE_VEHICLE_NONE = "none"
+ACTIVE_VEHICLE_GUEST = "guest"
+ACTIVE_VEHICLE_UNRESOLVED = "unresolved"
+
+# Energy counter selection.
+COUNTER_TOTAL = "total"
+COUNTER_SESSION = "session"
+
+# Location values reported by a device tracker.
+TRACKER_STATE_HOME = "home"
+TRACKER_STATE_NOT_HOME = "not_home"
+
 # Wallbox plug state classes (5.1, 4.7). Whether the wallbox is plugged in
 # and locked with the vehicle, as opposed to any other connector state.
 PLUG_STATE_CONNECTED = "connected"
@@ -140,6 +186,8 @@ SESSION_STATUSES = (SESSION_STATUS_COMPLETE, SESSION_STATUS_FOLLOWUP_OPEN, SESSI
 # schema change has an async_migrate_func to extend rather than add.
 STORAGE_VERSION_SESSIONS = 1
 STORAGE_MINOR_VERSION_SESSIONS = 1
+STORAGE_VERSION_RUNTIME = 1
+STORAGE_MINOR_VERSION_RUNTIME = 1
 
 # A raw value with no meaning for a given role (E31, 4.7). Leaves the last
 # valid class of that role unchanged; distinct from a value missing from the
@@ -201,8 +249,13 @@ FRONTEND_STATIC_URL_PATH = "/ev_charging_static/ev-charging.js"
 DEFAULT_RECENT_LIMIT = 10
 MAX_LIST_LIMIT = 500
 
+# WebSocket command for the live card.
+WS_LIVE_SUBSCRIBE = "ev_charging/live/subscribe"
+
 # Repair issue translation keys (12.3).
 ISSUE_ROLE_ENTITY_REMOVED = "role_entity_removed"
 ISSUE_ROLE_UNIT_CHANGED = "role_unit_changed"
 ISSUE_UNKNOWN_MAPPING_VALUE = "unknown_mapping_value"
 ISSUE_MAPPING_SOURCE_BELOW_MIN_VERSION = "mapping_source_below_min_version"
+ISSUE_UNKNOWN_CARD = "unknown_card"
+ISSUE_COUNTER_SWITCHED = "energy_counter_switched"

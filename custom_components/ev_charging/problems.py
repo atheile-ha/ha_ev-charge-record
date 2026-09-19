@@ -7,9 +7,11 @@ from homeassistant.helpers import issue_registry as ir
 
 from .const import (
     DOMAIN,
+    ISSUE_COUNTER_SWITCHED,
     ISSUE_MAPPING_SOURCE_BELOW_MIN_VERSION,
     ISSUE_ROLE_ENTITY_REMOVED,
     ISSUE_ROLE_UNIT_CHANGED,
+    ISSUE_UNKNOWN_CARD,
     ISSUE_UNKNOWN_MAPPING_VALUE,
 )
 
@@ -118,3 +120,51 @@ def check_mapping_source_below_min_version(
         )
         return
     ir.async_delete_issue(hass, DOMAIN, issue_id)
+
+
+def unknown_card_issue_id(wallbox_id: str) -> str:
+    """Return the stable issue id for a card the wallbox reported but no vehicle holds."""
+    return f"{ISSUE_UNKNOWN_CARD}_{wallbox_id}"
+
+
+def async_create_unknown_card_issue(
+    hass: HomeAssistant, *, wallbox_id: str, wallbox_title: str
+) -> None:
+    """Create the repair issue for a card that no vehicle holds.
+
+    The card itself is deliberately not named in the issue.
+    """
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        unknown_card_issue_id(wallbox_id),
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key=ISSUE_UNKNOWN_CARD,
+        translation_placeholders={"wallbox_title": wallbox_title},
+    )
+
+
+def async_clear_unknown_card_issue(hass: HomeAssistant, *, wallbox_id: str) -> None:
+    """Clear the repair issue for an unknown card."""
+    ir.async_delete_issue(hass, DOMAIN, unknown_card_issue_id(wallbox_id))
+
+
+def counter_switched_issue_id(wallbox_id: str) -> str:
+    """Return the stable issue id for a wallbox whose authoritative counter changed."""
+    return f"{ISSUE_COUNTER_SWITCHED}_{wallbox_id}"
+
+
+def async_create_counter_switched_issue(
+    hass: HomeAssistant, *, wallbox_id: str, wallbox_title: str, counter: str
+) -> None:
+    """Create the repair issue for an automatic change of the authoritative energy counter."""
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        counter_switched_issue_id(wallbox_id),
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key=ISSUE_COUNTER_SWITCHED,
+        translation_placeholders={"wallbox_title": wallbox_title, "counter": counter},
+    )

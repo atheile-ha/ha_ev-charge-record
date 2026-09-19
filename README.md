@@ -17,10 +17,40 @@ Die Integration führt keine Steuerung aus.
 ## Voraussetzungen
 
 - Home Assistant 2026.9 oder neuer
-- Wallbox mit Ladeleistung und mindestens einem Energiezähler als Entität
+- Wallbox mit Ladeleistung, Steckerzustand und mindestens einem Energiezähler als Entität
 - Optional Fahrzeugentitäten für Ladestand, Kilometerstand, Ladezustand und Standort
 
 Herstellerunabhängig. Die Zuordnung erfolgt über normalisierte Rollen bei der Einrichtung.
+
+## Erfassung an der Wallbox
+
+Ein Ladevorgang beginnt, sobald die Ladeleistung die Schwelle der Wallbox überschreitet. Er endet, wenn der Steckerzustand der Wallbox meldet, dass kein Fahrzeug mehr verbunden ist. Ausbleibende Leistung, ein gemeldeter Ladefehler und ein unbekannter Zustandswert beenden ihn nicht. Meldet der Steckerzustand länger als 12 Stunden keinen verwertbaren Wert, wird der Ladevorgang geschlossen und als markiert gekennzeichnet.
+
+- Phasen: Unterbrechungen unter 15 Minuten bleiben Teil der Ladephase, längere Pausen beginnen eine neue Phase. Netto-Ladedauer und Pausen werden ausgewiesen.
+- Zustände: `idle`, `candidate`, `charging`, `paused`, `error`, `awaiting_final`. Der Kandidat wird sofort veröffentlicht, die Entprellzeit entscheidet nur, ob der Ladevorgang bestehen bleibt.
+- Energie: Beide Energiezähler werden inkrementell akkumuliert. Ein Rückgang gilt als Rücksetzung des Zählers. Ein Zuwachs, den die Wallbox mit der Nennleistung zuzüglich 15 Prozent nicht liefern kann, wird nicht gezählt und markiert den Ladevorgang. Steht der Gesamtzähler während des Ladens still und der Sitzungszähler steigt, wechselt die Erfassung auf den Sitzungszähler und erzeugt eine Repair Issue. Weichen beide Zähler am Ende um mehr als 5 Prozent ab, ist der Ladevorgang markiert.
+- Netz- und Sonnenanteil: Aus dem geglätteten Netzsaldo der globalen Einstellungen (Mittel über 60 Sekunden) und der Ladeleistung. Kosten aus Netzpreis und Sonnenbewertung. Ohne Netzsaldo wird die Energie nicht aufgeteilt, ohne Netzpreis werden keine Kosten ermittelt.
+- Fahrzeugzuordnung nach `identification_window_s` (Standard 15 Sekunden): erstens über die gemeldete Kennung, die höchstens 5 Minuten alt sein darf und als Ende einer hinterlegten Kennung passen muss, zweitens über genau ein aktives Fahrzeug mit Fahrzeugidentifikation, das den Standort `home` meldet, sonst bleibt der Ladevorgang unzugeordnet. Eine gemeldete Kennung, die kein Fahrzeug hinterlegt hat, führt zu einem unzugeordneten Ladevorgang und einer Repair Issue. Ein unzugeordneter Ladevorgang wird, solange er läuft, dem Fahrzeug zugeordnet, sobald genau ein Fahrzeug mit Fahrzeugidentifikation `charging` meldet; Ladestand und Kilometerstand bei Beginn bleiben dann offen. Widersprechen sich Kennung und Fahrzeugmeldung, gilt die Kennung, und der Ladevorgang ist markiert.
+- Neustart: Ein laufender Ladevorgang wird fortgesetzt. Energie, die während des Ausfalls geliefert wurde, geht in die Gesamtmenge ein und wird als nicht zugeordnet ausgewiesen.
+- Ladeort ist `home`, die Ladeart die der Wallbox. Meldet der Standort des zugeordneten Fahrzeugs `not_home`, während die Wallbox lädt, erhält der Ladevorgang den Vermerk Standortwiderspruch.
+
+### Entitäten
+
+Alle Entitäten liegen am Gerät „EV Charging“. Sie werden höchstens im Takt von `update_interval_s` fortgeschrieben, ein Zustandswechsel wird sofort veröffentlicht.
+
+| Entität | Inhalt |
+|---|---|
+| `binary_sensor.ev_charging_wallbox_session` | an, solange ein Kandidat oder Ladevorgang besteht |
+| `sensor.ev_charging_wallbox_state` | Zustand des Ladevorgangs |
+| `sensor.ev_charging_active_vehicle` | Name des Fahrzeugs, `guest`, `unresolved` oder `none` |
+| `sensor.ev_charging_session_cost` | Kosten des Ladevorgangs |
+| `sensor.ev_charging_session_energy_grid`, `sensor.ev_charging_session_energy_solar` | Netz- und Sonnenanteil in kWh |
+| `sensor.ev_charging_price_effective` | Preis je kWh aus Netz- und Sonnenanteil |
+| `sensor.ev_charging_open_followups` | Anzahl offener Nacherfassungen |
+
+Standardmäßig deaktiviert, in der Entitätsverwaltung aktivierbar: `sensor.ev_charging_active_vehicle_soc`, `_soc_target`, `_charge_state`, `_charge_end`, `sensor.ev_charging_session_soc_start`, `_odometer_start`, `_duration_net` und `sensor.ev_charging_grid_share`.
+
+Ohne laufenden Ladevorgang haben die Sensoren des Ladevorgangs keinen Wert. `vin`, Kennungen, Adressen und Koordinaten erscheinen in keiner Entität.
 
 ## Panel und Karten
 
@@ -32,12 +62,14 @@ Nach dem Einrichten erscheint in der Seitenleiste das Panel „EV Charging“. E
 
 Energie wird mit drei Nachkommastellen angezeigt. Intern sind Ladevorgänge zu Hause, mit und ohne Wallbox. Ladevorgänge ohne Fahrzeug werden als „Nicht zugeordnet“ geführt und zählen in die Summen. Ladevorgänge über mehrere Tage werden dem Monat des Ansteckens zugeordnet. Geschätzte Werte sind mit ~ gekennzeichnet.
 
-In der Kartenauswahl eines Dashboards stehen zwei Karten zur Verfügung, sie erscheinen unter ihrem Kartentyp:
+In der Kartenauswahl eines Dashboards stehen vier Karten zur Verfügung, sie erscheinen unter ihrem Kartentyp:
 
 | Karte | Inhalt |
 |---|---|
 | `ev-charging-panel-card` | dieselben Ansichten wie das Panel, für eine Dashboard-Ansicht vom Typ Panel |
 | `ev-charging-recent-card` | die letzten Ladevorgänge, aufklappbar. Die Anzahl `count` (1 bis 20, Standard 3) lässt sich im Kartendialog oder in YAML einstellen |
+| `ev-charging-live-card` | der laufende Ladevorgang: Zustand, Fahrzeug, Ladestand von, bis und Ziel, Leistung, Energie, Netz- und Sonnenanteil, Kosten, Preis je kWh, Ladezeit, Dauer des Ansteckens und voraussichtliches Ende. Sie folgt den Quellentitäten und ist nicht an `update_interval_s` gebunden |
+| `ev-charging-month-card` | Energie, Kosten und Sonnenanteil des aktuellen Monats. Der Sonnenanteil zählt die Ladevorgänge, für die Netz- und Sonnenanteil erfasst sind |
 
 ## Kennungen (RFID/eMAID)
 

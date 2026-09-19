@@ -10,6 +10,7 @@ export function vehicleLabel(session: Session, t: Translate): string {
 }
 
 const KNOWN_FIELDS = [
+  "vehicle_id",
   "soc_start",
   "soc_end",
   "odometer_km",

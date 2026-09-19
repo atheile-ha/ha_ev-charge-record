@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from datetime import datetime
 from typing import Any
 
 from .const import (
@@ -573,3 +574,68 @@ class Session:
             modified_fields=tuple(data.get("modified_fields", [])),
             phases=tuple(Phase.from_dict(phase) for phase in data.get("phases", [])),
         )
+
+
+def derive_energy_kwh(
+    billed: float | None, measured: float | None, vehicle: float | None, estimated: float | None
+) -> float | None:
+    """Return the authoritative energy of a session.
+
+    The first available of billed, measured, vehicle-reported and estimated
+    energy. None of the source fields is ever changed.
+    """
+    for value in (billed, measured, vehicle, estimated):
+        if value is not None:
+            return value
+    return None
+
+
+def _sum_optional(first: float | None, second: float | None) -> float | None:
+    """Add two optional values; a missing side contributes nothing."""
+    if first is None:
+        return second
+    if second is None:
+        return first
+    return first + second
+
+
+def _merge_phase_pair(first: Phase, second: Phase) -> Phase:
+    """Join two consecutive phases into one that spans both and the pause between."""
+    first_start = datetime.fromisoformat(first.start)
+    end = second.end or second.start
+    duration = (datetime.fromisoformat(end) - first_start).total_seconds() / 60
+    energy = _sum_optional(first.energy_kwh, second.energy_kwh)
+    power_max = max(
+        (value for value in (first.power_max_kw, second.power_max_kw) if value is not None),
+        default=None,
+    )
+    return replace(
+        first,
+        end=end,
+        duration_min=duration,
+        energy_kwh=energy,
+        energy_grid_kwh=_sum_optional(first.energy_grid_kwh, second.energy_grid_kwh),
+        energy_solar_kwh=_sum_optional(first.energy_solar_kwh, second.energy_solar_kwh),
+        cost=_sum_optional(first.cost, second.cost),
+        power_avg_kw=energy / (duration / 60) if energy is not None and duration > 0 else None,
+        power_max_kw=power_max,
+    )
+
+
+def merge_shortest_pauses(phases: tuple[Phase, ...], limit: int) -> tuple[Phase, ...]:
+    """Reduce the phases to at most limit by joining across the shortest pauses.
+
+    All phases must be closed. Returns the phases unchanged when they already fit.
+    """
+    merged = list(phases)
+    while len(merged) > max(limit, 1):
+        gaps = [
+            (
+                datetime.fromisoformat(merged[index + 1].start)
+                - datetime.fromisoformat(merged[index].end or merged[index].start)
+            ).total_seconds()
+            for index in range(len(merged) - 1)
+        ]
+        index = gaps.index(min(gaps))
+        merged[index : index + 2] = [_merge_phase_pair(merged[index], merged[index + 1])]
+    return tuple(merged)

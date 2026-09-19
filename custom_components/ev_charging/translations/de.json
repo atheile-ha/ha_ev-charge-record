@@ -504,7 +504,28 @@
         "field_cost": "Kosten",
         "field_address": "Adresse",
         "recent_title": "Letzte Ladevorgänge",
-        "card_count": "Anzahl Ladevorgänge"
+        "card_count": "Anzahl Ladevorgänge",
+        "live_title": "Laden",
+        "live_idle": "Kein Ladevorgang aktiv",
+        "live_no_wallbox": "Keine Wallbox eingerichtet",
+        "live_state_candidate": "Erkennung",
+        "live_state_charging": "Lädt",
+        "live_state_paused": "Pausiert",
+        "live_state_error": "Fehler",
+        "live_state_awaiting_final": "Abschluss",
+        "live_vehicle_guest": "Gastfahrzeug",
+        "live_soc": "Ladestand",
+        "live_soc_target": "Ziel {target} %",
+        "live_power": "Leistung",
+        "live_energy": "Energie",
+        "live_solar_share": "{percent} % Sonne",
+        "live_cost": "Kosten",
+        "live_price": "Preis je kWh",
+        "live_charge_time": "Ladezeit",
+        "live_plug_time": "Angesteckt",
+        "live_charge_end": "Voraussichtliches Ende",
+        "month_solar_share": "Sonnenanteil",
+        "field_vehicle_id": "Fahrzeug"
       }
     }
   },
@@ -536,6 +557,82 @@
     "mapping_source_below_min_version": {
       "title": "Mapping-Quelle veraltet oder fehlt",
       "description": "Die Quellintegration für \"{device}\", gewählt bei \"{subentry_title}\", ist nicht installiert oder älter als {integration_name} {min_version}. Die Erfassung läuft weiter; zur Behebung die Quellintegration aktualisieren oder installieren."
+    },
+    "unknown_card": {
+      "title": "Karte keinem Fahrzeug zugeordnet",
+      "description": "An \"{wallbox_title}\" hat ein Ladevorgang mit einer Karte begonnen, die kein aktives Fahrzeug hinterlegt hat. Der Ladevorgang wird vollständig erfasst und bleibt unzugeordnet. Gehört die Karte zu einem Fahrzeug, hinterlege sie an diesem Fahrzeug."
+    },
+    "energy_counter_switched": {
+      "title": "Energiezähler gewechselt",
+      "description": "Der bisher an \"{wallbox_title}\" verwendete Energiezähler ist beim Laden nicht gestiegen, der andere schon. Die Erfassung verwendet jetzt {counter}. Prüfe die Zählerzuordnung im Wallbox-Dialog."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "wallbox_state": {
+        "name": "Wallbox-Zustand",
+        "state": {
+          "idle": "Leerlauf",
+          "candidate": "Erkennung",
+          "charging": "Lädt",
+          "paused": "Pausiert",
+          "error": "Fehler",
+          "awaiting_final": "Abschluss"
+        }
+      },
+      "active_vehicle": {
+        "name": "Aktives Fahrzeug"
+      },
+      "session_cost": {
+        "name": "Ladekosten"
+      },
+      "session_energy_grid": {
+        "name": "Ladeenergie Netz"
+      },
+      "session_energy_solar": {
+        "name": "Ladeenergie Sonne"
+      },
+      "price_effective": {
+        "name": "Effektiver Preis"
+      },
+      "open_followups": {
+        "name": "Offene Nacherfassungen"
+      },
+      "active_vehicle_soc": {
+        "name": "Aktives Fahrzeug Ladestand"
+      },
+      "active_vehicle_soc_target": {
+        "name": "Aktives Fahrzeug Ladeziel"
+      },
+      "active_vehicle_charge_state": {
+        "name": "Aktives Fahrzeug Ladezustand",
+        "state": {
+          "charging": "Lädt",
+          "connected_idle": "Verbunden, lädt nicht",
+          "disconnected": "Nicht verbunden",
+          "error": "Fehler"
+        }
+      },
+      "active_vehicle_charge_end": {
+        "name": "Aktives Fahrzeug Ladeende"
+      },
+      "session_soc_start": {
+        "name": "Ladestand bei Start"
+      },
+      "session_odometer_start": {
+        "name": "Kilometerstand bei Start"
+      },
+      "session_duration_net": {
+        "name": "Netto-Ladedauer"
+      },
+      "grid_share": {
+        "name": "Netzanteil"
+      }
+    },
+    "binary_sensor": {
+      "wallbox_session": {
+        "name": "Wallbox-Ladevorgang"
+      }
     }
   }
 }

@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from custom_components.ev_charging import _bundle_digest
 from custom_components.ev_charging.const import (
     DOMAIN,
     FRONTEND_BUNDLE_FILENAME,
@@ -27,6 +30,12 @@ from pytest_homeassistant_custom_component.typing import ClientSessionGenerator
 
 COMPONENT = Path(__file__).parent.parent / "custom_components" / "ev_charging"
 FRONTEND_DIR = COMPONENT / "frontend"
+FRONTEND_SOURCES = COMPONENT.parent.parent / "frontend" / "src"
+
+
+def _bundle_url(version: str) -> str:
+    digest = hashlib.sha256((FRONTEND_DIR / FRONTEND_BUNDLE_FILENAME).read_bytes()).hexdigest()
+    return f"{FRONTEND_STATIC_URL_PATH}?v={version}&h={digest[:12]}"
 
 
 def _manifest_version() -> str:
@@ -62,7 +71,7 @@ async def test_setup_registers_the_panel_and_the_bundle_script(
     """The panel and the script for the cards use the same versioned bundle URL."""
     await _setup(hass, _entry())
 
-    bundle_url = f"{FRONTEND_STATIC_URL_PATH}?v={_manifest_version()}"
+    bundle_url = _bundle_url(_manifest_version())
     panel = hass.data[frontend.DATA_PANELS][PANEL_URL_PATH]
     assert panel.component_name == "custom"
     assert panel.sidebar_title == TITLE
@@ -82,7 +91,7 @@ async def test_bundle_url_changes_with_the_integration_version(
     ):
         await _setup(hass, _entry())
 
-    assert f"{FRONTEND_STATIC_URL_PATH}?v=9.9.9" in hass.data[frontend.DATA_EXTRA_MODULE_URL].urls
+    assert _bundle_url("9.9.9") in hass.data[frontend.DATA_EXTRA_MODULE_URL].urls
 
 
 async def test_bundle_is_served(
@@ -136,18 +145,24 @@ async def test_setup_without_the_frontend_integration_still_succeeds(
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
-def test_the_bundle_is_a_single_file_that_defines_the_panel_and_both_cards() -> None:
-    """Exactly one built file ships, and it contains the panel and both cards."""
+def test_the_bundle_is_a_single_file_that_defines_every_element_of_the_sources() -> None:
+    """Exactly one built file ships, and it defines every element main.ts registers.
+
+    A card registered in the sources but missing from the shipped bundle shows
+    as "Custom element doesn't exist" on the dashboard, so a bundle that was
+    not rebuilt fails here.
+    """
     shipped = sorted(path.name for path in FRONTEND_DIR.iterdir() if path.name != ".gitkeep")
     assert shipped == [FRONTEND_BUNDLE_FILENAME]
 
+    main = (FRONTEND_SOURCES / "main.ts").read_text(encoding="utf-8")
+    elements = re.findall(r'defineOnce\("([a-z-]+)"', main)
+    assert PANEL_WEBCOMPONENT in elements
+    assert {"ev-charging-panel-card", "ev-charging-recent-card"} <= set(elements)
+
     bundle = (FRONTEND_DIR / FRONTEND_BUNDLE_FILENAME).read_text(encoding="utf-8")
-    for element in (
-        PANEL_WEBCOMPONENT,
-        "ev-charging-panel-card",
-        "ev-charging-recent-card",
-    ):
-        assert f'"{element}"' in bundle
+    for element in elements:
+        assert f'"{element}"' in bundle, f"{element} is missing from the built bundle"
 
 
 @pytest.mark.parametrize(("language", "expected"), [("en", "Overview"), ("de", "Übersicht")])
@@ -163,3 +178,16 @@ async def test_frontend_texts_are_delivered_under_the_key_path_the_bundle_reads(
     panel_keys = {key.removeprefix(prefix) for key in resources if key.startswith(prefix)}
     bundle = json.loads((COMPONENT / "strings.json").read_text(encoding="utf-8"))
     assert panel_keys == set(bundle["selector"]["panel"]["options"])
+
+
+def test_bundle_digest_changes_with_the_file_content(tmp_path: Path) -> None:
+    """A rebuilt bundle gets a new URL even when the version stays the same."""
+    bundle = tmp_path / "bundle.js"
+    bundle.write_text("one", encoding="utf-8")
+    first = _bundle_digest(bundle)
+    assert first == _bundle_digest(bundle)
+
+    bundle.write_text("two", encoding="utf-8")
+
+    assert _bundle_digest(bundle) != first
+    assert _bundle_digest(tmp_path / "missing.js") is None

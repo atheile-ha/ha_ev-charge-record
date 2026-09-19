@@ -6,25 +6,37 @@ import logging
 from collections.abc import Callable
 
 from awesomeversion import AwesomeVersion
-from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.core import Event, HomeAssistant, State, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.entity_registry import EventEntityRegistryUpdatedData
 from homeassistant.helpers.event import async_track_entity_registry_updated_event
 from homeassistant.loader import IntegrationNotFound, async_get_integration
 
+from . import mappings
 from .const import (
     CHARGE_STATE_DEFAULT,
     DISTANCE_UNIT_FACTORS_TO_KM,
     DOMAIN,
     ENERGY_UNIT_FACTORS_TO_KWH,
     ERROR_CLASS_OK,
+    MAPPING_CLASS_NEUTRAL,
     PLUG_STATE_CONNECTED,
     POWER_UNIT_FACTORS_TO_KW,
 )
 from .models import EntityRole
 
 _LOGGER = logging.getLogger(__name__)
+
+
+async def async_get_mapping(
+    hass: HomeAssistant, mapping_id: str | None
+) -> mappings.DeviceMapping | None:
+    """Return the device mapping a subentry chose, or None if none or an unknown id is stored."""
+    if mapping_id is None:
+        return None
+    return (await mappings.async_get_mappings(hass)).get(mapping_id)
 
 
 def build_role(hass: HomeAssistant, entity_id: str | None) -> EntityRole | None:
@@ -154,6 +166,55 @@ def classify_plug_state(raw_state: str, mapping: dict[str, str]) -> tuple[str, b
 def classify_error_state(raw_state: str, mapping: dict[str, str]) -> tuple[str, bool]:
     """Classify a raw error-role state value. An unmapped value is never an error (E29)."""
     return classify_state(raw_state, mapping, default=ERROR_CLASS_OK)
+
+
+def classify_with_neutral(
+    raw_state: str, mapping: dict[str, str], *, default: str, last_class: str | None
+) -> tuple[str | None, bool]:
+    """Classify a raw value where a neutral entry keeps the last valid class.
+
+    Returns the class and whether the value was found in the mapping. A value
+    the mapping marks neutral yields the last valid class, or None when there
+    is none yet, and counts as found. An unmapped value falls back to default.
+    """
+    klass = mapping.get(raw_state)
+    if klass is None:
+        return default, False
+    if klass == MAPPING_CLASS_NEUTRAL:
+        return last_class, True
+    return klass, True
+
+
+def usable_state(state: State | None) -> str | None:
+    """Return a state's value, or None while it is missing, unknown or unavailable."""
+    if state is None or state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
+        return None
+    return state.state
+
+
+def read_number(
+    state: State | None, role: EntityRole | None, factors: dict[str, float] | None
+) -> float | None:
+    """Read a numeric role value, normalized to the canonical unit of factors.
+
+    Returns None if the state is unusable, not a number, or reports a unit
+    other than the one recorded at assignment; a changed unit is never
+    converted silently. With factors=None the value is returned as it
+    stands, for roles without a unit conversion.
+    """
+    raw = usable_state(state)
+    if raw is None or state is None:
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        return None
+    unit = state.attributes.get("unit_of_measurement")
+    if role is not None and role.unit is not None and unit != role.unit:
+        return None
+    if factors is None:
+        return value
+    return _normalize(value, unit, factors)
 
 
 def classify_charge_type(raw_state: str, mapping: dict[str, str]) -> str | None:

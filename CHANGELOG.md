@@ -4,6 +4,27 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.4.0] - 2026-09-20
+
+### Hinzugefügt
+
+- Erfassung von Ladevorgängen an der Wallbox mit den Zuständen `idle`, `candidate`, `charging`, `paused`, `error` und `awaiting_final`. Der Kandidat wird sofort veröffentlicht, ein Ladevorgang endet nur beim Abstecken oder nach 12 Stunden ohne verwertbaren Steckerzustand
+- Ladephasen mit Netto-Ladedauer und Pausen, Unterbrechungen unter 15 Minuten bleiben in der Phase
+- Inkrementelle Akkumulation beider Energiezähler mit Erkennung von Rücksetzung und unplausiblem Zuwachs, Wechsel des maßgeblichen Zählers bei Stillstand und Plausibilitätsprüfung am Ende
+- Netz- und Sonnenanteil aus dem über 60 Sekunden geglätteten Netzsaldo, Kosten aus Netzpreis und Sonnenbewertung
+- Fahrzeugzuordnung über die gemeldete Kennung (Abgleich mit dem Ende der hinterlegten Kennung) oder über genau ein Fahrzeug am Standort `home`, nachträgliche Zuordnung eines laufenden unzugeordneten Ladevorgangs, Kennzeichnung eines Widerspruchs zwischen Kennung und Fahrzeugmeldung
+- Fortsetzung eines laufenden Ladevorgangs nach einem Neustart, Energie des Ausfalls als nicht zugeordnet ausgewiesen
+- Entitäten `binary_sensor.ev_charging_wallbox_session`, `sensor.ev_charging_wallbox_state`, `sensor.ev_charging_active_vehicle`, `sensor.ev_charging_session_cost`, `sensor.ev_charging_session_energy_grid`, `sensor.ev_charging_session_energy_solar`, `sensor.ev_charging_price_effective`, `sensor.ev_charging_open_followups` sowie standardmäßig deaktivierte Sensoren für Ladestand, Ladeziel, Ladezustand, Ladeende, Ladestand und Kilometerstand bei Beginn, Netto-Ladedauer und Netzanteil
+- Karten `ev-charging-live-card` und `ev-charging-month-card`
+- WebSocket-Kommando `ev_charging/live/subscribe`
+- Repair Issues für eine gemeldete Kennung ohne Fahrzeug, den automatischen Wechsel des Energiezählers und einen Zustandswert der Wallbox oder eines Fahrzeugs, der im Mapping fehlt
+
+### Geändert
+
+- Offene Nacherfassungen zeigen das Feld Fahrzeug an
+- `ev_charging.delete_all_data` aktualisiert die Anzahl offener Nacherfassungen
+- Der Skriptpfad des Frontend-Bundles trägt zusätzlich zur Version eine Prüfsumme der Datei
+
 ## [0.3.10] - 2026-09-19
 
 ### Geändert

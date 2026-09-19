@@ -8,6 +8,7 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant.components import websocket_api
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.util import dt as dt_util
 
@@ -18,8 +19,10 @@ from .const import (
     MAX_LIST_LIMIT,
     SESSION_STATUS_FOLLOWUP_OPEN,
     SUBENTRY_TYPE_VEHICLE,
+    WS_LIVE_SUBSCRIBE,
 )
 from .models import Session, Vehicle
+from .session_manager import SessionManager
 from .store import SessionYearStore, async_list_session_years
 
 _YEAR = vol.All(int, vol.Range(min=1000, max=9999))
@@ -91,6 +94,7 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_sessions_stats)
     websocket_api.async_register_command(hass, ws_sessions_open)
     websocket_api.async_register_command(hass, ws_vehicles_list)
+    websocket_api.async_register_command(hass, ws_live_subscribe)
 
 
 @websocket_api.websocket_command(
@@ -223,3 +227,36 @@ def ws_vehicles_list(
             ]
         },
     )
+
+
+def _manager(hass: HomeAssistant) -> SessionManager | None:
+    """Return the session manager of the loaded entry, if a wallbox is configured."""
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if entry.state is ConfigEntryState.LOADED:
+            return entry.runtime_data.manager
+    return None
+
+
+@websocket_api.websocket_command({vol.Required("type"): WS_LIVE_SUBSCRIBE})
+@callback
+def ws_live_subscribe(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Send the live values of the running session now and after every change.
+
+    Reading needs a signed-in user only. The values are resolved on the
+    server from the mapped source entities, so the card is not tied to the
+    publish interval of the entities.
+    """
+    manager = _manager(hass)
+    if manager is None:
+        connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND, "No wallbox is configured")
+        return
+
+    @callback
+    def _push() -> None:
+        connection.send_message(websocket_api.event_message(msg["id"], manager.live_payload()))
+
+    connection.subscriptions[msg["id"]] = manager.async_add_live_listener(_push)
+    connection.send_result(msg["id"])
+    _push()

@@ -3,6 +3,12 @@ export interface HomeAssistant {
   locale: { language: string };
   config: { currency: string; time_zone: string };
   callWS<T>(message: Record<string, unknown>): Promise<T>;
+  connection: {
+    subscribeMessage<T>(
+      callback: (message: T) => void,
+      subscribeMessage: Record<string, unknown>,
+    ): Promise<() => Promise<void>>;
+  };
 }
 
 export type SessionLocation = "home" | "home_no_wallbox" | "external";
