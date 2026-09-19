@@ -1,4 +1,4 @@
-import type { HomeAssistant, Session, StatsResponse, Vehicle } from "./types";
+import type { HomeAssistant, Session, Vehicle } from "./types";
 
 export interface ListParams {
   year?: number;
@@ -14,8 +14,14 @@ export async function listSessions(hass: HomeAssistant, params: ListParams): Pro
   return result.sessions;
 }
 
-export function getStats(hass: HomeAssistant, year: number): Promise<StatsResponse> {
-  return hass.callWS<StatsResponse>({ type: "ev_charging/sessions/stats", year });
+export interface YearSessions {
+  sessions: Session[];
+  years: number[];
+}
+
+// All sessions of a year and the years that hold data.
+export function listYear(hass: HomeAssistant, year: number): Promise<YearSessions> {
+  return hass.callWS<YearSessions>({ type: "ev_charging/sessions/list", year });
 }
 
 export async function listVehicles(hass: HomeAssistant): Promise<Vehicle[]> {

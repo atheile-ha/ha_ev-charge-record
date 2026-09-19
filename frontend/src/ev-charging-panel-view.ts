@@ -1,7 +1,7 @@
 import { LitElement, css, html, nothing, type PropertyValues, type TemplateResult } from "lit";
 import { property, state } from "lit/decorators.js";
 import { classMap } from "lit/directives/class-map.js";
-import { getStats, listSessions, listVehicles } from "./api";
+import { listSessions, listVehicles, listYear } from "./api";
 import "./ev-charging-session-list";
 import {
   EMPTY,
@@ -25,8 +25,11 @@ import {
   currentYearMonth,
   defaultState,
   hasActiveFilter,
+  monthlySummaries,
+  sessionsOfMonth,
   shiftMonth,
   summarizeSessions,
+  summarizeYear,
   vehicleOptions,
   yearOptions,
   type Filters,
@@ -43,9 +46,9 @@ import type {
   Session,
   SessionLocation,
   SessionStatus,
-  StatsResponse,
   Summary,
   Vehicle,
+  YearSummary,
 } from "./types";
 
 const REFRESH_INTERVAL_MS = 10 * 60 * 1000;
@@ -85,16 +88,15 @@ export class EvChargingPanelView extends LitElement {
 
   @state() private _state?: PanelState;
   @state() private _t?: Translate;
-  @state() private _stats?: StatsResponse;
-  @state() private _sessions?: Session[];
+  @state() private _yearSessions?: Session[];
+  @state() private _years: number[] = [];
   @state() private _recent?: Session[];
   @state() private _vehicles: Vehicle[] = [];
   @state() private _failed = false;
   @state() private _metric: Metric = "energy";
 
   private _started = false;
-  private _statsKey?: number;
-  private _sessionsKey?: string;
+  private _yearKey?: number;
   private _recentRequested = false;
   private _timer?: number;
 
@@ -135,18 +137,10 @@ export class EvChargingPanelView extends LitElement {
       this._started = true;
       void this._loadShared(hass, false);
     }
-    if (state.view !== "recent" && this._statsKey !== state.year) {
-      this._statsKey = state.year;
-      this._stats = undefined;
-      void this._loadStats(hass, state.year, false);
-    }
-    if (state.view === "detail") {
-      const key = `${state.year}-${state.month}`;
-      if (this._sessionsKey !== key) {
-        this._sessionsKey = key;
-        this._sessions = undefined;
-        void this._loadSessions(hass, state.year, state.month, false);
-      }
+    if (state.view !== "recent" && this._yearKey !== state.year) {
+      this._yearKey = state.year;
+      this._yearSessions = undefined;
+      void this._loadYear(hass, state.year, false);
     }
     if (state.view === "recent" && !this._recentRequested) {
       this._recentRequested = true;
@@ -162,10 +156,7 @@ export class EvChargingPanelView extends LitElement {
     }
     void this._loadShared(hass, true);
     if (state.view !== "recent") {
-      void this._loadStats(hass, state.year, true);
-    }
-    if (state.view === "detail") {
-      void this._loadSessions(hass, state.year, state.month, true);
+      void this._loadYear(hass, state.year, true);
     }
     if (state.view === "recent") {
       void this._loadRecent(hass, true);
@@ -182,8 +173,7 @@ export class EvChargingPanelView extends LitElement {
   private _retry(): void {
     this._failed = false;
     this._started = false;
-    this._statsKey = undefined;
-    this._sessionsKey = undefined;
+    this._yearKey = undefined;
     this._recentRequested = false;
     this.requestUpdate();
   }
@@ -203,33 +193,15 @@ export class EvChargingPanelView extends LitElement {
     }
   }
 
-  private async _loadStats(hass: HomeAssistant, year: number, silent: boolean): Promise<void> {
+  private async _loadYear(hass: HomeAssistant, year: number, silent: boolean): Promise<void> {
     try {
-      const stats = await getStats(hass, year);
-      if (this._statsKey === year) {
-        this._stats = stats;
+      const result = await listYear(hass, year);
+      if (this._yearKey === year) {
+        this._yearSessions = result.sessions;
+        this._years = result.years;
       }
     } catch (error) {
-      if (this._statsKey === year) {
-        this._fail(error, silent);
-      }
-    }
-  }
-
-  private async _loadSessions(
-    hass: HomeAssistant,
-    year: number,
-    month: number,
-    silent: boolean,
-  ): Promise<void> {
-    const key = `${year}-${month}`;
-    try {
-      const sessions = await listSessions(hass, { year, month });
-      if (this._sessionsKey === key) {
-        this._sessions = sessions;
-      }
-    } catch (error) {
-      if (this._sessionsKey === key) {
+      if (this._yearKey === year) {
         this._fail(error, silent);
       }
     }
@@ -278,6 +250,7 @@ export class EvChargingPanelView extends LitElement {
     return html`
       <div class="view">
         ${this._renderTabs(t, state)}
+        ${state.view === "recent" ? nothing : this._renderFilters(t, state)}
         ${state.view === "recent" ? nothing : this._renderPeriod(t, state)}
         ${state.view === "overview"
           ? this._renderOverview(t, state)
@@ -314,7 +287,7 @@ export class EvChargingPanelView extends LitElement {
     const hass = this.hass!;
     const locale = hass.locale.language;
     const current = currentYearMonth(new Date(), hass.config.time_zone);
-    const years = yearOptions(this._stats?.years ?? [], current.year, state.year);
+    const years = yearOptions(this._years, current.year, state.year);
     return html`<div class="period">
       <button class="icon" aria-label=${t("period_previous")} @click=${() => this._shift(-1)}>
         ${icon(CHEVRON_LEFT)}
@@ -366,14 +339,22 @@ export class EvChargingPanelView extends LitElement {
     </div>`;
   }
 
+  // Sessions of the selected year that pass the filters.
+  private _filteredYear(state: PanelState): Session[] {
+    return applyFilters(this._yearSessions ?? [], state.filters);
+  }
+
   private _renderOverview(t: Translate, state: PanelState): TemplateResult {
-    const stats = this._stats;
-    if (!stats) {
+    if (!this._yearSessions) {
       return html`<div class="spinner" role="progressbar"></div>`;
     }
+    const filtered = this._filteredYear(state);
+    const zone = this.hass!.config.time_zone;
+    const months = monthlySummaries(filtered, zone);
     return html`
-      ${this._renderTiles(t, stats.months[state.month - 1])}
-      ${this._renderChart(t, state, stats)} ${this._renderYearSummary(t, state, stats)}
+      ${this._renderTiles(t, months[state.month - 1])}
+      ${this._renderChart(t, state, months)}
+      ${this._renderYearSummary(t, state, summarizeYear(filtered))}
     `;
   }
 
@@ -401,9 +382,9 @@ export class EvChargingPanelView extends LitElement {
     }
   }
 
-  private _renderChart(t: Translate, state: PanelState, stats: StatsResponse): TemplateResult {
+  private _renderChart(t: Translate, state: PanelState, months: MonthStats[]): TemplateResult {
     const locale = this.hass!.locale.language;
-    const maximum = Math.max(...stats.months.map((month) => this._metricValue(month)), 0);
+    const maximum = Math.max(...months.map((month) => this._metricValue(month)), 0);
     return html`<section class="chart">
       <div class="chart-head">
         <h3>${t("chart_title", { year: state.year })}</h3>
@@ -424,7 +405,7 @@ export class EvChargingPanelView extends LitElement {
         </label>
       </div>
       <div class="plot">
-        ${stats.months.map((month) => {
+        ${months.map((month) => {
           const share = maximum > 0 ? (this._metricValue(month) / maximum) * 100 : 0;
           const name = monthName(month.month, locale, "long");
           const value = month.count === 0 ? EMPTY : this._formatMetric(month);
@@ -444,10 +425,9 @@ export class EvChargingPanelView extends LitElement {
     </section>`;
   }
 
-  private _renderYearSummary(t: Translate, state: PanelState, stats: StatsResponse): TemplateResult {
+  private _renderYearSummary(t: Translate, state: PanelState, summary: YearSummary): TemplateResult {
     const hass = this.hass!;
     const locale = hass.locale.language;
-    const summary = stats.year_summary;
     const scopes: [TextKey, Summary][] = [
       ["scope_total", summary.all],
       ["scope_internal", summary.internal],
@@ -480,13 +460,9 @@ export class EvChargingPanelView extends LitElement {
     </section>`;
   }
 
-  private _renderDetail(t: Translate, state: PanelState): TemplateResult {
-    const sessions = this._sessions;
-    if (!sessions) {
-      return html`<div class="spinner" role="progressbar"></div>`;
-    }
+  private _renderFilters(t: Translate, state: PanelState): TemplateResult {
+    const sessions = this._yearSessions ?? [];
     const filters = state.filters;
-    const visible = applyFilters(sessions, filters);
     const vehicles: Option[] = [
       ...vehicleOptions(this._vehicles, sessions),
       { value: UNASSIGNED, label: t("unassigned") },
@@ -499,44 +475,53 @@ export class EvChargingPanelView extends LitElement {
         filters.card,
       ),
     ];
+    return html`<div class="filters">
+      ${this._renderFilter(t("filter_vehicle"), "vehicle", vehicles, t)}
+      ${this._renderFilter(
+        t("filter_location"),
+        "location",
+        LOCATIONS.map((value) => ({ value, label: t(`location_${value}`) })),
+        t,
+      )}
+      ${this._renderFilter(
+        t("filter_charge_type"),
+        "chargeType",
+        CHARGE_TYPES.map((value) => ({ value, label: t(`charge_type_${value}`) })),
+        t,
+      )}
+      ${this._renderFilter(t("filter_card"), "card", cards, t)}
+      ${this._renderFilter(
+        t("filter_status"),
+        "status",
+        STATUSES.map((value) => ({ value, label: t(`status_${value}`) })),
+        t,
+      )}
+      ${hasActiveFilter(filters)
+        ? html`<button
+            class="text reset"
+            @click=${() => this._setState({ filters: { ...EMPTY_FILTERS } })}
+          >
+            ${t("filter_reset")}
+          </button>`
+        : nothing}
+    </div>`;
+  }
+
+  private _renderDetail(t: Translate, state: PanelState): TemplateResult {
+    if (!this._yearSessions) {
+      return html`<div class="spinner" role="progressbar"></div>`;
+    }
+    const zone = this.hass!.config.time_zone;
+    const ofMonth = sessionsOfMonth(this._yearSessions, state.month, zone);
+    const visible = applyFilters(ofMonth, state.filters);
     return html`
-      <div class="filters">
-        ${this._renderFilter(t("filter_vehicle"), "vehicle", vehicles, t)}
-        ${this._renderFilter(
-          t("filter_location"),
-          "location",
-          LOCATIONS.map((value) => ({ value, label: t(`location_${value}`) })),
-          t,
-        )}
-        ${this._renderFilter(
-          t("filter_charge_type"),
-          "chargeType",
-          CHARGE_TYPES.map((value) => ({ value, label: t(`charge_type_${value}`) })),
-          t,
-        )}
-        ${this._renderFilter(t("filter_card"), "card", cards, t)}
-        ${this._renderFilter(
-          t("filter_status"),
-          "status",
-          STATUSES.map((value) => ({ value, label: t(`status_${value}`) })),
-          t,
-        )}
-        ${hasActiveFilter(filters)
-          ? html`<button
-              class="text reset"
-              @click=${() => this._setState({ filters: { ...EMPTY_FILTERS } })}
-            >
-              ${t("filter_reset")}
-            </button>`
-          : nothing}
-      </div>
       ${this._renderTiles(t, summarizeSessions(visible))}
       <p class="count muted">
-        ${t("filter_count", { shown: visible.length, total: sessions.length })}
+        ${t("filter_count", { shown: visible.length, total: ofMonth.length })}
       </p>
       ${visible.length === 0
         ? html`<div class="message">
-            ${sessions.length === 0 ? t("no_sessions") : t("no_sessions_filtered")}
+            ${ofMonth.length === 0 ? t("no_sessions") : t("no_sessions_filtered")}
           </div>`
         : this._renderTable(visible, t)}
     `;

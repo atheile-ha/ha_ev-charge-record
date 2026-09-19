@@ -9,10 +9,14 @@ import {
   defaultState,
   hasActiveFilter,
   mapUrl,
+  monthOfSession,
+  monthlySummaries,
   parseState,
   serializeState,
+  sessionsOfMonth,
   shiftMonth,
   summarizeSessions,
+  summarizeYear,
   vehicleOptions,
   yearOptions,
 } from "../src/logic";
@@ -251,5 +255,69 @@ describe("mapUrl", () => {
 
   it("is absent without a place", () => {
     expect(mapUrl(session())).toBeNull();
+  });
+});
+
+describe("month of a session", () => {
+  const berlin = "Europe/Berlin";
+
+  it("follows the local plug_start, not the UTC month", () => {
+    const start = session({ plug_start: "2026-09-30T23:30:00+00:00" });
+    expect(monthOfSession(start, berlin)).toBe(10);
+    expect(monthOfSession(start, "UTC")).toBe(9);
+  });
+
+  it("ignores the end of the session", () => {
+    const overNewYear = session({
+      plug_start: "2026-12-31T23:30:00+01:00",
+      plug_end: "2027-01-01T02:00:00+01:00",
+    });
+    expect(monthOfSession(overNewYear, berlin)).toBe(12);
+  });
+
+  it("selects the sessions of one month", () => {
+    const may = session({ id: "may", plug_start: "2026-05-03T08:00:00+02:00" });
+    const june = session({ id: "june", plug_start: "2026-06-01T08:00:00+02:00" });
+    expect(sessionsOfMonth([may, june], 5, berlin)).toEqual([may]);
+  });
+});
+
+describe("summaries of a year", () => {
+  const berlin = "Europe/Berlin";
+  const home = session({ id: "h", plug_start: "2026-01-10T08:00:00+01:00", energy_kwh: 10 });
+  const noWallbox = session({
+    id: "n",
+    plug_start: "2026-01-20T08:00:00+01:00",
+    location: "home_no_wallbox",
+    energy_kwh: 5,
+  });
+  const external = session({
+    id: "e",
+    plug_start: "2026-03-05T08:00:00+01:00",
+    location: "external",
+    energy_kwh: 30,
+  });
+  const all = [home, noWallbox, external];
+
+  it("gives twelve months with the sums of each", () => {
+    const months = monthlySummaries(all, berlin);
+    expect(months).toHaveLength(12);
+    expect(months[0]).toMatchObject({ month: 1, count: 2, energy_kwh: 15 });
+    expect(months[2]).toMatchObject({ month: 3, count: 1, energy_kwh: 30 });
+    expect(months[1].count).toBe(0);
+  });
+
+  it("counts home sessions with and without wallbox as internal", () => {
+    const summary = summarizeYear(all);
+    expect(summary.all.count).toBe(3);
+    expect(summary.internal).toMatchObject({ count: 2, energy_kwh: 15 });
+    expect(summary.external).toMatchObject({ count: 1, energy_kwh: 30 });
+  });
+
+  it("follows the filters when they are applied first", () => {
+    const filtered = applyFilters(all, { ...EMPTY_FILTERS, location: "external" });
+    expect(monthlySummaries(filtered, berlin)[0].count).toBe(0);
+    expect(summarizeYear(filtered).all.energy_kwh).toBe(30);
+    expect(summarizeYear(filtered).internal.count).toBe(0);
   });
 });

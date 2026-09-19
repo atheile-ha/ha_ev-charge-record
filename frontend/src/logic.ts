@@ -1,4 +1,4 @@
-import type { Session, Summary, Vehicle, VehicleCard } from "./types";
+import type { MonthStats, Session, Summary, Vehicle, VehicleCard, YearSummary } from "./types";
 
 export type ViewId = "overview" | "detail" | "recent";
 
@@ -116,6 +116,34 @@ export function summarizeSessions(sessions: Session[]): Summary {
     open_followups: sessions.filter(
       (session) => session.status === "followup_open" || session.open_fields.length > 0,
     ).length,
+  };
+}
+
+// A session belongs to the month of its plug_start in local time, not the UTC
+// month and not the month it ends in.
+export function monthOfSession(session: Session, timeZone: string): number {
+  return currentYearMonth(new Date(session.plug_start), timeZone).month;
+}
+
+export function sessionsOfMonth(sessions: Session[], month: number, timeZone: string): Session[] {
+  return sessions.filter((session) => monthOfSession(session, timeZone) === month);
+}
+
+export function monthlySummaries(sessions: Session[], timeZone: string): MonthStats[] {
+  return Array.from({ length: 12 }, (_, index) => ({
+    month: index + 1,
+    ...summarizeSessions(sessionsOfMonth(sessions, index + 1, timeZone)),
+  }));
+}
+
+// Internal is every session at home, with or without the wallbox.
+export function summarizeYear(sessions: Session[]): YearSummary {
+  const external = sessions.filter((session) => session.location === "external");
+  const internal = sessions.filter((session) => session.location !== "external");
+  return {
+    all: summarizeSessions(sessions),
+    internal: summarizeSessions(internal),
+    external: summarizeSessions(external),
   };
 }
 

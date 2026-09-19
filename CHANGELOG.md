@@ -4,6 +4,13 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.3.10] - 2026-09-19
+
+### Geändert
+
+- Die Filterleiste steht in Übersicht und Detailliste ganz oben. Die gewählten Filter wirken auf die Summen, die Balkengrafik und die Jahreszusammenfassung der Übersicht
+- Antwort von `ev_charging/sessions/list` enthält die Jahre mit Daten
+
 ## [0.3.9] - 2026-09-19
 
 ### Hinzugefügt

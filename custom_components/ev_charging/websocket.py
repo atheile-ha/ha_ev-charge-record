@@ -105,7 +105,7 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
 async def ws_sessions_list(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Return sessions, newest first.
+    """Return sessions, newest first, and the years that hold data.
 
     With a year, all sessions of that year, narrowed to one month if given.
     Without a year, the newest sessions across all years.
@@ -118,6 +118,7 @@ async def ws_sessions_list(
         connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT, "month requires year")
         return
 
+    years = await async_list_session_years(hass)
     if year is not None:
         sessions = await SessionYearStore(hass, year).async_load()
         if month is not None:
@@ -128,7 +129,7 @@ async def ws_sessions_list(
     else:
         limit = limit or DEFAULT_RECENT_LIMIT
         sessions = []
-        for available_year in reversed(await async_list_session_years(hass)):
+        for available_year in reversed(years):
             sessions.extend(
                 _newest_first(await SessionYearStore(hass, available_year).async_load())
             )
@@ -136,7 +137,7 @@ async def ws_sessions_list(
                 break
         sessions = sessions[:limit]
 
-    connection.send_result(msg["id"], {"sessions": [_payload(s) for s in sessions]})
+    connection.send_result(msg["id"], {"sessions": [_payload(s) for s in sessions], "years": years})
 
 
 @websocket_api.websocket_command(

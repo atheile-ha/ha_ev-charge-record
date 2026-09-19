@@ -86,6 +86,7 @@ async def test_list_returns_the_sessions_of_one_month_newest_first(
 
     assert response["success"]
     assert [s["id"] for s in response["result"]["sessions"]] == ["b", "a"]
+    assert response["result"]["years"] == [2026]
 
 
 async def test_month_follows_plug_start_in_local_time(

@@ -79,13 +79,6 @@ export interface YearSummary {
   external: Summary;
 }
 
-export interface StatsResponse {
-  year: number;
-  years: number[];
-  months: MonthStats[];
-  year_summary: YearSummary;
-}
-
 export interface VehicleCard {
   uid: string;
   label: string;
