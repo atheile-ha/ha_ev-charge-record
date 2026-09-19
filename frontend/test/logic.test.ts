@@ -66,6 +66,10 @@ describe("state in the address", () => {
     expect(parseState("/overview", "?year=2026&month=0")).toEqual({ view: "overview" });
   });
 
+  it("accepts the view with the last sessions", () => {
+    expect(parseState("/recent", "")).toEqual({ view: "recent" });
+  });
+
   it("falls back to the defaults for an empty address", () => {
     expect(parseState("", "")).toEqual({});
   });
@@ -131,6 +135,7 @@ describe("filter options", () => {
           is_guest: false,
           manufacturer: null,
           model: null,
+          cards: [],
         },
       ],
       [session({ vehicle_id: "v009", vehicle_name: "Old Car" }), session({ vehicle_id: "v001" })],
@@ -141,8 +146,9 @@ describe("filter options", () => {
     ]);
   });
 
-  it("lists each card once, by label", () => {
+  it("lists each card of the sessions once, by label", () => {
     const options = cardOptions(
+      [],
       [
         session({ card_uid: "AAAA", card_label: "Blue" }),
         session({ card_uid: "AAAA", card_label: "Blue" }),
@@ -153,8 +159,29 @@ describe("filter options", () => {
     expect(options).toEqual([{ value: "AAAA", label: "Blue" }]);
   });
 
+  it("offers configured cards even when no session of the month used them", () => {
+    const options = cardOptions(
+      [{ uid: "1122334455667788", label: "Green", type: "rfid", active: true }],
+      [session({ card_uid: "AAAA", card_label: "Blue" })],
+      "",
+    );
+    expect(options).toEqual([
+      { value: "1122334455667788", label: "Green" },
+      { value: "AAAA", label: "Blue" },
+    ]);
+  });
+
+  it("merges a configured card with the shortened identifier a wallbox reported", () => {
+    const options = cardOptions(
+      [{ uid: "0011AABBCCDD", label: "Green", type: "rfid", active: true }],
+      [session({ card_uid: "AABBCCDD", card_label: null })],
+      "",
+    );
+    expect(options).toEqual([{ value: "AABBCCDD", label: "Green" }]);
+  });
+
   it("keeps a selected card that is not in the current month", () => {
-    expect(cardOptions([], "ZZZZ")).toEqual([{ value: "ZZZZ", label: "ZZZZ" }]);
+    expect(cardOptions([], [], "ZZZZ")).toEqual([{ value: "ZZZZ", label: "ZZZZ" }]);
   });
 
   it("offers the available years, the current one and the selected one, newest first", () => {

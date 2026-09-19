@@ -1,6 +1,6 @@
-import type { Session, Vehicle } from "./types";
+import type { Session, Vehicle, VehicleCard } from "./types";
 
-export type ViewId = "overview" | "detail";
+export type ViewId = "overview" | "detail" | "recent";
 
 export const UNASSIGNED = "__unassigned__";
 export const NO_CARD = "__none__";
@@ -73,7 +73,7 @@ export function serializeState(state: PanelState): string {
 export function parseState(path: string, search: string): Partial<PanelState> {
   const result: Partial<PanelState> = {};
   const segment = path.split("/").filter((part) => part !== "")[0];
-  if (segment === "overview" || segment === "detail") {
+  if (segment === "overview" || segment === "detail" || segment === "recent") {
     result.view = segment;
   }
   const params = new URLSearchParams(search);
@@ -143,8 +143,22 @@ export function vehicleOptions(vehicles: Vehicle[], sessions: Session[]): Option
   return [...options].map(([value, label]) => ({ value, label }));
 }
 
-export function cardOptions(sessions: Session[], selected: string): Option[] {
+// Cards configured at the vehicles come first, then cards that only appear in
+// the sessions. A wallbox may report only the end of a card's identifier; such
+// a session identifier and the configured full identifier are one option.
+export function cardOptions(
+  cards: VehicleCard[],
+  sessions: Session[],
+  selected: string,
+): Option[] {
+  const seen = new Set(
+    sessions.map((session) => session.card_uid).filter((uid): uid is string => uid !== null),
+  );
   const options = new Map<string, string>();
+  for (const card of cards) {
+    const reported = [...seen].find((uid) => uid !== "" && card.uid.endsWith(uid));
+    options.set(reported ?? card.uid, card.label || card.uid);
+  }
   for (const session of sessions) {
     if (session.card_uid !== null && !options.has(session.card_uid)) {
       options.set(session.card_uid, session.card_label || session.card_uid);

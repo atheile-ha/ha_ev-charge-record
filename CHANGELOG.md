@@ -4,6 +4,25 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.3.8] - 2026-09-19
+
+### Hinzugefügt
+
+- Reiter „Letzte 5 Ladevorgänge“ im Panel, mit allen Details aufgeklappt
+- Jahreszusammenfassung unter den Monatsbalken für Energie, Kosten, Ladedauer und Ladevorgänge, gesamt, intern und extern
+- Der Wert jedes Monats steht unter seinem Balken
+- Monatssummen für Energie, Kosten, Ladedauer, Ladevorgänge und offene Nacherfassungen auch über der Detailliste
+- Kartenfilter der Detailliste bietet die bei den Fahrzeugen hinterlegten Karten
+- Antwort von `ev_charging/vehicles/list` enthält die Karten der Fahrzeuge, Antwort von `ev_charging/sessions/stats` die Jahreszusammenfassung und je Monat die Anzahl offener Nacherfassungen
+
+### Geändert
+
+- Energie wird mit drei Nachkommastellen angezeigt
+- Detailliste als Tabelle mit Spaltenüberschriften und ausgerichteten Spalten, in der mobilen Ansicht mit einheitlichem Aufbau je Eintrag
+- Beschriftungen der Ladeorte, Ladearten und Status als gefüllte, größere Label
+- Die Anzahl offener Nacherfassungen gilt für den gewählten Monat
+- Eigene Meldung, wenn Filter alle Ladevorgänge des Monats ausblenden
+
 ## [0.3.7] - 2026-09-19
 
 ### Hinzugefügt

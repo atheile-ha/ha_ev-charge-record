@@ -12,7 +12,7 @@ export function formatEnergy(kwh: number | null, locale: string, estimate = fals
   if (kwh === null) {
     return EMPTY;
   }
-  return `${estimate ? "~" : ""}${number(kwh, locale, 2)} kWh`;
+  return `${estimate ? "~" : ""}${number(kwh, locale, 3)} kWh`;
 }
 
 export function formatCost(value: number | null, locale: string, currency: string): string {

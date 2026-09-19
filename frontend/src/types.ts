@@ -60,19 +60,37 @@ export interface Session {
   phases: Phase[];
 }
 
-export interface MonthStats {
-  month: number;
+export interface Summary {
   count: number;
   energy_kwh: number;
   energy_is_estimate: boolean;
   cost: number;
   charge_duration_min: number;
+  open_followups: number;
+}
+
+export interface MonthStats extends Summary {
+  month: number;
+}
+
+export interface YearSummary {
+  all: Summary;
+  internal: Summary;
+  external: Summary;
 }
 
 export interface StatsResponse {
   year: number;
   years: number[];
   months: MonthStats[];
+  year_summary: YearSummary;
+}
+
+export interface VehicleCard {
+  uid: string;
+  label: string;
+  type: string;
+  active: boolean;
 }
 
 export interface Vehicle {
@@ -82,4 +100,5 @@ export interface Vehicle {
   is_guest: boolean;
   manufacturer: string | null;
   model: string | null;
+  cards: VehicleCard[];
 }

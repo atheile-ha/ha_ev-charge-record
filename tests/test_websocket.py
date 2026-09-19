@@ -292,10 +292,10 @@ async def test_open_returns_sessions_that_wait_for_values(
     assert [s["id"] for s in response["result"]["sessions"]] == ["with_field", "old_open"]
 
 
-async def test_vehicles_list_excludes_identifiers(
+async def test_vehicles_list_returns_cards_but_not_the_vin(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator
 ) -> None:
-    """Vehicles come from the configuration, without VIN and cards."""
+    """Vehicles come from the configuration with their cards, without the VIN."""
     vehicle = Vehicle(
         id="v001",
         name="Car One",
@@ -330,8 +330,10 @@ async def test_vehicles_list_excludes_identifiers(
             "is_guest": False,
             "manufacturer": "Acme",
             "model": "One",
+            "cards": [{"uid": "AABBCCDD", "label": "Blue card", "type": "rfid", "active": True}],
         }
     ]
+    assert "TESTVIN0000000001" not in str(response)
 
 
 @pytest.mark.parametrize(
@@ -389,3 +391,60 @@ async def test_reading_does_not_log_identifiers_at_info(
     )
     for identifier in ("AABBCCDD", "Blue card", "Test Street", "50.123456", "8.654321"):
         assert identifier not in logged
+
+
+async def test_stats_split_the_year_into_internal_and_external(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """The year summary counts home sessions, with or without wallbox, as internal."""
+    await _store(
+        hass,
+        2026,
+        [
+            _session("wallbox", "2026-01-03T08:00:00+01:00", energy_kwh=10.0, cost=2.0),
+            _session(
+                "no_wallbox",
+                "2026-02-03T08:00:00+01:00",
+                location="home_no_wallbox",
+                energy_kwh=5.0,
+            ),
+            _session(
+                "external",
+                "2026-03-03T08:00:00+01:00",
+                location="external",
+                energy_kwh=30.0,
+                cost=9.0,
+            ),
+        ],
+    )
+    client = await hass_ws_client(hass)
+
+    summary = (await _call(client, "sessions/stats", year=2026))["result"]["year_summary"]
+
+    assert (summary["all"]["count"], summary["all"]["energy_kwh"]) == (3, 45.0)
+    assert (summary["internal"]["count"], summary["internal"]["energy_kwh"]) == (2, 15.0)
+    assert (summary["external"]["count"], summary["external"]["energy_kwh"]) == (1, 30.0)
+    assert summary["external"]["cost"] == 9.0
+
+
+async def test_stats_count_open_followups_per_month(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """Each month reports how many of its sessions still wait for values."""
+    await _store(
+        hass,
+        2026,
+        [
+            _session("open", "2026-05-03T08:00:00+02:00", status="followup_open"),
+            _session("field", "2026-05-04T08:00:00+02:00", open_fields=("cost",)),
+            _session("done", "2026-05-05T08:00:00+02:00"),
+            _session("other_month", "2026-06-05T08:00:00+02:00", status="followup_open"),
+        ],
+    )
+    client = await hass_ws_client(hass)
+
+    months = (await _call(client, "sessions/stats", year=2026))["result"]["months"]
+
+    assert months[4]["open_followups"] == 2
+    assert months[5]["open_followups"] == 1
+    assert months[0]["open_followups"] == 0

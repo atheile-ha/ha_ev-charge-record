@@ -18,13 +18,6 @@ export function getStats(hass: HomeAssistant, year: number): Promise<StatsRespon
   return hass.callWS<StatsResponse>({ type: "ev_charging/sessions/stats", year });
 }
 
-export async function listOpenSessions(hass: HomeAssistant): Promise<Session[]> {
-  const result = await hass.callWS<{ sessions: Session[] }>({
-    type: "ev_charging/sessions/open",
-  });
-  return result.sessions;
-}
-
 export async function listVehicles(hass: HomeAssistant): Promise<Vehicle[]> {
   const result = await hass.callWS<{ vehicles: Vehicle[] }>({
     type: "ev_charging/vehicles/list",

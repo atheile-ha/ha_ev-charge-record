@@ -10,6 +10,7 @@ export const sharedStyles = css`
     --ev-surface: var(--card-background-color, var(--ha-card-background, #fff));
     --ev-radius: var(--ha-card-border-radius, 12px);
     --ev-accent: var(--primary-color, #03a9f4);
+    --ev-head-bg: color-mix(in srgb, var(--primary-text-color, #000) 5%, transparent);
   }
 
   * {
@@ -79,21 +80,24 @@ export const sharedStyles = css`
 
   .chip {
     display: inline-block;
-    padding: 1px 8px;
-    border: 1px solid var(--ev-line);
+    padding: 3px 10px;
     border-radius: 999px;
-    font-size: 0.8em;
+    background: color-mix(in srgb, var(--ev-accent) 20%, transparent);
+    color: var(--primary-text-color);
+    font-size: 0.9em;
+    font-weight: 500;
+    line-height: 1.3;
     white-space: nowrap;
   }
 
   .chip.warn {
-    border-color: var(--warning-color, #ff9800);
-    color: var(--warning-color, #ff9800);
+    background: var(--warning-color, #ff9800);
+    color: #1b1b1b;
   }
 
   .chip.alert {
-    border-color: var(--error-color, #db4437);
-    color: var(--error-color, #db4437);
+    background: var(--error-color, #db4437);
+    color: #fff;
   }
 
   .vehicle.unassigned {

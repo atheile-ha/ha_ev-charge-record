@@ -14,6 +14,7 @@ from homeassistant.util import dt as dt_util
 from .const import (
     DEFAULT_RECENT_LIMIT,
     DOMAIN,
+    LOCATION_EXTERNAL,
     MAX_LIST_LIMIT,
     SESSION_STATUS_FOLLOWUP_OPEN,
     SUBENTRY_TYPE_VEHICLE,
@@ -65,6 +66,21 @@ def summarize(sessions: list[Session]) -> dict[str, Any]:
         "energy_is_estimate": any(session.energy_is_estimate for session in sessions),
         "cost": _sum([session.cost for session in sessions]),
         "charge_duration_min": _sum([session.charge_duration_min for session in sessions]),
+        "open_followups": sum(1 for session in sessions if _has_open_followup(session)),
+    }
+
+
+def summarize_year(sessions: list[Session]) -> dict[str, Any]:
+    """Return the sums of a year, in total and split into internal and external charging.
+
+    Internal is every session at home, with or without the wallbox.
+    """
+    external = [s for s in sessions if s.location == LOCATION_EXTERNAL]
+    internal = [s for s in sessions if s.location != LOCATION_EXTERNAL]
+    return {
+        "all": summarize(sessions),
+        "internal": summarize(internal),
+        "external": summarize(external),
     }
 
 
@@ -130,10 +146,11 @@ async def ws_sessions_list(
 async def ws_sessions_stats(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Return the sums of every month of a year and the years that hold data."""
+    """Return the sums of a year, per month and as a whole, and the years that hold data."""
     year = msg["year"]
+    sessions = await SessionYearStore(hass, year).async_load()
     by_month: defaultdict[int, list[Session]] = defaultdict(list)
-    for session in await SessionYearStore(hass, year).async_load():
+    for session in sessions:
         by_month[local_plug_start(session).month].append(session)
 
     connection.send_result(
@@ -141,6 +158,7 @@ async def ws_sessions_stats(
         {
             "year": year,
             "years": await async_list_session_years(hass),
+            "year_summary": summarize_year(sessions),
             "months": [
                 {"month": month, **summarize(by_month.get(month, []))} for month in range(1, 13)
             ],
@@ -172,7 +190,7 @@ async def ws_sessions_open(
 def ws_vehicles_list(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    """Return the configured vehicles, without VIN and cards."""
+    """Return the configured vehicles and their cards, without the VIN."""
     vehicles = [
         Vehicle.from_dict(subentry.data)
         for entry in hass.config_entries.async_entries(DOMAIN)
@@ -190,6 +208,15 @@ def ws_vehicles_list(
                     "is_guest": vehicle.is_guest,
                     "manufacturer": vehicle.manufacturer,
                     "model": vehicle.model,
+                    "cards": [
+                        {
+                            "uid": card.uid,
+                            "label": card.label,
+                            "type": card.type,
+                            "active": card.active,
+                        }
+                        for card in vehicle.cards
+                    ],
                 }
                 for vehicle in sorted(vehicles, key=lambda vehicle: vehicle.id)
             ]

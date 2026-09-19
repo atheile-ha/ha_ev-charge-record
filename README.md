@@ -26,10 +26,11 @@ Herstellerunabhängig. Die Zuordnung erfolgt über normalisierte Rollen bei der 
 
 Nach dem Einrichten erscheint in der Seitenleiste das Panel „EV Charging“. Es zeigt die erfassten Ladevorgänge und ist für alle angemeldeten Benutzer lesbar.
 
-- Übersicht: Monatsauswahl, Summen für Energie, Kosten und Ladedauer, Anzahl der Ladevorgänge und der offenen Nacherfassungen, Monatsbalken über das Jahr
-- Detailliste: Ladevorgänge des Monats mit Filtern für Fahrzeug, Ladeort, Ladeart, Karte und Status. Jeder Eintrag lässt sich aufklappen und zeigt Zeiten, Ladestand, Kilometerstand, Netz- und Sonnenanteil sowie die Ladephasen
+- Übersicht: Monatsauswahl, Monatssummen für Energie, Kosten, Ladedauer, Ladevorgänge und offene Nacherfassungen, Monatsbalken über das Jahr mit dem Wert jedes Monats, darunter die Jahreszusammenfassung gesamt, intern und extern
+- Detailliste: Monatssummen und die Ladevorgänge des Monats als Tabelle mit Filtern für Fahrzeug, Ladeort, Ladeart, Karte und Status. Jeder Eintrag lässt sich aufklappen und zeigt Zeiten, Ladestand, Kilometerstand, Netz- und Sonnenanteil sowie die Ladephasen
+- Letzte 5 Ladevorgänge: die jüngsten Ladevorgänge über alle Jahre, mit allen Details aufgeklappt
 
-Ladevorgänge ohne Fahrzeug werden als „Nicht zugeordnet“ geführt und zählen in die Summen. Ladevorgänge über mehrere Tage werden dem Monat des Ansteckens zugeordnet. Geschätzte Werte sind mit ~ gekennzeichnet.
+Energie wird mit drei Nachkommastellen angezeigt. Intern sind Ladevorgänge zu Hause, mit und ohne Wallbox. Ladevorgänge ohne Fahrzeug werden als „Nicht zugeordnet“ geführt und zählen in die Summen. Ladevorgänge über mehrere Tage werden dem Monat des Ansteckens zugeordnet. Geschätzte Werte sind mit ~ gekennzeichnet.
 
 In der Kartenauswahl eines Dashboards stehen zwei Karten zur Verfügung, sie erscheinen unter ihrem Kartentyp:
 

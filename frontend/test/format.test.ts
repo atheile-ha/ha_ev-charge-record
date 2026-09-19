@@ -10,12 +10,12 @@ import {
 
 describe("formatEnergy", () => {
   it("marks an estimate with a tilde", () => {
-    expect(formatEnergy(12.5, "en", true)).toBe("~12.50 kWh");
-    expect(formatEnergy(12.5, "en", false)).toBe("12.50 kWh");
+    expect(formatEnergy(12.5, "en", true)).toBe("~12.500 kWh");
+    expect(formatEnergy(12.5, "en", false)).toBe("12.500 kWh");
   });
 
   it("uses the locale's separators", () => {
-    expect(formatEnergy(1234.5, "de")).toBe("1.234,50 kWh");
+    expect(formatEnergy(1234.5, "de")).toBe("1.234,500 kWh");
   });
 
   it("shows a dash for a missing value", () => {

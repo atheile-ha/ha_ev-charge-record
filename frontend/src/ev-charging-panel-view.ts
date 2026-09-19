@@ -1,7 +1,7 @@
 import { LitElement, css, html, nothing, type PropertyValues, type TemplateResult } from "lit";
 import { property, state } from "lit/decorators.js";
 import { classMap } from "lit/directives/class-map.js";
-import { getStats, listOpenSessions, listSessions, listVehicles } from "./api";
+import { getStats, listSessions, listVehicles } from "./api";
 import {
   EMPTY,
   formatCost,
@@ -42,10 +42,12 @@ import type {
   SessionLocation,
   SessionStatus,
   StatsResponse,
+  Summary,
   Vehicle,
 } from "./types";
 
 const REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+const RECENT_COUNT = 5;
 
 const CHEVRON_LEFT = "M15.41,16.58L10.83,12L15.41,7.42L14,6L8,12L14,18L15.41,16.58Z";
 const CHEVRON_RIGHT = "M8.59,16.58L13.17,12L8.59,7.42L10,6L16,12L10,18L8.59,16.58Z";
@@ -53,6 +55,7 @@ const CHEVRON_RIGHT = "M8.59,16.58L13.17,12L8.59,7.42L10,6L16,12L10,18L8.59,16.5
 const VIEWS: { id: ViewId; label: TextKey }[] = [
   { id: "overview", label: "view_overview" },
   { id: "detail", label: "view_detail" },
+  { id: "recent", label: "view_recent" },
 ];
 const LOCATIONS: SessionLocation[] = ["home", "home_no_wallbox", "external"];
 const CHARGE_TYPES: ChargeType[] = ["ac", "dc", "unknown"];
@@ -82,14 +85,15 @@ export class EvChargingPanelView extends LitElement {
   @state() private _t?: Translate;
   @state() private _stats?: StatsResponse;
   @state() private _sessions?: Session[];
+  @state() private _recent?: Session[];
   @state() private _vehicles: Vehicle[] = [];
-  @state() private _openCount = 0;
   @state() private _failed = false;
   @state() private _metric: Metric = "energy";
 
   private _started = false;
   private _statsKey?: number;
   private _sessionsKey?: string;
+  private _recentRequested = false;
   private _timer?: number;
 
   public override connectedCallback(): void {
@@ -129,7 +133,7 @@ export class EvChargingPanelView extends LitElement {
       this._started = true;
       void this._loadShared(hass, false);
     }
-    if (this._statsKey !== state.year) {
+    if (state.view !== "recent" && this._statsKey !== state.year) {
       this._statsKey = state.year;
       this._stats = undefined;
       void this._loadStats(hass, state.year, false);
@@ -142,6 +146,10 @@ export class EvChargingPanelView extends LitElement {
         void this._loadSessions(hass, state.year, state.month, false);
       }
     }
+    if (state.view === "recent" && !this._recentRequested) {
+      this._recentRequested = true;
+      void this._loadRecent(hass, false);
+    }
   }
 
   private _refresh(): void {
@@ -151,9 +159,14 @@ export class EvChargingPanelView extends LitElement {
       return;
     }
     void this._loadShared(hass, true);
-    void this._loadStats(hass, state.year, true);
+    if (state.view !== "recent") {
+      void this._loadStats(hass, state.year, true);
+    }
     if (state.view === "detail") {
       void this._loadSessions(hass, state.year, state.month, true);
+    }
+    if (state.view === "recent") {
+      void this._loadRecent(hass, true);
     }
   }
 
@@ -169,6 +182,7 @@ export class EvChargingPanelView extends LitElement {
     this._started = false;
     this._statsKey = undefined;
     this._sessionsKey = undefined;
+    this._recentRequested = false;
     this.requestUpdate();
   }
 
@@ -181,9 +195,7 @@ export class EvChargingPanelView extends LitElement {
       return;
     }
     try {
-      const [vehicles, open] = await Promise.all([listVehicles(hass), listOpenSessions(hass)]);
-      this._vehicles = vehicles;
-      this._openCount = open.length;
+      this._vehicles = await listVehicles(hass);
     } catch (error) {
       this._fail(error, silent);
     }
@@ -221,6 +233,14 @@ export class EvChargingPanelView extends LitElement {
     }
   }
 
+  private async _loadRecent(hass: HomeAssistant, silent: boolean): Promise<void> {
+    try {
+      this._recent = await listSessions(hass, { limit: RECENT_COUNT });
+    } catch (error) {
+      this._fail(error, silent);
+    }
+  }
+
   private _setState(patch: Partial<PanelState>): void {
     if (!this._state) {
       return;
@@ -255,10 +275,13 @@ export class EvChargingPanelView extends LitElement {
     }
     return html`
       <div class="view">
-        ${this._renderTabs(t, state)} ${this._renderPeriod(t, state)}
+        ${this._renderTabs(t, state)}
+        ${state.view === "recent" ? nothing : this._renderPeriod(t, state)}
         ${state.view === "overview"
           ? this._renderOverview(t, state)
-          : this._renderDetail(t, state)}
+          : state.view === "detail"
+            ? this._renderDetail(t, state)
+            : this._renderRecent(t)}
         <p class="hint muted">${t("multi_day_hint")} ${t("estimate_hint")}</p>
       </div>
     `;
@@ -291,11 +314,7 @@ export class EvChargingPanelView extends LitElement {
     const current = currentYearMonth(new Date(), hass.config.time_zone);
     const years = yearOptions(this._stats?.years ?? [], current.year, state.year);
     return html`<div class="period">
-      <button
-        class="icon"
-        aria-label=${t("period_previous")}
-        @click=${() => this._shift(-1)}
-      >
+      <button class="icon" aria-label=${t("period_previous")} @click=${() => this._shift(-1)}>
         ${icon(CHEVRON_LEFT)}
       </button>
       <select
@@ -325,31 +344,34 @@ export class EvChargingPanelView extends LitElement {
     </div>`;
   }
 
-  private _renderOverview(t: Translate, state: PanelState): TemplateResult {
-    const stats = this._stats;
-    if (!stats) {
-      return html`<div class="spinner" role="progressbar"></div>`;
-    }
+  private _renderTiles(t: Translate, month: MonthStats): TemplateResult {
     const hass = this.hass!;
     const locale = hass.locale.language;
-    const month = stats.months[state.month - 1];
     const tiles: [TextKey, string][] = [
       ["total_energy", formatEnergy(month.energy_kwh, locale, month.energy_is_estimate)],
       ["total_cost", formatCost(month.cost, locale, hass.config.currency)],
       ["total_duration", formatDuration(month.charge_duration_min)],
       ["total_sessions", String(month.count)],
-      ["open_followups", String(this._openCount)],
+      ["open_followups", String(month.open_followups)],
     ];
+    return html`<div class="tiles">
+      ${tiles.map(
+        ([label, value]) => html`<div class="tile">
+          <span class="tile-label muted">${t(label)}</span>
+          <span class="tile-value">${value}</span>
+        </div>`,
+      )}
+    </div>`;
+  }
+
+  private _renderOverview(t: Translate, state: PanelState): TemplateResult {
+    const stats = this._stats;
+    if (!stats) {
+      return html`<div class="spinner" role="progressbar"></div>`;
+    }
     return html`
-      <div class="tiles">
-        ${tiles.map(
-          ([label, value]) => html`<div class="tile">
-            <span class="tile-label muted">${t(label)}</span>
-            <span class="tile-value">${value}</span>
-          </div>`,
-        )}
-      </div>
-      ${this._renderChart(t, state, stats)}
+      ${this._renderTiles(t, stats.months[state.month - 1])}
+      ${this._renderChart(t, state, stats)} ${this._renderYearSummary(t, state, stats)}
     `;
   }
 
@@ -403,24 +425,63 @@ export class EvChargingPanelView extends LitElement {
         ${stats.months.map((month) => {
           const share = maximum > 0 ? (this._metricValue(month) / maximum) * 100 : 0;
           const name = monthName(month.month, locale, "long");
+          const value = month.count === 0 ? EMPTY : this._formatMetric(month);
           return html`<button
             class=${classMap({ bar: true, selected: month.month === state.month })}
-            title=${`${name}: ${this._formatMetric(month)}`}
-            aria-label=${`${name}: ${this._formatMetric(month)}`}
+            title=${`${name}: ${value}`}
+            aria-label=${`${name}: ${value}`}
             aria-pressed=${month.month === state.month ? "true" : "false"}
             @click=${() => this._setState({ month: month.month })}
           >
             <span class="fill-area"><span class="fill" style=${`height:${share}%`}></span></span>
             <span class="bar-label muted">${monthName(month.month, locale, "short")}</span>
+            <span class="bar-value">${value}</span>
           </button>`;
         })}
       </div>
     </section>`;
   }
 
+  private _renderYearSummary(t: Translate, state: PanelState, stats: StatsResponse): TemplateResult {
+    const hass = this.hass!;
+    const locale = hass.locale.language;
+    const summary = stats.year_summary;
+    const scopes: [TextKey, Summary][] = [
+      ["scope_total", summary.all],
+      ["scope_internal", summary.internal],
+      ["scope_external", summary.external],
+    ];
+    const rows: [TextKey, (scope: Summary) => string][] = [
+      ["total_energy", (s) => formatEnergy(s.energy_kwh, locale, s.energy_is_estimate)],
+      ["total_cost", (s) => formatCost(s.cost, locale, hass.config.currency)],
+      ["total_duration", (s) => formatDuration(s.charge_duration_min)],
+      ["total_sessions", (s) => String(s.count)],
+    ];
+    return html`<section class="year-summary">
+      <h3>${t("year_summary_title", { year: state.year })}</h3>
+      <table>
+        <thead>
+          <tr>
+            <th></th>
+            ${scopes.map(([label]) => html`<th class="num">${t(label)}</th>`)}
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(
+            ([label, format]) => html`<tr>
+              <th>${t(label)}</th>
+              ${scopes.map(([, scope]) => html`<td class="num">${format(scope)}</td>`)}
+            </tr>`,
+          )}
+        </tbody>
+      </table>
+    </section>`;
+  }
+
   private _renderDetail(t: Translate, state: PanelState): TemplateResult {
     const sessions = this._sessions;
-    if (!sessions) {
+    const stats = this._stats;
+    if (!sessions || !stats) {
       return html`<div class="spinner" role="progressbar"></div>`;
     }
     const filters = state.filters;
@@ -431,9 +492,14 @@ export class EvChargingPanelView extends LitElement {
     ];
     const cards: Option[] = [
       { value: NO_CARD, label: t("filter_no_card") },
-      ...cardOptions(sessions, filters.card),
+      ...cardOptions(
+        this._vehicles.flatMap((vehicle) => vehicle.cards),
+        sessions,
+        filters.card,
+      ),
     ];
     return html`
+      ${this._renderTiles(t, stats.months[state.month - 1])}
       <div class="filters">
         ${this._renderFilter(t("filter_vehicle"), "vehicle", vehicles, t)}
         ${this._renderFilter(
@@ -471,8 +537,18 @@ export class EvChargingPanelView extends LitElement {
         ? html`<div class="message">
             ${sessions.length === 0 ? t("no_sessions") : t("no_sessions_filtered")}
           </div>`
-        : html`<div class="sessions">${visible.map((session) => this._renderSession(session, t))}</div>`}
+        : this._renderTable(visible, t, false)}
     `;
+  }
+
+  private _renderRecent(t: Translate): TemplateResult {
+    const sessions = this._recent;
+    if (!sessions) {
+      return html`<div class="spinner" role="progressbar"></div>`;
+    }
+    return sessions.length === 0
+      ? html`<div class="message">${t("no_sessions")}</div>`
+      : this._renderTable(sessions, t, true);
   }
 
   private _renderFilter(
@@ -484,8 +560,9 @@ export class EvChargingPanelView extends LitElement {
     const value = this._state!.filters[key];
     return html`<label class="filter">
       <span class="muted">${label}</span>
-      <select @change=${(event: Event) =>
-        this._setFilter(key, (event.target as HTMLSelectElement).value)}>
+      <select
+        @change=${(event: Event) => this._setFilter(key, (event.target as HTMLSelectElement).value)}
+      >
         <option value="" .selected=${value === ""}>${t("filter_all")}</option>
         ${options.map(
           (option) =>
@@ -497,23 +574,41 @@ export class EvChargingPanelView extends LitElement {
     </label>`;
   }
 
-  private _renderSession(session: Session, t: Translate): TemplateResult {
+  private _renderTable(sessions: Session[], t: Translate, open: boolean): TemplateResult {
+    return html`<div class="table" role="table">
+      <div class="head" role="row">
+        <span>${t("col_date")}</span>
+        <span>${t("filter_vehicle")}</span>
+        <span>${t("filter_location")}</span>
+        <span>${t("filter_charge_type")}</span>
+        <span class="num">${t("total_energy")}</span>
+        <span class="num">${t("total_cost")}</span>
+        <span class="num">${t("total_duration")}</span>
+        <span>${t("filter_status")}</span>
+      </div>
+      ${sessions.map((session) => this._renderSession(session, t, open))}
+    </div>`;
+  }
+
+  private _renderSession(session: Session, t: Translate, open: boolean): TemplateResult {
     const hass = this.hass!;
     const locale = hass.locale.language;
     const zone = hass.config.time_zone;
     const unassigned = session.vehicle_id === null;
-    return html`<details class="session">
+    return html`<details class="session" ?open=${open}>
       <summary>
-        <span class="when">${formatDateTime(session.plug_start, locale, zone)}</span>
-        <span class=${classMap({ vehicle: true, unassigned })}>${vehicleLabel(session, t)}</span>
-        <span class="metrics">
-          <span>${formatEnergy(session.energy_kwh, locale, session.energy_is_estimate)}</span>
-          <span>${formatCost(session.cost, locale, hass.config.currency)}</span>
-          <span>${formatDuration(session.charge_duration_min)}</span>
-        </span>
-        <span class="chips">
-          <span class="chip">${t(`location_${session.location}`)}</span>
-          <span class="chip">${t(`charge_type_${session.charge_type}`)}</span>
+        <span class="c-date">${formatDateTime(session.plug_start, locale, zone)}</span>
+        <span class=${classMap({ "c-vehicle": true, vehicle: true, unassigned })}
+          >${vehicleLabel(session, t)}</span
+        >
+        <span class="c-location"><span class="chip">${t(`location_${session.location}`)}</span></span>
+        <span class="c-type"><span class="chip">${t(`charge_type_${session.charge_type}`)}</span></span>
+        <span class="c-energy num"
+          >${formatEnergy(session.energy_kwh, locale, session.energy_is_estimate)}</span
+        >
+        <span class="c-cost num">${formatCost(session.cost, locale, hass.config.currency)}</span>
+        <span class="c-duration num">${formatDuration(session.charge_duration_min)}</span>
+        <span class="c-status">
           ${session.status === "complete"
             ? nothing
             : html`<span class="chip warn">${t(`status_${session.status}`)}</span>`}
@@ -535,7 +630,10 @@ export class EvChargingPanelView extends LitElement {
     </details>`;
   }
 
-  private _row(label: string, value: string | TemplateResult | null): TemplateResult | typeof nothing {
+  private _row(
+    label: string,
+    value: string | TemplateResult | null,
+  ): TemplateResult | typeof nothing {
     if (value === null || value === "" || value === EMPTY) {
       return nothing;
     }
@@ -596,7 +694,10 @@ export class EvChargingPanelView extends LitElement {
             )
           : nothing}
         ${this._row(t("detail_card"), session.card_label ?? session.card_uid)}
-        ${this._row(t("detail_identification"), t(`identification_${session.identification_source}`))}
+        ${this._row(
+          t("detail_identification"),
+          t(`identification_${session.identification_source}`),
+        )}
         ${this._row(t("detail_address"), location)}
         ${this._row(t("detail_provider"), session.provider)}
         ${this._row(t("detail_note"), session.note)}
@@ -626,9 +727,9 @@ export class EvChargingPanelView extends LitElement {
         <tr>
           <th>${t("phase_start")}</th>
           <th>${t("phase_end")}</th>
-          <th>${t("phase_duration")}</th>
-          <th>${t("total_energy")}</th>
-          <th>${t("total_cost")}</th>
+          <th class="num">${t("phase_duration")}</th>
+          <th class="num">${t("total_energy")}</th>
+          <th class="num">${t("total_cost")}</th>
         </tr>
       </thead>
       <tbody>
@@ -636,9 +737,9 @@ export class EvChargingPanelView extends LitElement {
           (phase) => html`<tr>
             <td>${formatTime(phase.start, locale, zone)}</td>
             <td>${formatTime(phase.end, locale, zone)}</td>
-            <td>${formatDuration(phase.duration_min)}</td>
-            <td>${formatEnergy(phase.energy_kwh, locale)}</td>
-            <td>${formatCost(phase.cost, locale, hass.config.currency)}</td>
+            <td class="num">${formatDuration(phase.duration_min)}</td>
+            <td class="num">${formatEnergy(phase.energy_kwh, locale)}</td>
+            <td class="num">${formatCost(phase.cost, locale, hass.config.currency)}</td>
           </tr>`,
         )}
       </tbody>
@@ -650,6 +751,8 @@ export class EvChargingPanelView extends LitElement {
     css`
       :host {
         display: block;
+        --ev-columns: minmax(150px, 1.3fr) minmax(120px, 1.2fr) minmax(140px, 1.2fr) 56px
+          minmax(110px, 0.9fr) minmax(90px, 0.7fr) minmax(80px, 0.6fr) minmax(110px, 1fr);
       }
 
       .view {
@@ -658,8 +761,14 @@ export class EvChargingPanelView extends LitElement {
         gap: 16px;
       }
 
+      .num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+
       .tabs {
         display: flex;
+        flex-wrap: wrap;
         gap: 4px;
         border-bottom: 1px solid var(--ev-line);
       }
@@ -722,7 +831,8 @@ export class EvChargingPanelView extends LitElement {
         flex-wrap: wrap;
       }
 
-      .chart h3 {
+      .chart h3,
+      .year-summary h3 {
         margin: 0;
         font-size: 1em;
         font-weight: 500;
@@ -737,7 +847,6 @@ export class EvChargingPanelView extends LitElement {
       .plot {
         display: flex;
         gap: 4px;
-        height: 200px;
         margin-top: 12px;
       }
 
@@ -745,6 +854,7 @@ export class EvChargingPanelView extends LitElement {
         flex: 1;
         display: flex;
         flex-direction: column;
+        align-items: stretch;
         min-width: 0;
         padding: 0;
         background: transparent;
@@ -753,7 +863,7 @@ export class EvChargingPanelView extends LitElement {
       }
 
       .fill-area {
-        flex: 1;
+        height: 170px;
         display: flex;
         align-items: flex-end;
       }
@@ -774,6 +884,50 @@ export class EvChargingPanelView extends LitElement {
       .bar-label {
         padding-top: 4px;
         font-size: 0.75em;
+      }
+
+      .bar-value {
+        padding-top: 2px;
+        font-size: 0.75em;
+        font-variant-numeric: tabular-nums;
+        overflow-wrap: anywhere;
+      }
+
+      .bar.selected .bar-value {
+        font-weight: 500;
+      }
+
+      .year-summary {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .year-summary table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      .year-summary th,
+      .year-summary td {
+        padding: 8px 12px;
+        white-space: nowrap;
+        border-bottom: 1px solid var(--ev-line);
+        text-align: left;
+        font-weight: 400;
+      }
+
+      .year-summary thead th {
+        color: var(--ev-muted);
+        font-size: 0.85em;
+      }
+
+      .year-summary tbody th {
+        color: var(--ev-muted);
+      }
+
+      .year-summary .num {
+        text-align: right;
       }
 
       .filters {
@@ -799,11 +953,28 @@ export class EvChargingPanelView extends LitElement {
         margin: 0;
       }
 
-      .sessions {
-        display: flex;
-        flex-direction: column;
+      .table {
         border: 1px solid var(--ev-line);
         border-radius: var(--ev-radius);
+        overflow: hidden;
+      }
+
+      .head,
+      summary {
+        display: grid;
+        grid-template-columns: var(--ev-columns);
+        column-gap: 16px;
+        align-items: center;
+        padding: 10px 44px 10px 14px;
+      }
+
+      .head {
+        background: var(--ev-head-bg);
+        border-bottom: 1px solid var(--ev-line);
+        color: var(--ev-muted);
+        font-size: 0.85em;
+        font-weight: 500;
+        text-transform: none;
       }
 
       .session + .session {
@@ -812,58 +983,62 @@ export class EvChargingPanelView extends LitElement {
 
       summary {
         position: relative;
-        display: grid;
-        grid-template-columns: minmax(150px, 1.2fr) minmax(90px, 1fr) minmax(220px, 2fr);
-        gap: 4px 12px;
-        align-items: center;
-        padding: 10px 36px 10px 14px;
         cursor: pointer;
         list-style: none;
-      }
-
-      summary::after {
-        content: "";
-        position: absolute;
-        top: 16px;
-        right: 16px;
-        width: 7px;
-        height: 7px;
-        border-right: 2px solid var(--ev-muted);
-        border-bottom: 2px solid var(--ev-muted);
-        transform: rotate(45deg);
-      }
-
-      details[open] > summary::after {
-        top: 20px;
-        transform: rotate(-135deg);
       }
 
       summary::-webkit-details-marker {
         display: none;
       }
 
-      .metrics {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 4px 14px;
+      summary::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        right: 18px;
+        width: 7px;
+        height: 7px;
+        margin-top: -6px;
+        border-right: 2px solid var(--ev-muted);
+        border-bottom: 2px solid var(--ev-muted);
+        transform: rotate(45deg);
       }
 
-      .chips {
-        grid-column: 1 / -1;
+      details[open] > summary::after {
+        margin-top: -2px;
+        transform: rotate(-135deg);
+      }
+
+      .c-status {
         display: flex;
         flex-wrap: wrap;
         gap: 6px;
       }
 
+      .head span:last-child,
+      .c-status {
+        padding-left: 8px;
+      }
+
+      .c-location .chip {
+        white-space: normal;
+      }
+
+      .c-type .chip {
+        background: color-mix(in srgb, var(--primary-text-color) 12%, transparent);
+      }
+
       .body {
-        padding: 0 14px 12px;
+        padding: 4px 14px 14px;
+        background: var(--ev-head-bg);
+        border-top: 1px solid var(--ev-line);
       }
 
       dl {
         display: grid;
         grid-template-columns: minmax(120px, max-content) 1fr;
         gap: 4px 16px;
-        margin: 0;
+        margin: 8px 0 0;
       }
 
       dd {
@@ -890,18 +1065,78 @@ export class EvChargingPanelView extends LitElement {
         text-align: left;
       }
 
+      .phases .num {
+        text-align: right;
+      }
+
       .hint {
         margin: 0;
         font-size: 0.85em;
       }
 
-      @media (max-width: 600px) {
-        summary {
-          grid-template-columns: 1fr 1fr;
+      @media (max-width: 800px) {
+        .head {
+          display: none;
         }
 
-        .metrics {
-          grid-column: 1 / -1;
+        summary {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 8px 12px;
+        }
+
+        .c-date {
+          grid-column: 1 / 3;
+          font-weight: 500;
+        }
+
+        .c-vehicle {
+          text-align: right;
+        }
+
+        .c-energy,
+        .c-cost,
+        .c-duration {
+          order: 1;
+        }
+
+        .c-location,
+        .c-type,
+        .c-status {
+          order: 2;
+        }
+
+        .c-energy {
+          text-align: left;
+        }
+
+        .c-duration {
+          text-align: right;
+        }
+
+        .c-cost {
+          text-align: center;
+        }
+
+        .c-type {
+          text-align: center;
+        }
+
+        .c-status {
+          justify-content: flex-end;
+          padding-left: 0;
+        }
+
+        .year-summary th,
+        .year-summary td {
+          padding: 8px 6px;
+          font-size: 0.9em;
+        }
+
+        .bar-value {
+          writing-mode: vertical-rl;
+          transform: rotate(180deg);
+          align-self: center;
+          padding-top: 6px;
         }
       }
     `,
