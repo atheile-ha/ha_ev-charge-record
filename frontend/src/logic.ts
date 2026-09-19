@@ -1,4 +1,4 @@
-import type { Session, Vehicle, VehicleCard } from "./types";
+import type { Session, Summary, Vehicle, VehicleCard } from "./types";
 
 export type ViewId = "overview" | "detail" | "recent";
 
@@ -98,6 +98,40 @@ export function parseState(path: string, search: string): Partial<PanelState> {
     result.filters = filters;
   }
   return result;
+}
+
+function total(values: (number | null)[]): number {
+  const sum = values.reduce<number>((acc, value) => acc + (value ?? 0), 0);
+  return Math.round(sum * 10000) / 10000;
+}
+
+// The sums of exactly the given sessions. A missing value adds nothing.
+export function summarizeSessions(sessions: Session[]): Summary {
+  return {
+    count: sessions.length,
+    energy_kwh: total(sessions.map((session) => session.energy_kwh)),
+    energy_is_estimate: sessions.some((session) => session.energy_is_estimate),
+    cost: total(sessions.map((session) => session.cost)),
+    charge_duration_min: total(sessions.map((session) => session.charge_duration_min)),
+    open_followups: sessions.filter(
+      (session) => session.status === "followup_open" || session.open_fields.length > 0,
+    ).length,
+  };
+}
+
+// A link that opens the place in Google Maps: the coordinates if known,
+// otherwise the address.
+export function mapUrl(session: Session): string | null {
+  let query: string | null = null;
+  if (session.latitude !== null && session.longitude !== null) {
+    query = `${session.latitude},${session.longitude}`;
+  } else if (session.address) {
+    query = session.address;
+  }
+  if (query === null) {
+    return null;
+  }
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
 export function hasActiveFilter(filters: Filters): boolean {

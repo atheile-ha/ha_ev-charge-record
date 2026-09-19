@@ -419,7 +419,7 @@
         "menu_toggle": "Toggle sidebar",
         "view_overview": "Overview",
         "view_detail": "Detail list",
-        "view_recent": "Last 5 sessions",
+        "view_recent": "Last 5",
         "period_month": "Month",
         "period_year": "Year",
         "period_previous": "Previous month",
@@ -503,7 +503,8 @@
         "field_energy_solar_kwh": "Solar share",
         "field_cost": "Cost",
         "field_address": "Address",
-        "recent_title": "Recent sessions"
+        "recent_title": "Recent sessions",
+        "card_count": "Number of sessions"
       }
     }
   },

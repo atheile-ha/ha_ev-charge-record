@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   EMPTY,
   formatCost,
+  formatCostWhole,
   formatDateTime,
   formatDuration,
+  formatDurationWhole,
   formatEnergy,
+  formatEnergyWhole,
   monthName,
 } from "../src/format";
 
@@ -49,6 +52,27 @@ describe("formatDuration", () => {
 
   it("shows a dash for a missing value", () => {
     expect(formatDuration(null)).toBe(EMPTY);
+  });
+});
+
+describe("whole-number formats", () => {
+  it("round energy and keep the tilde", () => {
+    expect(formatEnergyWhole(637.717, "de")).toBe("638 kWh");
+    expect(formatEnergyWhole(4048.578, "de", true)).toBe("~4.049 kWh");
+    expect(formatEnergyWhole(null, "de")).toBe(EMPTY);
+  });
+
+  it("round cost to whole currency units", () => {
+    expect(formatCostWhole(272.7, "en", "EUR")).toBe("€273");
+    expect(formatCostWhole(272.7, "de", "EUR")).toContain("273");
+    expect(formatCostWhole(null, "en", "EUR")).toBe(EMPTY);
+  });
+
+  it("round durations to whole hours but keep minutes below an hour", () => {
+    expect(formatDurationWhole(43 * 60 + 11)).toBe("43 h");
+    expect(formatDurationWhole(89)).toBe("1 h");
+    expect(formatDurationWhole(45)).toBe("45 min");
+    expect(formatDurationWhole(null)).toBe(EMPTY);
   });
 });
 

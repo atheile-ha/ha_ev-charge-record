@@ -1,10 +1,8 @@
-import { LitElement, css, html, nothing, type PropertyValues, type TemplateResult } from "lit";
+import { LitElement, css, html, type PropertyValues, type TemplateResult } from "lit";
 import { property, state } from "lit/decorators.js";
-import { classMap } from "lit/directives/class-map.js";
 import { listSessions } from "./api";
-import { formatCost, formatDateTime, formatDuration, formatEnergy, formatPercent } from "./format";
+import "./ev-charging-session-list";
 import { loadTranslate, makeTranslate, type Translate } from "./i18n";
-import { vehicleLabel } from "./labels";
 import { sharedStyles } from "./styles";
 import type { HomeAssistant, Session } from "./types";
 
@@ -15,6 +13,10 @@ const REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 interface RecentCardConfig {
   count?: number;
   title?: string;
+}
+
+function isValidCount(count: number): boolean {
+  return Number.isInteger(count) && count >= 1 && count <= MAX_COUNT;
 }
 
 export class EvChargingRecentCard extends LitElement {
@@ -29,8 +31,7 @@ export class EvChargingRecentCard extends LitElement {
   private _timer?: number;
 
   public setConfig(config: RecentCardConfig): void {
-    const count = config.count ?? DEFAULT_COUNT;
-    if (!Number.isInteger(count) || count < 1 || count > MAX_COUNT) {
+    if (!isValidCount(config.count ?? DEFAULT_COUNT)) {
       throw new Error(`count must be a whole number from 1 to ${MAX_COUNT}`);
     }
     this._config = config;
@@ -45,6 +46,10 @@ export class EvChargingRecentCard extends LitElement {
 
   public static getStubConfig(): Record<string, unknown> {
     return { count: DEFAULT_COUNT };
+  }
+
+  public static getConfigElement(): HTMLElement {
+    return document.createElement("ev-charging-recent-card-editor");
   }
 
   public override connectedCallback(): void {
@@ -111,7 +116,6 @@ export class EvChargingRecentCard extends LitElement {
     if (!t || !this.hass) {
       return html`<div class="spinner" role="progressbar"></div>`;
     }
-    const title = this._config.title ?? t("recent_title");
     if (this._failed) {
       return html`<div class="message">
         <span>${t("load_error")}</span>
@@ -119,46 +123,17 @@ export class EvChargingRecentCard extends LitElement {
       </div>`;
     }
     return html`
-      <h2>${title}</h2>
+      <h2>${this._config.title ?? t("recent_title")}</h2>
       ${this._sessions === undefined
         ? html`<div class="spinner" role="progressbar"></div>`
         : this._sessions.length === 0
           ? html`<div class="message">${t("no_sessions")}</div>`
-          : html`<ul>
-              ${this._sessions.map((session) => this._renderSession(session, t))}
-            </ul>`}
+          : html`<ev-charging-session-list
+              .hass=${this.hass}
+              .t=${t}
+              .sessions=${this._sessions}
+            ></ev-charging-session-list>`}
     `;
-  }
-
-  private _renderSession(session: Session, t: Translate): TemplateResult {
-    const hass = this.hass!;
-    const locale = hass.locale.language;
-    const soc =
-      session.soc_start !== null && session.soc_end !== null
-        ? `${formatPercent(session.soc_start, locale)} → ${formatPercent(session.soc_end, locale)}`
-        : nothing;
-    return html`<li>
-      <div class="line">
-        <span class=${classMap({ vehicle: true, unassigned: session.vehicle_id === null })}
-          >${vehicleLabel(session, t)}</span
-        >
-        <span class="muted">${formatDateTime(session.plug_start, locale, hass.config.time_zone)}</span>
-      </div>
-      <div class="line">
-        <span>
-          ${formatEnergy(session.energy_kwh, locale, session.energy_is_estimate)} ·
-          ${formatCost(session.cost, locale, hass.config.currency)} ·
-          ${formatDuration(session.charge_duration_min)}
-        </span>
-        <span class="muted">${soc}</span>
-      </div>
-      <div class="line">
-        <span class="chip">${t(`location_${session.location}`)}</span>
-        ${session.status === "complete"
-          ? nothing
-          : html`<span class="chip warn">${t(`status_${session.status}`)}</span>`}
-      </div>
-    </li>`;
   }
 
   public static override styles = [
@@ -179,36 +154,85 @@ export class EvChargingRecentCard extends LitElement {
         font-size: 1.1em;
         font-weight: 500;
       }
+    `,
+  ];
+}
 
-      ul {
-        display: flex;
-        flex-direction: column;
-        margin: 0;
-        padding: 0;
-        list-style: none;
-      }
+// The visual editor of the card in the dashboard editor.
+export class EvChargingRecentCardEditor extends LitElement {
+  @property({ attribute: false }) public hass?: HomeAssistant;
 
-      li {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        padding: 10px 0;
-      }
+  @state() private _config: RecentCardConfig = {};
+  @state() private _t?: Translate;
 
-      li + li {
-        border-top: 1px solid var(--ev-line);
-      }
+  private _started = false;
 
-      .line {
+  public setConfig(config: RecentCardConfig): void {
+    this._config = config;
+  }
+
+  protected override willUpdate(changed: PropertyValues): void {
+    if (changed.has("hass") && this.hass && !this._started) {
+      this._started = true;
+      loadTranslate(this.hass).then(
+        (t) => (this._t = t),
+        () => (this._t = makeTranslate({})),
+      );
+    }
+  }
+
+  private _changed(event: Event): void {
+    const count = Number((event.target as HTMLInputElement).value);
+    if (!isValidCount(count)) {
+      (event.target as HTMLInputElement).value = String(this._config.count ?? DEFAULT_COUNT);
+      return;
+    }
+    this._config = { ...this._config, count };
+    this.dispatchEvent(
+      new CustomEvent("config-changed", {
+        detail: { config: this._config },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
+  protected override render(): TemplateResult {
+    const t = this._t;
+    if (!t) {
+      return html``;
+    }
+    return html`<label>
+      <span>${t("card_count")}</span>
+      <input
+        type="number"
+        min="1"
+        max=${MAX_COUNT}
+        step="1"
+        .value=${String(this._config.count ?? DEFAULT_COUNT)}
+        @change=${(event: Event) => this._changed(event)}
+      />
+    </label>`;
+  }
+
+  public static override styles = [
+    sharedStyles,
+    css`
+      label {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        flex-wrap: wrap;
-        gap: 4px 12px;
+        gap: 12px;
       }
 
-      .vehicle {
-        font-weight: 500;
+      input {
+        width: 80px;
+        padding: 6px 8px;
+        font: inherit;
+        color: inherit;
+        background: var(--ev-surface);
+        border: 1px solid var(--ev-line);
+        border-radius: 8px;
       }
     `,
   ];

@@ -8,9 +8,11 @@ import {
   currentYearMonth,
   defaultState,
   hasActiveFilter,
+  mapUrl,
   parseState,
   serializeState,
   shiftMonth,
+  summarizeSessions,
   vehicleOptions,
   yearOptions,
 } from "../src/logic";
@@ -186,5 +188,68 @@ describe("filter options", () => {
 
   it("offers the available years, the current one and the selected one, newest first", () => {
     expect(yearOptions([2025, 2026], 2027, 2024)).toEqual([2027, 2026, 2025, 2024]);
+  });
+});
+
+describe("summarizeSessions", () => {
+  it("sums exactly the given sessions", () => {
+    const all = [
+      session({ energy_kwh: 10.5, cost: 3, charge_duration_min: 60 }),
+      session({ energy_kwh: 4.25, cost: null, charge_duration_min: 30, energy_is_estimate: true }),
+      session({ energy_kwh: null, cost: 1.5, charge_duration_min: null, status: "followup_open" }),
+      session({ energy_kwh: 1, cost: 0, charge_duration_min: 10, open_fields: ["soc_end"] }),
+    ];
+    expect(summarizeSessions(all)).toEqual({
+      count: 4,
+      energy_kwh: 15.75,
+      energy_is_estimate: true,
+      cost: 4.5,
+      charge_duration_min: 100,
+      open_followups: 2,
+    });
+    expect(summarizeSessions(all.slice(0, 1))).toMatchObject({
+      count: 1,
+      energy_kwh: 10.5,
+      energy_is_estimate: false,
+      open_followups: 0,
+    });
+  });
+
+  it("is empty for no sessions", () => {
+    expect(summarizeSessions([])).toEqual({
+      count: 0,
+      energy_kwh: 0,
+      energy_is_estimate: false,
+      cost: 0,
+      charge_duration_min: 0,
+      open_followups: 0,
+    });
+  });
+
+  it("follows the filters", () => {
+    const sessions = [
+      session({ vehicle_id: "v001", energy_kwh: 10 }),
+      session({ vehicle_id: null, vehicle_name: null, energy_kwh: 5 }),
+    ];
+    const visible = applyFilters(sessions, { ...EMPTY_FILTERS, vehicle: UNASSIGNED });
+    expect(summarizeSessions(visible).energy_kwh).toBe(5);
+  });
+});
+
+describe("mapUrl", () => {
+  it("prefers the coordinates", () => {
+    expect(mapUrl(session({ latitude: 53.5, longitude: 10.25, address: "Somewhere 1" }))).toBe(
+      "https://www.google.com/maps/search/?api=1&query=53.5%2C10.25",
+    );
+  });
+
+  it("falls back to the address", () => {
+    expect(mapUrl(session({ address: "Test Street 1, Testville" }))).toBe(
+      "https://www.google.com/maps/search/?api=1&query=Test%20Street%201%2C%20Testville",
+    );
+  });
+
+  it("is absent without a place", () => {
+    expect(mapUrl(session())).toBeNull();
   });
 });

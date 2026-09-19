@@ -4,6 +4,22 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.3.9] - 2026-09-19
+
+### Hinzugefügt
+
+- Karte `ev-charging-recent-card` hat einen Editor für die Anzahl der angezeigten Ladevorgänge
+- Symbol hinter der Adresse eines Ladevorgangs öffnet den Ort in Google Maps, bei einem Ladevorgang ohne Adresse ein Link mit demselben Ziel
+- Summen der Detailliste folgen den gewählten Filtern
+
+### Geändert
+
+- Reiter „Letzte 5“ steht direkt hinter „Übersicht“, seine Ladevorgänge sind zunächst zugeklappt und in der Darstellung der Karte `ev-charging-recent-card` gehalten
+- `ev-charging-recent-card` zeigt die Details eines Ladevorgangs aufklappbar
+- Filterleiste der Detailliste steht über den Summen
+- Jahreszusammenfassung und Werte unter den Balken sind auf ganze Zahlen gerundet
+- Die Überschrift der Jahreszusammenfassung steht dicht an ihrer Tabelle und mit deutlichem Abstand zur Balkengrafik
+
 ## [0.3.8] - 2026-09-19
 
 ### Hinzugefügt

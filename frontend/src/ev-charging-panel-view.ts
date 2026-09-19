@@ -2,20 +2,20 @@ import { LitElement, css, html, nothing, type PropertyValues, type TemplateResul
 import { property, state } from "lit/decorators.js";
 import { classMap } from "lit/directives/class-map.js";
 import { getStats, listSessions, listVehicles } from "./api";
+import "./ev-charging-session-list";
 import {
   EMPTY,
   formatCost,
+  formatCostWhole,
   formatDateTime,
-  formatDistance,
   formatDuration,
+  formatDurationWhole,
   formatEnergy,
-  formatPercent,
-  formatPower,
-  formatTime,
+  formatEnergyWhole,
   monthName,
 } from "./format";
 import { loadTranslate, makeTranslate, type TextKey, type Translate } from "./i18n";
-import { fieldLabel, vehicleLabel } from "./labels";
+import { vehicleLabel } from "./labels";
 import {
   EMPTY_FILTERS,
   NO_CARD,
@@ -26,6 +26,7 @@ import {
   defaultState,
   hasActiveFilter,
   shiftMonth,
+  summarizeSessions,
   vehicleOptions,
   yearOptions,
   type Filters,
@@ -33,6 +34,7 @@ import {
   type PanelState,
   type ViewId,
 } from "./logic";
+import { renderSessionBody, sessionBodyStyles } from "./session-body";
 import { sharedStyles } from "./styles";
 import type {
   ChargeType,
@@ -54,8 +56,8 @@ const CHEVRON_RIGHT = "M8.59,16.58L13.17,12L8.59,7.42L10,6L16,12L10,18L8.59,16.5
 
 const VIEWS: { id: ViewId; label: TextKey }[] = [
   { id: "overview", label: "view_overview" },
-  { id: "detail", label: "view_detail" },
   { id: "recent", label: "view_recent" },
+  { id: "detail", label: "view_detail" },
 ];
 const LOCATIONS: SessionLocation[] = ["home", "home_no_wallbox", "external"];
 const CHARGE_TYPES: ChargeType[] = ["ac", "dc", "unknown"];
@@ -344,7 +346,7 @@ export class EvChargingPanelView extends LitElement {
     </div>`;
   }
 
-  private _renderTiles(t: Translate, month: MonthStats): TemplateResult {
+  private _renderTiles(t: Translate, month: Summary): TemplateResult {
     const hass = this.hass!;
     const locale = hass.locale.language;
     const tiles: [TextKey, string][] = [
@@ -391,11 +393,11 @@ export class EvChargingPanelView extends LitElement {
     const locale = hass.locale.language;
     switch (this._metric) {
       case "cost":
-        return formatCost(month.cost, locale, hass.config.currency);
+        return formatCostWhole(month.cost, locale, hass.config.currency);
       case "duration":
-        return formatDuration(month.charge_duration_min);
+        return formatDurationWhole(month.charge_duration_min);
       default:
-        return formatEnergy(month.energy_kwh, locale, month.energy_is_estimate);
+        return formatEnergyWhole(month.energy_kwh, locale, month.energy_is_estimate);
     }
   }
 
@@ -452,9 +454,9 @@ export class EvChargingPanelView extends LitElement {
       ["scope_external", summary.external],
     ];
     const rows: [TextKey, (scope: Summary) => string][] = [
-      ["total_energy", (s) => formatEnergy(s.energy_kwh, locale, s.energy_is_estimate)],
-      ["total_cost", (s) => formatCost(s.cost, locale, hass.config.currency)],
-      ["total_duration", (s) => formatDuration(s.charge_duration_min)],
+      ["total_energy", (s) => formatEnergyWhole(s.energy_kwh, locale, s.energy_is_estimate)],
+      ["total_cost", (s) => formatCostWhole(s.cost, locale, hass.config.currency)],
+      ["total_duration", (s) => formatDurationWhole(s.charge_duration_min)],
       ["total_sessions", (s) => String(s.count)],
     ];
     return html`<section class="year-summary">
@@ -480,8 +482,7 @@ export class EvChargingPanelView extends LitElement {
 
   private _renderDetail(t: Translate, state: PanelState): TemplateResult {
     const sessions = this._sessions;
-    const stats = this._stats;
-    if (!sessions || !stats) {
+    if (!sessions) {
       return html`<div class="spinner" role="progressbar"></div>`;
     }
     const filters = state.filters;
@@ -499,7 +500,6 @@ export class EvChargingPanelView extends LitElement {
       ),
     ];
     return html`
-      ${this._renderTiles(t, stats.months[state.month - 1])}
       <div class="filters">
         ${this._renderFilter(t("filter_vehicle"), "vehicle", vehicles, t)}
         ${this._renderFilter(
@@ -530,6 +530,7 @@ export class EvChargingPanelView extends LitElement {
             </button>`
           : nothing}
       </div>
+      ${this._renderTiles(t, summarizeSessions(visible))}
       <p class="count muted">
         ${t("filter_count", { shown: visible.length, total: sessions.length })}
       </p>
@@ -537,7 +538,7 @@ export class EvChargingPanelView extends LitElement {
         ? html`<div class="message">
             ${sessions.length === 0 ? t("no_sessions") : t("no_sessions_filtered")}
           </div>`
-        : this._renderTable(visible, t, false)}
+        : this._renderTable(visible, t)}
     `;
   }
 
@@ -548,7 +549,11 @@ export class EvChargingPanelView extends LitElement {
     }
     return sessions.length === 0
       ? html`<div class="message">${t("no_sessions")}</div>`
-      : this._renderTable(sessions, t, true);
+      : html`<ev-charging-session-list
+          .hass=${this.hass}
+          .t=${t}
+          .sessions=${sessions}
+        ></ev-charging-session-list>`;
   }
 
   private _renderFilter(
@@ -574,7 +579,7 @@ export class EvChargingPanelView extends LitElement {
     </label>`;
   }
 
-  private _renderTable(sessions: Session[], t: Translate, open: boolean): TemplateResult {
+  private _renderTable(sessions: Session[], t: Translate): TemplateResult {
     return html`<div class="table" role="table">
       <div class="head" role="row">
         <span>${t("col_date")}</span>
@@ -586,16 +591,16 @@ export class EvChargingPanelView extends LitElement {
         <span class="num">${t("total_duration")}</span>
         <span>${t("filter_status")}</span>
       </div>
-      ${sessions.map((session) => this._renderSession(session, t, open))}
+      ${sessions.map((session) => this._renderSession(session, t))}
     </div>`;
   }
 
-  private _renderSession(session: Session, t: Translate, open: boolean): TemplateResult {
+  private _renderSession(session: Session, t: Translate): TemplateResult {
     const hass = this.hass!;
     const locale = hass.locale.language;
     const zone = hass.config.time_zone;
     const unassigned = session.vehicle_id === null;
-    return html`<details class="session" ?open=${open}>
+    return html`<details class="session">
       <summary>
         <span class="c-date">${formatDateTime(session.plug_start, locale, zone)}</span>
         <span class=${classMap({ "c-vehicle": true, vehicle: true, unassigned })}
@@ -626,128 +631,13 @@ export class EvChargingPanelView extends LitElement {
             : nothing}
         </span>
       </summary>
-      ${this._renderSessionBody(session, t)}
+      ${renderSessionBody(session, t, hass)}
     </details>`;
-  }
-
-  private _row(
-    label: string,
-    value: string | TemplateResult | null,
-  ): TemplateResult | typeof nothing {
-    if (value === null || value === "" || value === EMPTY) {
-      return nothing;
-    }
-    return html`<dt class="muted">${label}</dt>
-      <dd>${value}</dd>`;
-  }
-
-  private _renderSessionBody(session: Session, t: Translate): TemplateResult {
-    const hass = this.hass!;
-    const locale = hass.locale.language;
-    const zone = hass.config.time_zone;
-    const isHome = session.location === "home";
-    const notRecorded = t("detail_not_recorded");
-    const soc =
-      session.soc_start === null && session.soc_end === null
-        ? null
-        : `${formatPercent(session.soc_start, locale)} → ${formatPercent(session.soc_end, locale)}`;
-    const location =
-      session.address ??
-      (session.latitude !== null && session.longitude !== null
-        ? html`<a
-            href=${`https://www.openstreetmap.org/?mlat=${session.latitude}&mlon=${session.longitude}#map=17/${session.latitude}/${session.longitude}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            >${t("detail_map_link")}</a
-          >`
-        : null);
-    return html`<div class="body">
-      <dl>
-        ${this._row(t("detail_plug_start"), formatDateTime(session.plug_start, locale, zone))}
-        ${this._row(t("detail_plug_end"), formatDateTime(session.plug_end, locale, zone))}
-        ${this._row(t("detail_plug_duration"), formatDuration(session.plug_duration_min))}
-        ${this._row(t("detail_charge_duration"), formatDuration(session.charge_duration_min))}
-        ${session.pause_duration_min
-          ? this._row(t("detail_pause_duration"), formatDuration(session.pause_duration_min))
-          : nothing}
-        ${this._row(t("detail_soc"), soc)}
-        ${this._row(t("detail_odometer"), formatDistance(session.odometer_km, locale))}
-        ${this._row(t("detail_power_avg"), formatPower(session.power_avg_kw, locale))}
-        ${isHome
-          ? html`${this._row(
-              t("detail_energy_grid"),
-              session.energy_grid_kwh === null
-                ? notRecorded
-                : formatEnergy(session.energy_grid_kwh, locale),
-            )}
-            ${this._row(
-              t("detail_energy_solar"),
-              session.energy_solar_kwh === null
-                ? notRecorded
-                : formatEnergy(session.energy_solar_kwh, locale),
-            )}`
-          : nothing}
-        ${session.energy_unallocated_kwh > 0
-          ? this._row(
-              t("detail_energy_unallocated"),
-              formatEnergy(session.energy_unallocated_kwh, locale),
-            )
-          : nothing}
-        ${this._row(t("detail_card"), session.card_label ?? session.card_uid)}
-        ${this._row(
-          t("detail_identification"),
-          t(`identification_${session.identification_source}`),
-        )}
-        ${this._row(t("detail_address"), location)}
-        ${this._row(t("detail_provider"), session.provider)}
-        ${this._row(t("detail_note"), session.note)}
-        ${session.open_fields.length > 0
-          ? this._row(
-              t("detail_open_fields"),
-              session.open_fields.map((name) => fieldLabel(name, t)).join(", "),
-            )
-          : nothing}
-      </dl>
-      ${this._renderPhases(session, t)}
-    </div>`;
-  }
-
-  private _renderPhases(session: Session, t: Translate): TemplateResult {
-    if (!session.phases_recorded || session.phases.length === 0) {
-      return html`<p class="muted">${t("detail_phases_not_recorded")}</p>`;
-    }
-    const hass = this.hass!;
-    const locale = hass.locale.language;
-    const zone = hass.config.time_zone;
-    return html`<table class="phases">
-      <caption>
-        ${t("detail_phases")}
-      </caption>
-      <thead>
-        <tr>
-          <th>${t("phase_start")}</th>
-          <th>${t("phase_end")}</th>
-          <th class="num">${t("phase_duration")}</th>
-          <th class="num">${t("total_energy")}</th>
-          <th class="num">${t("total_cost")}</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${session.phases.map(
-          (phase) => html`<tr>
-            <td>${formatTime(phase.start, locale, zone)}</td>
-            <td>${formatTime(phase.end, locale, zone)}</td>
-            <td class="num">${formatDuration(phase.duration_min)}</td>
-            <td class="num">${formatEnergy(phase.energy_kwh, locale)}</td>
-            <td class="num">${formatCost(phase.cost, locale, hass.config.currency)}</td>
-          </tr>`,
-        )}
-      </tbody>
-    </table>`;
   }
 
   public static override styles = [
     sharedStyles,
+    sessionBodyStyles,
     css`
       :host {
         display: block;
@@ -900,7 +790,12 @@ export class EvChargingPanelView extends LitElement {
       .year-summary {
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: 0;
+        margin-top: 24px;
+      }
+
+      .year-summary h3 {
+        margin-bottom: 2px;
       }
 
       .year-summary table {
@@ -918,6 +813,7 @@ export class EvChargingPanelView extends LitElement {
       }
 
       .year-summary thead th {
+        padding-top: 2px;
         color: var(--ev-muted);
         font-size: 0.85em;
       }
@@ -1026,47 +922,6 @@ export class EvChargingPanelView extends LitElement {
 
       .c-type .chip {
         background: color-mix(in srgb, var(--primary-text-color) 12%, transparent);
-      }
-
-      .body {
-        padding: 4px 14px 14px;
-        background: var(--ev-head-bg);
-        border-top: 1px solid var(--ev-line);
-      }
-
-      dl {
-        display: grid;
-        grid-template-columns: minmax(120px, max-content) 1fr;
-        gap: 4px 16px;
-        margin: 8px 0 0;
-      }
-
-      dd {
-        margin: 0;
-        overflow-wrap: anywhere;
-      }
-
-      .phases {
-        width: 100%;
-        margin-top: 12px;
-        border-collapse: collapse;
-        font-size: 0.9em;
-      }
-
-      .phases caption {
-        padding-bottom: 4px;
-        color: var(--ev-muted);
-        text-align: left;
-      }
-
-      .phases th,
-      .phases td {
-        padding: 4px 8px 4px 0;
-        text-align: left;
-      }
-
-      .phases .num {
-        text-align: right;
       }
 
       .hint {

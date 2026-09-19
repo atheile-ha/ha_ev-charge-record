@@ -15,6 +15,38 @@ export function formatEnergy(kwh: number | null, locale: string, estimate = fals
   return `${estimate ? "~" : ""}${number(kwh, locale, 3)} kWh`;
 }
 
+export function formatEnergyWhole(kwh: number | null, locale: string, estimate = false): string {
+  if (kwh === null) {
+    return EMPTY;
+  }
+  return `${estimate ? "~" : ""}${number(kwh, locale, 0)} kWh`;
+}
+
+export function formatCostWhole(value: number | null, locale: string, currency: string): string {
+  if (value === null) {
+    return EMPTY;
+  }
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(value);
+  } catch {
+    return `${number(value, locale, 0)} ${currency}`;
+  }
+}
+
+// Whole hours; below an hour the minutes stay, so a short month does not read as zero.
+export function formatDurationWhole(minutes: number | null): string {
+  if (minutes === null) {
+    return EMPTY;
+  }
+  const total = Math.round(minutes);
+  return total < 60 ? `${total} min` : `${Math.round(total / 60)} h`;
+}
+
 export function formatCost(value: number | null, locale: string, currency: string): string {
   if (value === null) {
     return EMPTY;
