@@ -1,4 +1,4 @@
-import { formatDateTime, formatEnergy, formatTime } from "./format";
+import { formatDateTime, formatDistance, formatEnergy, formatPercent, formatTime } from "./format";
 import type { TextKey, Translate } from "./i18n";
 import type { Session } from "./types";
 
@@ -56,7 +56,10 @@ export interface LivePayload {
   soc_start: number | null;
   soc: number | null;
   soc_target: number | null;
+  odometer_km: number | null;
   charge_end: string | null;
+  // Why there is no charge end although the vehicle reports one.
+  charge_end_missing: "no_power" | null;
   charge_power_kw: number | null;
   energy_kwh: number | null;
   energy_grid_kwh: number | null;
@@ -141,6 +144,43 @@ export function formatMoment(iso: string, format: LiveFormat): string {
   return day(new Date(iso).getTime()) === day(format.now)
     ? formatTime(iso, format.locale, format.timeZone)
     : formatDateTime(iso, format.locale, format.timeZone);
+}
+
+// The title of the card: the charging session of the wallbox, named by the wallbox.
+export function titleText(live: LivePayload | undefined, t: Translate): string {
+  const name = live?.wallbox.name.trim();
+  return name ? t("live_title_wallbox", { name }) : t("live_title");
+}
+
+// The state of charge from the start to now, with the target where the vehicle has one.
+export function socText(live: LivePayload, t: Translate, locale: string): string | null {
+  if (live.soc_start === null && live.soc === null) {
+    return null;
+  }
+  const range =
+    live.soc_start !== null && live.soc !== null
+      ? `${formatPercent(live.soc_start, locale)} → ${formatPercent(live.soc, locale)}`
+      : formatPercent(live.soc ?? live.soc_start, locale);
+  return live.soc_target === null
+    ? range
+    : `${range} (${t("live_soc_target", { target: live.soc_target })})`;
+}
+
+// The odometer and the state of charge in one line below the vehicle; null when neither is known.
+export function vehicleDetailsText(live: LivePayload, t: Translate, locale: string): string | null {
+  const parts = [
+    live.odometer_km === null ? null : formatDistance(live.odometer_km, locale),
+    socText(live, t, locale),
+  ].filter((part): part is string => part !== null);
+  return parts.length === 0 ? null : parts.join(" · ");
+}
+
+// The expected end of the charging, or why there is none; null where the vehicle has no such value.
+export function chargeEndText(live: LivePayload, t: Translate, format: LiveFormat): string | null {
+  if (live.charge_end !== null) {
+    return formatTime(live.charge_end, format.locale, format.timeZone);
+  }
+  return live.charge_end_missing === "no_power" ? t("live_charge_end_no_power") : null;
 }
 
 // What the card shows without a session: why there is none.
@@ -236,10 +276,11 @@ export function assignmentText(live: LivePayload, t: Translate): string | null {
   return key === undefined ? null : t("live_assign_via", { source: t(key) });
 }
 
-// Where the reading of the identification stands; null when nothing is read.
+// Where the reading of the identification stands; null when nothing is read, and
+// when the card was read and the assignment already says what it led to.
 export function readingText(live: LivePayload, t: Translate): string | null {
   const read = live.identification_read;
-  if (read === null) {
+  if (read === null || (read.state === "read" && assignmentText(live, t) !== null)) {
     return null;
   }
   switch (read.state) {

@@ -259,24 +259,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: EvChargingConfigEntry) -
         unsub_listeners=unsub_listeners, bundle_url=bundle_url, manager=manager
     )
     services.async_setup_services(hass)
+    _detach_devices(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    _remove_empty_hub_device(hass, entry)
     return True
 
 
-def _remove_empty_hub_device(hass: HomeAssistant, entry: EvChargingConfigEntry) -> None:
-    """Remove the device of the hub entry once no entity is left on it.
+def _detach_devices(hass: HomeAssistant, entry: EvChargingConfigEntry) -> None:
+    """Take the entities off the devices earlier versions gave them and remove those devices.
 
-    Earlier versions put the entities of the wallbox on this device. They now
-    belong to the device of the wallbox, so nothing keeps an empty one.
+    The entities belong to the subentry of the wallbox and have no device. Entity
+    ids, names and the enabled state stay as they were.
     """
+    entities = er.async_get(hass)
     devices = dr.async_get(hass)
-    device = devices.async_get_device_by_identifier((DOMAIN, entry.entry_id), entry.entry_id)
-    if device is None:
-        return
-    if er.async_entries_for_device(er.async_get(hass), device.id, include_disabled_entities=True):
-        return
-    devices.async_remove_device(device.id)
+    for entity in er.async_entries_for_config_entry(entities, entry.entry_id):
+        if entity.device_id is not None:
+            entities.async_update_entity(entity.entity_id, device_id=None)
+    for device in dr.async_entries_for_config_entry(devices, entry.entry_id):
+        devices.async_update_device(device.id, remove_config_entry_id=entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: EvChargingConfigEntry) -> bool:

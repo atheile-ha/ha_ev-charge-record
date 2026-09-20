@@ -15,13 +15,11 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import PERCENTAGE, UnitOfEnergy, UnitOfLength, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from .const import CHARGE_STATE_CLASSES, DOMAIN, SESSION_STATES
-from .models import Wallbox
+from .const import CHARGE_STATE_CLASSES, SESSION_STATES
 from .session_manager import SessionManager, WallboxSnapshot
 
 if TYPE_CHECKING:
@@ -168,18 +166,12 @@ SENSORS: tuple[EvChargingSensorDescription, ...] = (
 )
 
 
-def wallbox_device_info(entry_id: str, wallbox: Wallbox) -> DeviceInfo:
-    """Return the device of the wallbox, which carries the entities of its session capture."""
-    return DeviceInfo(
-        identifiers={(DOMAIN, f"{entry_id}_{wallbox.id}")},
-        name=wallbox.name,
-        manufacturer=wallbox.manufacturer,
-        model=wallbox.model,
-    )
-
-
 class EvChargingEntity(Entity):
-    """Shared behavior of the entities: read the snapshot and follow the manager."""
+    """Shared behavior of the entities: read the snapshot and follow the manager.
+
+    The entities belong to the subentry of the wallbox and have no device. Their
+    names start with the name of the wallbox.
+    """
 
     _attr_has_entity_name = True
     _attr_should_poll = False
@@ -189,7 +181,7 @@ class EvChargingEntity(Entity):
         self._manager = manager
         assert manager.wallbox is not None
         self._attr_unique_id = f"{entry_id}_{key}"
-        self._attr_device_info = wallbox_device_info(entry_id, manager.wallbox)
+        self._attr_translation_placeholders = {"wallbox": manager.wallbox.name}
 
     async def async_added_to_hass(self) -> None:
         """Follow published snapshots for as long as the entity exists."""

@@ -117,8 +117,8 @@
             "max_power_kw": "Maximum power (kW)"
           },
           "data_description": {
-            "manufacturer": "Shown in the device entry",
-            "model": "Shown in the device entry",
+            "manufacturer": "Free text, stored with the entry only",
+            "model": "Free text, stored with the entry only",
             "max_power_kw": "The wallbox's rated power"
           },
           "sections": {
@@ -175,8 +175,8 @@
             "max_power_kw": "Maximum power (kW)"
           },
           "data_description": {
-            "manufacturer": "Shown in the device entry",
-            "model": "Shown in the device entry",
+            "manufacturer": "Free text, stored with the entry only",
+            "model": "Free text, stored with the entry only",
             "max_power_kw": "The wallbox's rated power"
           },
           "sections": {
@@ -292,8 +292,8 @@
             "active": "Inactive vehicles keep their history, but their entities are disabled. Its cards are removed; reactivating it requires assigning at least one card again",
             "is_guest": "Records charging sessions for vehicles without connected telemetry",
             "vin": "Kept out of every state and log entry",
-            "manufacturer": "Shown in the device entry",
-            "model": "Shown in the device entry",
+            "manufacturer": "Free text, stored with the entry only",
+            "model": "Free text, stored with the entry only",
             "capacity_kwh": "Required unless this is a guest vehicle",
             "cost_mode": "Selectable for a planned billing feature that can take a fixed charging price per vehicle into account. The choice has no direct effect on data collection",
             "identify_by_vehicle_api": "Only selectable once the charge_state and location roles below are assigned. Used when the vehicle charges without presenting a card",
@@ -350,8 +350,8 @@
             "active": "Inactive vehicles keep their history, but their entities are disabled. Its cards are removed; reactivating it requires assigning at least one card again",
             "is_guest": "Records charging sessions for vehicles without connected telemetry",
             "vin": "Kept out of every state and log entry",
-            "manufacturer": "Shown in the device entry",
-            "model": "Shown in the device entry",
+            "manufacturer": "Free text, stored with the entry only",
+            "model": "Free text, stored with the entry only",
             "capacity_kwh": "Required unless this is a guest vehicle",
             "cost_mode": "Selectable for a planned billing feature that can take a fixed charging price per vehicle into account. The choice has no direct effect on data collection",
             "identify_by_vehicle_api": "Only selectable once the charge_state and location roles below are assigned. Used when the vehicle charges without presenting a card",
@@ -528,7 +528,8 @@
         "field_address": "Address",
         "recent_title": "Recent sessions",
         "card_count": "Number of sessions",
-        "live_title": "Charging",
+        "live_title": "Charging session",
+        "live_title_wallbox": "Charging session {name}",
         "live_idle": "No charging session running",
         "live_no_wallbox": "No wallbox is configured",
         "live_state_candidate": "Detecting",
@@ -537,7 +538,6 @@
         "live_state_error": "Error",
         "live_state_awaiting_final": "Finishing",
         "live_vehicle_guest": "Guest vehicle",
-        "live_soc": "State of charge",
         "live_soc_target": "target {target} %",
         "live_power": "Power",
         "live_energy": "Energy",
@@ -547,6 +547,7 @@
         "live_charge_time": "Charging time",
         "live_plug_time": "Plugged in",
         "live_charge_end": "Expected end",
+        "live_charge_end_no_power": "Not available without charging power",
         "live_idle_not_connected": "No vehicle connected",
         "live_idle_plug_unavailable": "Plug state not available",
         "live_status_candidate": "Charging session is being detected",
@@ -629,7 +630,7 @@
   "entity": {
     "sensor": {
       "wallbox_state": {
-        "name": "Wallbox state",
+        "name": "{wallbox} Wallbox state",
         "state": {
           "idle": "Idle",
           "candidate": "Detecting",
@@ -640,31 +641,31 @@
         }
       },
       "active_vehicle": {
-        "name": "Active vehicle"
+        "name": "{wallbox} Active vehicle"
       },
       "session_cost": {
-        "name": "Session cost"
+        "name": "{wallbox} Session cost"
       },
       "session_energy_grid": {
-        "name": "Session energy grid"
+        "name": "{wallbox} Session energy grid"
       },
       "session_energy_solar": {
-        "name": "Session energy solar"
+        "name": "{wallbox} Session energy solar"
       },
       "price_effective": {
-        "name": "Price effective"
+        "name": "{wallbox} Price effective"
       },
       "open_followups": {
-        "name": "Open followups"
+        "name": "{wallbox} Open followups"
       },
       "active_vehicle_soc": {
-        "name": "Active vehicle SoC"
+        "name": "{wallbox} Active vehicle SoC"
       },
       "active_vehicle_soc_target": {
-        "name": "Active vehicle SoC target"
+        "name": "{wallbox} Active vehicle SoC target"
       },
       "active_vehicle_charge_state": {
-        "name": "Active vehicle charge state",
+        "name": "{wallbox} Active vehicle charge state",
         "state": {
           "charging": "Charging",
           "connected_idle": "Connected, not charging",
@@ -673,24 +674,24 @@
         }
       },
       "active_vehicle_charge_end": {
-        "name": "Active vehicle charge end"
+        "name": "{wallbox} Active vehicle charge end"
       },
       "session_soc_start": {
-        "name": "Session SoC start"
+        "name": "{wallbox} Session SoC start"
       },
       "session_odometer_start": {
-        "name": "Session odometer start"
+        "name": "{wallbox} Session odometer start"
       },
       "session_duration_net": {
-        "name": "Session duration net"
+        "name": "{wallbox} Session duration net"
       },
       "grid_share": {
-        "name": "Grid share"
+        "name": "{wallbox} Grid share"
       }
     },
     "binary_sensor": {
       "wallbox_session": {
-        "name": "Wallbox session"
+        "name": "{wallbox} Wallbox session"
       }
     }
   }

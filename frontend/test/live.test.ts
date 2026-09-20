@@ -4,6 +4,7 @@ import en from "../../custom_components/ev_charging/translations/en.json";
 import { makeTranslate } from "../src/i18n";
 import {
   assignmentText,
+  chargeEndText,
   counterText,
   dataGaps,
   formatMoment,
@@ -14,9 +15,12 @@ import {
   plugDurationMinutes,
   plugText,
   readingText,
+  socText,
   solarSharePercent,
   stateText,
+  titleText,
   unallocatedText,
+  vehicleDetailsText,
   vehicleText,
   type LiveFormat,
   type LivePayload,
@@ -58,7 +62,9 @@ function live(overrides: Partial<LivePayload> = {}): LivePayload {
     soc_start: null,
     soc: null,
     soc_target: null,
+    odometer_km: null,
     charge_end: null,
+    charge_end_missing: null,
     charge_power_kw: 7,
     energy_kwh: 1,
     energy_grid_kwh: null,
@@ -151,6 +157,68 @@ describe("formatMoment", () => {
     const afterMidnight = new Date("2026-09-05T22:10:00Z").getTime();
     const format = { ...FORMAT_DE, now: afterMidnight };
     expect(formatMoment("2026-09-05T21:30:00Z", format)).toContain("05.09.2026");
+  });
+});
+
+describe("titleText", () => {
+  it("names the charging session by the wallbox", () => {
+    expect(titleText(live(), tDe)).toBe("Ladevorgang Carport");
+    expect(titleText(live(), tEn)).toBe("Charging session Carport");
+  });
+
+  it("has no name before the first values arrive", () => {
+    expect(titleText(undefined, tDe)).toBe("Ladevorgang");
+    expect(titleText(live({ wallbox: { name: " ", max_power_kw: 11 } }), tDe)).toBe("Ladevorgang");
+  });
+});
+
+describe("socText", () => {
+  it("gives the start and the present value with the target", () => {
+    expect(socText(live({ soc_start: 24, soc: 45, soc_target: 80 }), tDe, "de")).toBe(
+      "24 % → 45 % (Ziel 80 %)",
+    );
+    expect(socText(live({ soc_start: 24, soc: 45, soc_target: 80 }), tEn, "en-GB")).toBe(
+      "24 % → 45 % (target 80 %)",
+    );
+  });
+
+  it("gives the one value that is known", () => {
+    expect(socText(live({ soc_start: 24 }), tDe, "de")).toBe("24 %");
+    expect(socText(live({ soc: 45 }), tDe, "de")).toBe("45 %");
+  });
+
+  it("says nothing without a value", () => {
+    expect(socText(live({ soc_target: 80 }), tDe, "de")).toBeNull();
+  });
+});
+
+describe("vehicleDetailsText", () => {
+  it("puts the odometer and the state of charge in one line", () => {
+    const details = live({ odometer_km: 9969, soc_start: 24, soc: 45, soc_target: 80 });
+    expect(vehicleDetailsText(details, tDe, "de")).toBe("9.969 km · 24 % → 45 % (Ziel 80 %)");
+  });
+
+  it("leaves out what is not known", () => {
+    expect(vehicleDetailsText(live({ odometer_km: 9969 }), tDe, "de")).toBe("9.969 km");
+    expect(vehicleDetailsText(live({ soc: 45 }), tDe, "de")).toBe("45 %");
+    expect(vehicleDetailsText(live(), tDe, "de")).toBeNull();
+  });
+});
+
+describe("chargeEndText", () => {
+  it("gives the time of the expected end", () => {
+    const charging = live({ charge_end: "2026-09-05T20:45:00+02:00" });
+    expect(chargeEndText(charging, tDe, FORMAT_DE)).toBe("20:45");
+  });
+
+  it("says that the end is not available without charging power", () => {
+    const paused = live({ state: "paused", charge_end_missing: "no_power" });
+    expect(chargeEndText(paused, tDe, FORMAT_DE)).toBe("Ohne Ladeleistung nicht verfügbar");
+    expect(chargeEndText(paused, tEn, FORMAT_EN)).toBe("Not available without charging power");
+  });
+
+  it("says nothing where the vehicle has no such value", () => {
+    expect(chargeEndText(live(), tDe, FORMAT_DE)).toBeNull();
   });
 });
 
@@ -328,6 +396,23 @@ describe("readingText", () => {
   it("says that the card was read, or cannot be read", () => {
     expect(readingText(read("read"), tDe)).toBe("Kennung gelesen");
     expect(readingText(read("unreadable", 2, 10), tDe)).toBe("Kennung nicht lesbar");
+  });
+
+  it("does not repeat that the card was read where the assignment says so", () => {
+    const assigned = live({
+      vehicle: { id: "v001", name: "Car One" },
+      identification_source: "rfid",
+      identification_read: { state: "read", sequence: 1, attempt: 2, max_attempts: 10 },
+    });
+    expect(assignmentText(assigned, tDe)).toBe("Zuordnung über RFID-Karte");
+    expect(readingText(assigned, tDe)).toBeNull();
+  });
+
+  it("still says that the card was read while nothing is assigned", () => {
+    const unassigned = live({
+      identification_read: { state: "read", sequence: 1, attempt: 2, max_attempts: 10 },
+    });
+    expect(readingText(unassigned, tDe)).toBe("Kennung gelesen");
   });
 });
 

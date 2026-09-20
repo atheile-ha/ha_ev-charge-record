@@ -50,6 +50,7 @@ GRID = "sensor.house_grid"
 GLB_CHARGE = "sensor.glb_charging"
 GLB_SOC = "sensor.glb_soc"
 GLB_ODO = "sensor.glb_odometer"
+GLB_END = "sensor.glb_charge_end"
 GLB_TRACKER = "device_tracker.glb"
 EQB_TRACKER = "device_tracker.eqb"
 EQB_CHARGE = "sensor.eqb_charging"
@@ -2070,44 +2071,38 @@ async def test_no_personal_value_appears_in_an_entity_state(
                 assert value not in record.getMessage()
 
 
-def _wallbox_device(hass: HomeAssistant, entry: MockConfigEntry) -> Any:
-    """Return the device of the wallbox, if there is one."""
-    return dr.async_get(hass).async_get_device_by_identifier(
-        (DOMAIN, f"{entry.entry_id}_wb001"), entry.entry_id
-    )
+def _devices(hass: HomeAssistant, entry: MockConfigEntry) -> list:
+    """Return the devices of the config entry."""
+    return dr.async_entries_for_config_entry(dr.async_get(hass), entry.entry_id)
 
 
-def _hub_device(hass: HomeAssistant, entry: MockConfigEntry) -> Any:
-    """Return the device an earlier version put the entities of the wallbox on, if it is left."""
-    return dr.async_get(hass).async_get_device_by_identifier(
-        (DOMAIN, entry.entry_id), entry.entry_id
-    )
-
-
-async def test_the_entities_of_the_wallbox_belong_to_the_wallbox(hass: HomeAssistant) -> None:
-    """The wallbox has a device of its own, under its subentry, and carries all its entities."""
+async def test_the_entities_of_the_wallbox_belong_to_its_subentry_without_a_device(
+    hass: HomeAssistant,
+) -> None:
+    """The entities hang on the subentry of the wallbox, not on a device, and carry its name."""
     from custom_components.ev_charging.sensor import SENSORS
     from homeassistant.helpers import entity_registry as er
 
     entry, _ = await _setup(hass, wallbox=_wallbox(manufacturer="KEBA", model="KeContact P40"))
     subentry_id = _wallbox_subentry_id(entry)
 
-    device = _wallbox_device(hass, entry)
-    assert device is not None
-    assert (device.name, device.manufacturer, device.model) == ("Carport", "KEBA", "KeContact P40")
-    assert subentry_id in device.config_entries_subentries[entry.entry_id]
+    assert _devices(hass, entry) == []
     entities = er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
     assert len(entities) == len(SENSORS) + 1
     for entity in entities:
-        assert entity.device_id == device.id, entity.entity_id
+        assert entity.device_id is None, entity.entity_id
         assert entity.config_subentry_id == subentry_id, entity.entity_id
-    assert _hub_device(hass, entry) is None
+        assert entity.entity_id.split(".")[1].startswith("carport_"), entity.entity_id
+        assert entity.original_name.startswith("Carport "), entity.entity_id
+    state = hass.states.get("sensor.carport_wallbox_state")
+    assert state is not None
+    assert state.attributes["friendly_name"] == "Carport Wallbox state"
 
 
-async def test_entities_of_an_earlier_version_move_to_the_wallbox_and_keep_their_ids(
+async def test_entities_of_an_earlier_version_lose_their_device_and_keep_their_ids(
     hass: HomeAssistant,
 ) -> None:
-    """Entities on the device of the hub entry move; entity ids and disabling stay as they were."""
+    """Entities on the device of the hub or of the wallbox are detached, nothing else changes."""
     from homeassistant.helpers import entity_registry as er
 
     hass.states.async_set(PLUG, UNPLUGGED)
@@ -2122,29 +2117,37 @@ async def test_entities_of_an_earlier_version_move_to_the_wallbox_and_keep_their
         subentries_data=[_subentry(SUBENTRY_TYPE_WALLBOX, _wallbox())],
     )
     entry.add_to_hass(hass)
-    old_device = dr.async_get(hass).async_get_or_create(
+    hub_device = dr.async_get(hass).async_get_or_create(
         config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, entry.entry_id)},
         name=TITLE,
         entry_type=dr.DeviceEntryType.SERVICE,
     )
+    wallbox_device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        config_subentry_id=_wallbox_subentry_id(entry),
+        identifiers={(DOMAIN, f"{entry.entry_id}_wb001")},
+        name="Carport",
+    )
     registry = er.async_get(hass)
     legacy = {
-        ("sensor", "wallbox_state"): (None, "ev_charging_wallbox_state"),
+        ("sensor", "wallbox_state"): (None, "ev_charging_wallbox_state", hub_device),
         ("sensor", "active_vehicle_soc"): (
             er.RegistryEntryDisabler.INTEGRATION,
             "ev_charging_active_vehicle_soc",
+            hub_device,
         ),
-        ("binary_sensor", "wallbox_session"): (None, "ev_charging_wallbox_session"),
+        ("sensor", "session_cost"): (None, "carport_session_cost", wallbox_device),
+        ("binary_sensor", "wallbox_session"): (None, "carport_wallbox_session", wallbox_device),
     }
     before = {}
-    for (domain, key), (disabled_by, object_id) in legacy.items():
+    for (domain, key), (disabled_by, object_id, device) in legacy.items():
         registered = registry.async_get_or_create(
             domain,
             DOMAIN,
             f"{entry.entry_id}_{key}",
             config_entry=entry,
-            device_id=old_device.id,
+            device_id=device.id,
             disabled_by=disabled_by,
             suggested_object_id=object_id,
         )
@@ -2153,25 +2156,24 @@ async def test_entities_of_an_earlier_version_move_to_the_wallbox_and_keep_their
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    device = _wallbox_device(hass, entry)
-    assert device is not None
     subentry_id = _wallbox_subentry_id(entry)
-    for (domain, key), (disabled_by, _) in legacy.items():
-        moved = registry.async_get(before[(domain, key)])
-        assert moved is not None
-        assert moved.entity_id == before[(domain, key)]
-        assert moved.entity_id.startswith(f"{domain}.ev_charging_")
-        assert moved.unique_id == f"{entry.entry_id}_{key}"
-        assert moved.device_id == device.id
-        assert moved.config_subentry_id == subentry_id
-        assert moved.disabled_by == disabled_by
+    for (domain, key), (disabled_by, object_id, _) in legacy.items():
+        detached = registry.async_get(before[(domain, key)])
+        assert detached is not None
+        assert detached.entity_id == f"{domain}.{object_id}"
+        assert detached.unique_id == f"{entry.entry_id}_{key}"
+        assert detached.device_id is None
+        assert detached.config_subentry_id == subentry_id
+        assert detached.disabled_by == disabled_by
     assert hass.states.get("sensor.ev_charging_wallbox_state") is not None
     assert hass.states.get("sensor.ev_charging_active_vehicle_soc") is None
-    assert _hub_device(hass, entry) is None
+    assert _devices(hass, entry) == []
 
 
-async def test_the_device_of_the_wallbox_follows_its_name(hass: HomeAssistant) -> None:
-    """A renamed wallbox renames its device, and its entity ids stay."""
+async def test_the_names_of_the_entities_follow_the_name_of_the_wallbox(
+    hass: HomeAssistant,
+) -> None:
+    """A renamed wallbox renames its entities, and their ids stay."""
     from homeassistant.helpers import entity_registry as er
 
     entry, _ = await _setup(hass)
@@ -2186,14 +2188,13 @@ async def test_the_device_of_the_wallbox_follows_its_name(hass: HomeAssistant) -
     assert await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
 
-    device = _wallbox_device(hass, entry)
-    assert device is not None
-    assert device.name == "Garage"
-    assert registry.async_get(entity_id) is not None
-    assert registry.async_get(entity_id).device_id == device.id
+    renamed = registry.async_get(entity_id)
+    assert renamed is not None
+    assert renamed.original_name == "Garage Wallbox state"
+    assert hass.states.get(entity_id).attributes["friendly_name"] == "Garage Wallbox state"
 
 
-async def test_removing_the_wallbox_takes_its_device_and_entities_with_it(
+async def test_removing_the_wallbox_takes_its_entities_with_it(
     hass: HomeAssistant,
 ) -> None:
     """Nothing of the wallbox is left when its subentry is removed."""
@@ -2201,15 +2202,20 @@ async def test_removing_the_wallbox_takes_its_device_and_entities_with_it(
 
     entry, _ = await _setup(hass)
     subentry_id = _wallbox_subentry_id(entry)
-    assert _wallbox_device(hass, entry) is not None
+    registry = er.async_get(hass)
+    assert [
+        entity
+        for entity in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if entity.config_subentry_id == subentry_id
+    ]
 
     hass.config_entries.async_remove_subentry(entry, subentry_id)
     await hass.async_block_till_done()
 
-    assert _wallbox_device(hass, entry) is None
+    assert _devices(hass, entry) == []
     assert [
         entity
-        for entity in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+        for entity in er.async_entries_for_config_entry(registry, entry.entry_id)
         if entity.config_subentry_id == subentry_id
     ] == []
 
@@ -2303,6 +2309,67 @@ async def test_the_live_payload_does_not_carry_personal_values(
     assert payload["vehicle"] == {"id": "v001", "name": "GLB"}
     assert payload["state"] == "charging"
     assert payload["charge_power_kw"] == 7.0
+
+
+async def test_the_live_payload_carries_the_odometer_and_soc_taken_at_the_start(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """The start values stay the ones of the start, the state of charge is the present one."""
+    _, manager = await _setup(hass, vehicles=(_glb(),))
+    await _set(hass, CARD, "11223344")
+    await _start_charging(hass, freezer)
+    await _advance(hass, freezer, 20)
+    await _set(hass, GLB_SOC, "55", "%")
+    await _set(hass, GLB_ODO, "7800", "km")
+
+    payload = manager.live_payload()
+
+    assert payload["soc_start"] == 40
+    assert payload["soc"] == 55
+    assert payload["odometer_km"] == 7699
+
+
+async def test_the_live_payload_gives_the_charge_end_only_while_the_wallbox_charges(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """The vehicle keeps its last expected end; without charging power the card gets the reason."""
+    _, manager = await _setup(hass, vehicles=(_glb(charge_end=_role(GLB_END)),))
+    hass.states.async_set(GLB_END, "2026-09-20T20:45:00+00:00")
+    await _set(hass, CARD, "11223344")
+    await _start_charging(hass, freezer)
+    await _advance(hass, freezer, 20)
+
+    charging = manager.live_payload()
+    assert charging["charge_end"] == "2026-09-20T20:45:00+00:00"
+    assert charging["charge_end_missing"] is None
+
+    await _set(hass, POWER, "0", "kW")
+    paused = manager.live_payload()
+    assert paused["state"] == "paused"
+    assert paused["charge_end"] is None
+    assert paused["charge_end_missing"] == "no_power"
+
+    await _set(hass, POWER, "7.0", "kW")
+    resumed = manager.live_payload()
+    assert resumed["charge_end"] == "2026-09-20T20:45:00+00:00"
+    assert resumed["charge_end_missing"] is None
+
+
+async def test_the_live_payload_gives_no_reason_for_a_charge_end_that_is_not_set_up(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """A vehicle without a charge end has nothing to explain."""
+    _, manager = await _setup(hass, vehicles=(_glb(),))
+    await _set(hass, CARD, "11223344")
+    await _start_charging(hass, freezer)
+    await _advance(hass, freezer, 20)
+    await _set(hass, POWER, "0", "kW")
+
+    payload = manager.live_payload()
+
+    assert payload["state"] == "paused"
+    assert payload["charge_end"] is None
+    assert payload["charge_end_missing"] is None
 
 
 # --------------------------------------------------------------------- live card

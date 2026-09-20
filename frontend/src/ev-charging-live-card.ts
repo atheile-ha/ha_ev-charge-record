@@ -4,14 +4,13 @@ import {
   formatCost,
   formatDuration,
   formatEnergy,
-  formatPercent,
   formatPower,
   formatPricePerKwh,
-  formatTime,
 } from "./format";
 import { loadTranslate, makeTranslate, type TextKey, type Translate } from "./i18n";
 import {
   assignmentText,
+  chargeEndText,
   counterText,
   dataGaps,
   idleText,
@@ -22,7 +21,9 @@ import {
   readingText,
   solarSharePercent,
   stateText,
+  titleText,
   unallocatedText,
+  vehicleDetailsText,
   vehicleText,
   type LiveFormat,
   type LivePayload,
@@ -159,9 +160,12 @@ export class EvChargingLiveCard extends LitElement {
     </div>`;
   }
 
-  private _vehicle(live: LivePayload, t: Translate): TemplateResult {
+  // The vehicle with its odometer and state of charge in a muted line below.
+  private _vehicle(live: LivePayload, t: Translate, locale: string): TemplateResult {
     const unassigned = !live.vehicle_guest && live.vehicle === null;
-    return html`<div class="vehicle ${unassigned ? "unassigned" : ""}">${vehicleText(live, t)}</div>`;
+    const details = vehicleDetailsText(live, t, locale);
+    return html`<div class="vehicle ${unassigned ? "unassigned" : ""}">${vehicleText(live, t)}</div>
+      ${details === null ? nothing : html`<div class="vehicle-details">${details}</div>`}`;
   }
 
   private _format(hass: HomeAssistant): LiveFormat {
@@ -202,19 +206,6 @@ export class EvChargingLiveCard extends LitElement {
     return lines.length === 0
       ? nothing
       : html`<div class="situation">${lines.map((line) => html`<div>${line}</div>`)}</div>`;
-  }
-
-  private _soc(live: LivePayload, t: Translate, locale: string): TemplateResult | typeof nothing {
-    if (live.soc_start === null && live.soc === null) {
-      return nothing;
-    }
-    const range =
-      live.soc_start !== null && live.soc !== null
-        ? `${formatPercent(live.soc_start, locale)} → ${formatPercent(live.soc, locale)}`
-        : formatPercent(live.soc ?? live.soc_start, locale);
-    const target =
-      live.soc_target === null ? "" : ` (${t("live_soc_target", { target: live.soc_target })})`;
-    return this._row(t("live_soc"), `${range}${target}`);
   }
 
   private _flags(live: LivePayload, t: Translate): TemplateResult | typeof nothing {
@@ -258,12 +249,13 @@ export class EvChargingLiveCard extends LitElement {
             t("live_price"),
             formatPricePerKwh(live.effective_price, locale, currency),
           );
-    const end =
-      live.charge_end === null
-        ? nothing
-        : this._row(t("live_charge_end"), formatTime(live.charge_end, locale, hass.config.time_zone));
+    const endText = chargeEndText(live, t, {
+      locale,
+      timeZone: hass.config.time_zone,
+      now: this._now,
+    });
+    const end = endText === null ? nothing : this._row(t("live_charge_end"), endText);
     return html`<dl>
-      ${this._soc(live, t, locale)}
       ${this._row(t("live_power"), formatPower(live.charge_power_kw, locale))}
       ${this._row(t("live_energy"), formatEnergy(live.energy_kwh, locale))} ${split}
       ${this._row(t("live_cost"), gaps.cost ?? formatCost(live.cost, locale, currency))} ${price}
@@ -282,7 +274,7 @@ export class EvChargingLiveCard extends LitElement {
     if (!t || !hass) {
       return html`<div class="spinner" role="progressbar"></div>`;
     }
-    const title = this._config.title ?? t("live_title");
+    const title = this._config.title ?? titleText(this._live, t);
     if (this._noWallbox) {
       return html`<h2>${title}</h2>
         <div class="message">${t("live_no_wallbox")}</div>`;
@@ -311,7 +303,8 @@ export class EvChargingLiveCard extends LitElement {
           >${t(stateKey)}</span
         >
       </h2>
-      ${this._vehicle(live, t)} ${this._status(live, t, this._format(hass))}
+      ${this._vehicle(live, t, hass.locale?.language ?? hass.language)}
+      ${this._status(live, t, this._format(hass))}
       ${this._details(live, t, hass)}
       ${this._situation(live, t, hass.locale?.language ?? hass.language)} ${this._flags(live, t)}
     `;
@@ -341,13 +334,22 @@ export class EvChargingLiveCard extends LitElement {
       }
 
       .vehicle {
-        margin-bottom: 8px;
         font-size: 1.3em;
         font-weight: 500;
       }
 
+      .vehicle-details {
+        color: var(--ev-muted);
+        font-size: 0.9em;
+      }
+
+      .vehicle,
+      .vehicle-details {
+        overflow-wrap: anywhere;
+      }
+
       .status {
-        margin-bottom: 12px;
+        margin: 8px 0 12px;
       }
 
       .status .state {
@@ -366,7 +368,7 @@ export class EvChargingLiveCard extends LitElement {
 
       dl {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 8px 16px;
         margin: 0;
       }
@@ -374,7 +376,9 @@ export class EvChargingLiveCard extends LitElement {
       .row {
         display: flex;
         flex-direction: column;
+        min-width: 0;
       }
+
 
       dt {
         color: var(--ev-muted);
@@ -384,6 +388,7 @@ export class EvChargingLiveCard extends LitElement {
       dd {
         margin: 0;
         font-variant-numeric: tabular-nums;
+        overflow-wrap: anywhere;
       }
 
       .flags {

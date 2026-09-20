@@ -117,8 +117,8 @@
             "max_power_kw": "Maximale Leistung (kW)"
           },
           "data_description": {
-            "manufacturer": "Erscheint im Geräteeintrag",
-            "model": "Erscheint im Geräteeintrag",
+            "manufacturer": "Freitext, wird nur am Eintrag gespeichert",
+            "model": "Freitext, wird nur am Eintrag gespeichert",
             "max_power_kw": "Die Nennleistung der Wallbox"
           },
           "sections": {
@@ -175,8 +175,8 @@
             "max_power_kw": "Maximale Leistung (kW)"
           },
           "data_description": {
-            "manufacturer": "Erscheint im Geräteeintrag",
-            "model": "Erscheint im Geräteeintrag",
+            "manufacturer": "Freitext, wird nur am Eintrag gespeichert",
+            "model": "Freitext, wird nur am Eintrag gespeichert",
             "max_power_kw": "Die Nennleistung der Wallbox"
           },
           "sections": {
@@ -292,8 +292,8 @@
             "active": "Inaktive Fahrzeuge behalten ihre Historie, ihre Entitäten werden deaktiviert. Ihre Freischalt-Referenzen werden entfernt; bei erneuter Aktivierung muss mindestens eine neu vergeben werden",
             "is_guest": "Erfassung von Ladevorgängen für Fahrzeuge ohne eingebundene Telemetriedaten",
             "vin": "Erscheint in keinem Zustand und keinem Protokolleintrag",
-            "manufacturer": "Erscheint im Geräteeintrag",
-            "model": "Erscheint im Geräteeintrag",
+            "manufacturer": "Freitext, wird nur am Eintrag gespeichert",
+            "model": "Freitext, wird nur am Eintrag gespeichert",
             "capacity_kwh": "Erforderlich, außer bei einem Gastfahrzeug",
             "cost_mode": "Auswahlmöglichkeit für vorgemerkte Abrechnungsfunktion, bei der Fahrzeuge mit festem Ladepreis berücksichtigt werden können. Auswahl hat keine direkte Auswirkung auf die Datenerfassung",
             "identify_by_vehicle_api": "Nur wählbar, sobald die Rollen charge_state und location unten zugeordnet sind. Für Fahrzeuge, die ohne Kennung laden",
@@ -350,8 +350,8 @@
             "active": "Inaktive Fahrzeuge behalten ihre Historie, ihre Entitäten werden deaktiviert. Ihre Freischalt-Referenzen werden entfernt; bei erneuter Aktivierung muss mindestens eine neu vergeben werden",
             "is_guest": "Erfassung von Ladevorgängen für Fahrzeuge ohne eingebundene Telemetriedaten",
             "vin": "Erscheint in keinem Zustand und keinem Protokolleintrag",
-            "manufacturer": "Erscheint im Geräteeintrag",
-            "model": "Erscheint im Geräteeintrag",
+            "manufacturer": "Freitext, wird nur am Eintrag gespeichert",
+            "model": "Freitext, wird nur am Eintrag gespeichert",
             "capacity_kwh": "Erforderlich, außer bei einem Gastfahrzeug",
             "cost_mode": "Auswahlmöglichkeit für vorgemerkte Abrechnungsfunktion, bei der Fahrzeuge mit festem Ladepreis berücksichtigt werden können. Auswahl hat keine direkte Auswirkung auf die Datenerfassung",
             "identify_by_vehicle_api": "Nur wählbar, sobald die Rollen charge_state und location unten zugeordnet sind. Für Fahrzeuge, die ohne Kennung laden",
@@ -528,7 +528,8 @@
         "field_address": "Adresse",
         "recent_title": "Letzte Ladevorgänge",
         "card_count": "Anzahl Ladevorgänge",
-        "live_title": "Laden",
+        "live_title": "Ladevorgang",
+        "live_title_wallbox": "Ladevorgang {name}",
         "live_idle": "Kein Ladevorgang aktiv",
         "live_no_wallbox": "Keine Wallbox eingerichtet",
         "live_state_candidate": "Erkennung",
@@ -537,7 +538,6 @@
         "live_state_error": "Fehler",
         "live_state_awaiting_final": "Abschluss",
         "live_vehicle_guest": "Gastfahrzeug",
-        "live_soc": "Ladestand",
         "live_soc_target": "Ziel {target} %",
         "live_power": "Leistung",
         "live_energy": "Energie",
@@ -547,6 +547,7 @@
         "live_charge_time": "Ladezeit",
         "live_plug_time": "Angesteckt",
         "live_charge_end": "Voraussichtliches Ende",
+        "live_charge_end_no_power": "Ohne Ladeleistung nicht verfügbar",
         "live_idle_not_connected": "Kein Fahrzeug verbunden",
         "live_idle_plug_unavailable": "Steckerzustand nicht verfügbar",
         "live_status_candidate": "Ladevorgang wird erkannt",
@@ -629,7 +630,7 @@
   "entity": {
     "sensor": {
       "wallbox_state": {
-        "name": "Wallbox-Zustand",
+        "name": "{wallbox} Wallbox-Zustand",
         "state": {
           "idle": "Leerlauf",
           "candidate": "Erkennung",
@@ -640,31 +641,31 @@
         }
       },
       "active_vehicle": {
-        "name": "Aktives Fahrzeug"
+        "name": "{wallbox} Aktives Fahrzeug"
       },
       "session_cost": {
-        "name": "Ladekosten"
+        "name": "{wallbox} Ladekosten"
       },
       "session_energy_grid": {
-        "name": "Ladeenergie Netz"
+        "name": "{wallbox} Ladeenergie Netz"
       },
       "session_energy_solar": {
-        "name": "Ladeenergie Sonne"
+        "name": "{wallbox} Ladeenergie Sonne"
       },
       "price_effective": {
-        "name": "Effektiver Preis"
+        "name": "{wallbox} Effektiver Preis"
       },
       "open_followups": {
-        "name": "Offene Nacherfassungen"
+        "name": "{wallbox} Offene Nacherfassungen"
       },
       "active_vehicle_soc": {
-        "name": "Aktives Fahrzeug Ladestand"
+        "name": "{wallbox} Aktives Fahrzeug Ladestand"
       },
       "active_vehicle_soc_target": {
-        "name": "Aktives Fahrzeug Ladeziel"
+        "name": "{wallbox} Aktives Fahrzeug Ladeziel"
       },
       "active_vehicle_charge_state": {
-        "name": "Aktives Fahrzeug Ladezustand",
+        "name": "{wallbox} Aktives Fahrzeug Ladezustand",
         "state": {
           "charging": "Lädt",
           "connected_idle": "Verbunden, lädt nicht",
@@ -673,24 +674,24 @@
         }
       },
       "active_vehicle_charge_end": {
-        "name": "Aktives Fahrzeug Ladeende"
+        "name": "{wallbox} Aktives Fahrzeug Ladeende"
       },
       "session_soc_start": {
-        "name": "Ladestand bei Start"
+        "name": "{wallbox} Ladestand bei Start"
       },
       "session_odometer_start": {
-        "name": "Kilometerstand bei Start"
+        "name": "{wallbox} Kilometerstand bei Start"
       },
       "session_duration_net": {
-        "name": "Netto-Ladedauer"
+        "name": "{wallbox} Netto-Ladedauer"
       },
       "grid_share": {
-        "name": "Netzanteil"
+        "name": "{wallbox} Netzanteil"
       }
     },
     "binary_sensor": {
       "wallbox_session": {
-        "name": "Wallbox-Ladevorgang"
+        "name": "{wallbox} Wallbox-Ladevorgang"
       }
     }
   }

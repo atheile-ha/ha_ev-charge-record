@@ -245,6 +245,9 @@ CANDIDATE_TRIGGER_POWER = "power"
 # How the plug state of the wallbox is reported on the live card.
 PLUG_REPORT_UNAVAILABLE = "unavailable"
 
+# Why the live card has no expected charge end: the vehicle reports none while it does not charge.
+CHARGE_END_MISSING_NO_POWER = "no_power"
+
 # Selectable in the vehicle device-choice step in place of a mapping id, for a
 # vehicle with no connected online integration (5.2). Never stored: resolves
 # to mapping_id = None.

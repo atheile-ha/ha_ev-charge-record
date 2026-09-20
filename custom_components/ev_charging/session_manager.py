@@ -33,6 +33,7 @@ from .const import (
     ACTIVE_VEHICLE_UNRESOLVED,
     CANDIDATE_TRIGGER_PLUG,
     CANDIDATE_TRIGGER_POWER,
+    CHARGE_END_MISSING_NO_POWER,
     CHARGE_STATE_CHARGING,
     CHARGE_STATE_DEFAULT,
     CHARGE_TYPE_SOURCE_WALLBOX_CONFIG,
@@ -2120,6 +2121,16 @@ class SessionManager:
             if counter is not None and counter.start_value is not None:
                 energy = round(counter.accumulated, 3)
         progress = self._card_reader.progress if session is not None else None
+        # A vehicle keeps reporting its last expected charge end while it does not charge.
+        charge_end = snapshot.vehicle_charge_end
+        charge_end_missing = None
+        if (
+            context is not None
+            and context.vehicle.charge_end is not None
+            and snapshot.state != SESSION_STATE_CHARGING
+        ):
+            charge_end = None
+            charge_end_missing = CHARGE_END_MISSING_NO_POWER
         return {
             "state": snapshot.state,
             "state_since": _iso(session.state_since) if session and session.state_since else None,
@@ -2155,9 +2166,9 @@ class SessionManager:
             "soc_start": snapshot.soc_start,
             "soc": snapshot.vehicle_soc,
             "soc_target": snapshot.vehicle_soc_target,
-            "charge_end": snapshot.vehicle_charge_end.isoformat()
-            if snapshot.vehicle_charge_end
-            else None,
+            "odometer_km": snapshot.odometer_start,
+            "charge_end": charge_end.isoformat() if charge_end else None,
+            "charge_end_missing": charge_end_missing,
             "charge_power_kw": self._power_kw,
             "energy_kwh": energy,
             "energy_grid_kwh": snapshot.energy_grid_kwh,

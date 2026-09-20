@@ -4,6 +4,17 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.4.4] - 2026-09-20
+
+### Geändert
+
+- Live-Karte: Die Überschrift lautet „Ladevorgang“ mit dem Namen der Wallbox. Kilometerstand bei Beginn und Ladestand von, bis und Ziel stehen in einer kleineren, grauen Zeile unter dem Fahrzeugnamen statt als eigene Felder. Die Werte stehen auch auf schmalen Anzeigen in zwei Spalten
+- Live-Karte: Das voraussichtliche Ende erscheint nur, solange die Wallbox lädt. Ohne Ladeleistung steht dort, dass es nicht verfügbar ist, statt des zuletzt gemeldeten Werts
+- Live-Karte: „Kennung gelesen“ erscheint nicht mehr, sobald die Zuordnung angezeigt wird
+- Das Abonnement der Live-Karte liefert zusätzlich `odometer_km` und `charge_end_missing`
+- Die Entitäten der Wallbox hängen am Untereintrag der Wallbox und an keinem Gerät mehr. Auf der Seite der Integration steht die Wallbox nicht mehr doppelt untereinander. Entitäts-IDs, Aktivierungszustand und Werte bleiben, die Namen der Entitäten beginnen mit dem Namen der Wallbox. Die Geräte der Wallbox und des Hauptintrags werden entfernt
+- Hersteller und Modell von Wallbox und Fahrzeug werden nur noch am Eintrag gespeichert, sie erscheinen in keinem Geräteeintrag
+
 ## [0.4.3] - 2026-09-20
 
 ### Geändert
