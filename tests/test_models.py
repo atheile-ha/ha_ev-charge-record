@@ -79,7 +79,6 @@ def test_wallbox_direct_read_settings_round_trip_through_dict() -> None:
         name="Carport",
         current_type="ac",
         max_power_kw=11.0,
-        direct_read_enabled=True,
         host="192.0.2.10",
         port=1502,
         unit_id=7,
@@ -99,11 +98,28 @@ def test_wallbox_from_dict_defaults_the_direct_read_to_off() -> None:
         {"id": "wb001", "name": "Carport", "current_type": "ac", "max_power_kw": 11.0}
     )
 
-    assert wallbox.direct_read_enabled is False
     assert wallbox.host is None
     assert wallbox.port == 502
     assert wallbox.unit_id == 255
     assert wallbox.identification_from_register is False
+
+
+def test_wallbox_ignores_the_switch_that_earlier_versions_stored() -> None:
+    """The register is read when the identification is set to it; the old switch decides nothing."""
+    stored = {
+        "id": "wb001",
+        "name": "Carport",
+        "current_type": "ac",
+        "max_power_kw": 11.0,
+        "direct_read_enabled": True,
+        "host": "192.0.2.10",
+    }
+
+    wallbox = Wallbox.from_dict(stored)
+
+    assert wallbox.identification_from_register is False
+    assert "direct_read_enabled" not in wallbox.to_dict()
+    assert Wallbox.from_dict({**stored, "identification_from_register": True}).host == "192.0.2.10"
 
 
 def test_vehicle_round_trips_through_dict_with_cards() -> None:

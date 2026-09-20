@@ -30,6 +30,7 @@ from custom_components.ev_charging.session_manager import (
 from custom_components.ev_charging.store import SessionYearStore
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
@@ -597,8 +598,8 @@ async def test_candidate_is_published_at_once(hass: HomeAssistant) -> None:
 
     await _set(hass, PLUG, PLUGGED)
 
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "candidate"
-    assert hass.states.get("binary_sensor.ev_charging_wallbox_session").state == "on"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "candidate"
+    assert hass.states.get("binary_sensor.carport_wallbox_session").state == "on"
 
 
 async def test_candidate_becomes_a_session_after_the_debounce(
@@ -609,7 +610,7 @@ async def test_candidate_becomes_a_session_after_the_debounce(
 
     await _start_charging(hass, freezer)
 
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "charging"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "charging"
 
 
 async def test_a_plugged_vehicle_without_power_is_a_paused_session(
@@ -622,15 +623,15 @@ async def test_a_plugged_vehicle_without_power_is_a_paused_session(
 
     await _advance(hass, freezer, 2)
 
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "paused"
-    assert hass.states.get("binary_sensor.ev_charging_wallbox_session").state == "on"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "paused"
+    assert hass.states.get("binary_sensor.carport_wallbox_session").state == "on"
     payload = manager.live_payload()
     assert payload["phase_count"] == 0
     assert payload["waiting_for_power"] is True
 
     await _advance(hass, freezer, 3600)
     await _set(hass, POWER, "7.0", "kW")
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "charging"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "charging"
     assert manager.live_payload()["waiting_for_power"] is False
     await _advance(hass, freezer, 600)
     await _unplug(hass, freezer)
@@ -678,8 +679,8 @@ async def test_a_flicker_of_the_plug_below_the_debounce_makes_no_session(
     await _set(hass, PLUG, UNPLUGGED)
     await _advance(hass, freezer, 60)
 
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "idle"
-    assert hass.states.get("binary_sensor.ev_charging_wallbox_session").state == "off"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "idle"
+    assert hass.states.get("binary_sensor.carport_wallbox_session").state == "off"
     assert await _stored(hass) == []
 
 
@@ -690,10 +691,10 @@ async def test_power_starts_a_candidate_while_the_connector_reports_nothing(
     await _setup(hass, plug="undefined")
 
     await _set(hass, POWER, "7.0", "kW")
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "candidate"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "candidate"
     await _advance(hass, freezer, 2)
 
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "charging"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "charging"
 
 
 async def test_a_candidate_started_by_power_is_dropped_when_the_power_falls_back(
@@ -706,8 +707,8 @@ async def test_a_candidate_started_by_power_is_dropped_when_the_power_falls_back
     await _set(hass, POWER, "0.1", "kW")
     await _advance(hass, freezer, 5)
 
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "idle"
-    assert hass.states.get("binary_sensor.ev_charging_wallbox_session").state == "off"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "idle"
+    assert hass.states.get("binary_sensor.carport_wallbox_session").state == "off"
     assert await _stored(hass) == []
 
 
@@ -722,7 +723,7 @@ async def test_a_candidate_started_by_the_plug_does_not_depend_on_the_power(
     await _set(hass, POWER, "0.1", "kW")
     await _advance(hass, freezer, 5)
 
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "paused"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "paused"
 
 
 async def test_a_zero_debounce_confirms_immediately(hass: HomeAssistant) -> None:
@@ -730,10 +731,10 @@ async def test_a_zero_debounce_confirms_immediately(hass: HomeAssistant) -> None
     await _setup(hass, wallbox=_wallbox(start_debounce_s=0))
 
     await _set(hass, PLUG, PLUGGED)
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "paused"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "paused"
 
     await _set(hass, POWER, "7.0", "kW")
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "charging"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "charging"
 
 
 async def test_no_candidate_while_the_connector_reports_not_connected(
@@ -744,7 +745,7 @@ async def test_no_candidate_while_the_connector_reports_not_connected(
 
     await _set(hass, POWER, "7.0", "kW")
 
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "idle"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "idle"
 
 
 async def test_a_vehicle_plugged_in_at_startup_begins_a_session(
@@ -753,11 +754,11 @@ async def test_a_vehicle_plugged_in_at_startup_begins_a_session(
     """With no stored session, a vehicle that is already plugged in begins one at that moment."""
     await _setup(hass, plug=PLUGGED)
 
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "candidate"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "candidate"
     await _advance(hass, freezer, 2)
 
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "paused"
-    assert hass.states.get("binary_sensor.ev_charging_wallbox_session").state == "on"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "paused"
+    assert hass.states.get("binary_sensor.carport_wallbox_session").state == "on"
 
 
 async def test_the_next_session_begins_at_once_when_the_vehicle_is_still_plugged_in(
@@ -774,9 +775,9 @@ async def test_the_next_session_begins_at_once_when_the_vehicle_is_still_plugged
     await _advance(hass, freezer, 2)
 
     assert len(await _stored(hass)) == 1
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "candidate"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "candidate"
     await _advance(hass, freezer, 2)
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "paused"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "paused"
 
 
 # ---------------------------------------------------------------- one session
@@ -790,10 +791,10 @@ async def test_power_dropping_and_rising_again_makes_one_session(
     await _start_charging(hass, freezer)
 
     await _set(hass, POWER, "0.0", "kW")
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "paused"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "paused"
     await _advance(hass, freezer, 120)
     await _set(hass, POWER, "6.5", "kW")
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "charging"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "charging"
     await _set(hass, POWER, "0.0", "kW")
     await _advance(hass, freezer, 120)
     await _set(hass, POWER, "5.0", "kW")
@@ -811,7 +812,7 @@ async def test_power_rising_in_a_plugged_session_never_makes_a_second_session(
     await _setup(hass)
     await _set(hass, PLUG, PLUGGED)
     await _advance(hass, freezer, 1800)
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "paused"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "paused"
 
     await _set(hass, POWER, "6.5", "kW")
     await _advance(hass, freezer, 300)
@@ -863,12 +864,12 @@ async def test_only_disconnecting_ends_a_session(
     await _set(hass, POWER, "0.0", "kW")
     await _advance(hass, freezer, 5 * 3600)
 
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "paused"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "paused"
     assert await _stored(hass) == []
 
     await _unplug(hass, freezer)
     assert len(await _stored(hass)) == 1
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "idle"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "idle"
 
 
 async def test_a_neutral_plug_value_keeps_the_session_open_without_a_repair_issue(
@@ -881,7 +882,7 @@ async def test_a_neutral_plug_value_keeps_the_session_open_without_a_repair_issu
     await _set(hass, PLUG, "undefined")
     await _advance(hass, freezer, 60)
 
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "charging"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "charging"
     assert await _stored(hass) == []
     issue_id = problems.unknown_mapping_value_issue_id(_wallbox_subentry_id(entry), "plug_state")
     assert _issue(hass, issue_id) is None
@@ -897,7 +898,7 @@ async def test_an_unmapped_plug_value_keeps_the_session_open_and_raises_an_issue
     await _set(hass, PLUG, "some_new_value")
     await _advance(hass, freezer, 60)
 
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "charging"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "charging"
     assert await _stored(hass) == []
     issue_id = problems.unknown_mapping_value_issue_id(_wallbox_subentry_id(entry), "plug_state")
     assert _issue(hass, issue_id) is not None
@@ -913,7 +914,7 @@ async def test_an_unavailable_plug_state_does_not_end_a_session(
     await _set(hass, PLUG, "unavailable")
     await _advance(hass, freezer, 3600)
 
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "charging"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "charging"
     assert await _stored(hass) == []
 
 
@@ -950,7 +951,7 @@ async def test_a_neutral_value_does_not_count_as_unavailable_for_the_timeout(
     await _advance(hass, freezer, 3 * 3600)
 
     assert await _stored(hass) == []
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "charging"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "charging"
 
 
 async def test_a_charging_error_does_not_end_the_session(
@@ -963,12 +964,12 @@ async def test_a_charging_error_does_not_end_the_session(
     await _set(hass, ERROR, "error")
     await _advance(hass, freezer, 6)
 
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "error"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "error"
     assert await _stored(hass) == []
 
     await _set(hass, ERROR, "charging")
     await _set(hass, POWER, "6.0", "kW")
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "charging"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "charging"
 
     await _unplug(hass, freezer)
     sessions = await _stored(hass)
@@ -988,7 +989,7 @@ async def test_an_error_that_clears_before_the_debounce_is_ignored(
     await _set(hass, ERROR, "charging")
     await _advance(hass, freezer, 10)
 
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "charging"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "charging"
 
 
 async def test_a_neutral_error_value_keeps_the_error_class(
@@ -1002,7 +1003,7 @@ async def test_a_neutral_error_value_keeps_the_error_class(
 
     await _set(hass, ERROR, "undefined")
 
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "error"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "error"
 
 
 # -------------------------------------------------------------------- discarding
@@ -1022,14 +1023,14 @@ async def test_a_plugged_vehicle_that_never_charges_leaves_no_record(
     await _setup(hass)
     await _set(hass, PLUG, PLUGGED)
     await _advance(hass, freezer, 1800)
-    assert hass.states.get("binary_sensor.ev_charging_wallbox_session").state == "on"
+    assert hass.states.get("binary_sensor.carport_wallbox_session").state == "on"
 
     await _unplug(hass, freezer)
 
     assert await _stored(hass) == []
     assert not await _year_file_exists(hass)
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "idle"
-    assert hass.states.get("binary_sensor.ev_charging_wallbox_session").state == "off"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "idle"
+    assert hass.states.get("binary_sensor.carport_wallbox_session").state == "off"
 
 
 async def test_a_session_that_is_discarded_does_not_touch_the_stored_sessions(
@@ -1114,7 +1115,7 @@ async def test_a_reported_charging_error_keeps_a_session_without_a_phase(
     await _advance(hass, freezer, 2)
     await _set(hass, ERROR, "error")
     await _advance(hass, freezer, 6)
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "error"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "error"
 
     await _unplug(hass, freezer)
 
@@ -1693,11 +1694,11 @@ async def test_a_known_card_assigns_the_vehicle_after_the_window(
     await _setup(hass, vehicles=(_glb(), _eqb()))
     await _set(hass, CARD, "11223344")
     await _start_charging(hass, freezer)
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "unresolved"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "unresolved"
 
     await _advance(hass, freezer, 20)
 
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "GLB"
     await _unplug(hass, freezer)
     session = (await _stored(hass))[0]
     assert session.vehicle_id == "v001"
@@ -1718,7 +1719,7 @@ async def test_a_card_reported_as_its_start_identifies_the_vehicle(
 
     await _advance(hass, freezer, 20)
 
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "GLB"
 
 
 async def test_an_unknown_card_leaves_the_session_unassigned_and_raises_an_issue(
@@ -1757,7 +1758,7 @@ async def test_a_stale_card_value_does_not_identify(
     await _start_charging(hass, freezer)
     await _advance(hass, freezer, 20)
 
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "unresolved"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "unresolved"
 
 
 async def test_an_empty_card_value_is_no_card(
@@ -1770,7 +1771,7 @@ async def test_an_empty_card_value_is_no_card(
     await _start_charging(hass, freezer)
     await _advance(hass, freezer, 20)
 
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "unresolved"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "unresolved"
     assert _issue(hass, problems.unknown_card_issue_id(_wallbox_subentry_id(entry))) is None
 
 
@@ -1785,7 +1786,7 @@ async def test_the_vehicle_report_identifies_when_there_is_no_card(
     await _start_charging(hass, freezer)
     await _advance(hass, freezer, 20)
 
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "GLB"
     await _unplug(hass, freezer)
     assert (await _stored(hass))[0].identification_source == "vehicle_api"
 
@@ -1801,7 +1802,7 @@ async def test_a_vehicle_is_not_chosen_because_the_other_one_is_away(
     await _start_charging(hass, freezer)
     await _advance(hass, freezer, 20)
 
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "unresolved"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "unresolved"
 
 
 async def test_a_card_and_a_different_vehicle_report_flag_the_session(
@@ -1831,12 +1832,12 @@ async def test_an_unassigned_session_is_resolved_once_one_vehicle_reports_chargi
     await _setup(hass, vehicles=(_glb(), _eqb()))
     await _start_charging(hass, freezer)
     await _advance(hass, freezer, 20)
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "unresolved"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "unresolved"
 
     await _set(hass, GLB_CHARGE, "13")
     await _set(hass, EQB_CHARGE, "3")
 
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "GLB"
     await _unplug(hass, freezer)
     session = (await _stored(hass))[0]
     assert session.vehicle_id == "v001"
@@ -1862,7 +1863,7 @@ async def test_two_vehicles_reporting_charging_do_not_resolve_a_session(
     hass.states.async_set(GLB_CHARGE, "13", {"refreshed": True})
     await hass.async_block_till_done()
 
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "unresolved"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "unresolved"
 
 
 async def test_a_vehicle_reporting_charging_before_the_window_ends_does_not_decide_it(
@@ -1874,7 +1875,7 @@ async def test_a_vehicle_reporting_charging_before_the_window_ends_does_not_deci
 
     await _set(hass, GLB_CHARGE, "13")
 
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "unresolved"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "unresolved"
 
 
 async def test_a_vehicle_already_charging_at_the_decision_resolves_the_session(
@@ -1884,11 +1885,11 @@ async def test_a_vehicle_already_charging_at_the_decision_resolves_the_session(
     await _setup(hass, vehicles=(_glb(), _eqb()))
     await _start_charging(hass, freezer)
     await _set(hass, GLB_CHARGE, "13")
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "unresolved"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "unresolved"
 
     await _advance(hass, freezer, 20)
 
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "GLB"
 
 
 async def test_a_guest_vehicle_is_published_as_guest(
@@ -1906,7 +1907,7 @@ async def test_a_guest_vehicle_is_published_as_guest(
     await _start_charging(hass, freezer)
     await _advance(hass, freezer, 20)
 
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "guest"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "guest"
 
 
 # ------------------------------------------------------------------ persistence
@@ -1928,7 +1929,7 @@ async def test_a_session_survives_a_restart_and_reports_the_gap(
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "charging"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "charging"
     await _advance(hass, freezer, 60)
     await _unplug(hass, freezer)
 
@@ -1954,7 +1955,7 @@ async def test_a_session_unplugged_during_a_restart_is_closed(
     await _advance(hass, freezer, 3)
 
     assert len(await _stored(hass)) == 1
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "idle"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "idle"
 
 
 async def test_a_waiting_session_survives_a_restart_and_keeps_when_its_state_began(
@@ -1978,7 +1979,7 @@ async def test_a_waiting_session_survives_a_restart_and_keeps_when_its_state_beg
     assert payload["waiting_for_power"] is True
     assert payload["state_since"] == since
     await _set(hass, POWER, "7.0", "kW")
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "charging"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "charging"
     await _advance(hass, freezer, 600)
     await _unplug(hass, freezer)
 
@@ -1994,16 +1995,16 @@ async def test_a_candidate_survives_a_restart_and_is_confirmed(
     """A candidate that was stored is confirmed once the debounce time has passed."""
     entry, _ = await _setup(hass, wallbox=_wallbox(start_debounce_s=30))
     await _set(hass, PLUG, PLUGGED)
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "candidate"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "candidate"
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
 
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "candidate"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "candidate"
     await _advance(hass, freezer, 30)
 
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "paused"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "paused"
 
 
 async def test_the_session_belongs_to_the_year_of_its_local_start(
@@ -2057,7 +2058,7 @@ async def test_no_personal_value_appears_in_an_entity_state(
 
     forbidden = ("W1NSYNTHETIC000001", GLB_CARD, "11223344", "Card GLB")
     for state in hass.states.async_all():
-        if not state.entity_id.startswith(("sensor.ev_charging", "binary_sensor.ev_charging")):
+        if not state.entity_id.startswith(("sensor.carport", "binary_sensor.carport")):
             continue
         rendered = f"{state.state} {state.attributes}"
         for value in forbidden:
@@ -2069,19 +2070,163 @@ async def test_no_personal_value_appears_in_an_entity_state(
                 assert value not in record.getMessage()
 
 
+def _wallbox_device(hass: HomeAssistant, entry: MockConfigEntry) -> Any:
+    """Return the device of the wallbox, if there is one."""
+    return dr.async_get(hass).async_get_device_by_identifier(
+        (DOMAIN, f"{entry.entry_id}_wb001"), entry.entry_id
+    )
+
+
+def _hub_device(hass: HomeAssistant, entry: MockConfigEntry) -> Any:
+    """Return the device an earlier version put the entities of the wallbox on, if it is left."""
+    return dr.async_get(hass).async_get_device_by_identifier(
+        (DOMAIN, entry.entry_id), entry.entry_id
+    )
+
+
+async def test_the_entities_of_the_wallbox_belong_to_the_wallbox(hass: HomeAssistant) -> None:
+    """The wallbox has a device of its own, under its subentry, and carries all its entities."""
+    from custom_components.ev_charging.sensor import SENSORS
+    from homeassistant.helpers import entity_registry as er
+
+    entry, _ = await _setup(hass, wallbox=_wallbox(manufacturer="KEBA", model="KeContact P40"))
+    subentry_id = _wallbox_subentry_id(entry)
+
+    device = _wallbox_device(hass, entry)
+    assert device is not None
+    assert (device.name, device.manufacturer, device.model) == ("Carport", "KEBA", "KeContact P40")
+    assert subentry_id in device.config_entries_subentries[entry.entry_id]
+    entities = er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+    assert len(entities) == len(SENSORS) + 1
+    for entity in entities:
+        assert entity.device_id == device.id, entity.entity_id
+        assert entity.config_subentry_id == subentry_id, entity.entity_id
+    assert _hub_device(hass, entry) is None
+
+
+async def test_entities_of_an_earlier_version_move_to_the_wallbox_and_keep_their_ids(
+    hass: HomeAssistant,
+) -> None:
+    """Entities on the device of the hub entry move; entity ids and disabling stay as they were."""
+    from homeassistant.helpers import entity_registry as er
+
+    hass.states.async_set(PLUG, UNPLUGGED)
+    hass.states.async_set(POWER, "0", {"unit_of_measurement": "kW"})
+    hass.states.async_set(TOTAL, "100.0", {"unit_of_measurement": "kWh"})
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title=TITLE,
+        data=_hub(),
+        version=5,
+        minor_version=1,
+        subentries_data=[_subentry(SUBENTRY_TYPE_WALLBOX, _wallbox())],
+    )
+    entry.add_to_hass(hass)
+    old_device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, entry.entry_id)},
+        name=TITLE,
+        entry_type=dr.DeviceEntryType.SERVICE,
+    )
+    registry = er.async_get(hass)
+    legacy = {
+        ("sensor", "wallbox_state"): (None, "ev_charging_wallbox_state"),
+        ("sensor", "active_vehicle_soc"): (
+            er.RegistryEntryDisabler.INTEGRATION,
+            "ev_charging_active_vehicle_soc",
+        ),
+        ("binary_sensor", "wallbox_session"): (None, "ev_charging_wallbox_session"),
+    }
+    before = {}
+    for (domain, key), (disabled_by, object_id) in legacy.items():
+        registered = registry.async_get_or_create(
+            domain,
+            DOMAIN,
+            f"{entry.entry_id}_{key}",
+            config_entry=entry,
+            device_id=old_device.id,
+            disabled_by=disabled_by,
+            suggested_object_id=object_id,
+        )
+        before[(domain, key)] = registered.entity_id
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    device = _wallbox_device(hass, entry)
+    assert device is not None
+    subentry_id = _wallbox_subentry_id(entry)
+    for (domain, key), (disabled_by, _) in legacy.items():
+        moved = registry.async_get(before[(domain, key)])
+        assert moved is not None
+        assert moved.entity_id == before[(domain, key)]
+        assert moved.entity_id.startswith(f"{domain}.ev_charging_")
+        assert moved.unique_id == f"{entry.entry_id}_{key}"
+        assert moved.device_id == device.id
+        assert moved.config_subentry_id == subentry_id
+        assert moved.disabled_by == disabled_by
+    assert hass.states.get("sensor.ev_charging_wallbox_state") is not None
+    assert hass.states.get("sensor.ev_charging_active_vehicle_soc") is None
+    assert _hub_device(hass, entry) is None
+
+
+async def test_the_device_of_the_wallbox_follows_its_name(hass: HomeAssistant) -> None:
+    """A renamed wallbox renames its device, and its entity ids stay."""
+    from homeassistant.helpers import entity_registry as er
+
+    entry, _ = await _setup(hass)
+    registry = er.async_get(hass)
+    entity_id = "sensor.carport_wallbox_state"
+    assert registry.async_get(entity_id) is not None
+    subentry = next(iter(entry.subentries.values()))
+
+    hass.config_entries.async_update_subentry(
+        entry, subentry, data={**subentry.data, "name": "Garage"}, title="Garage"
+    )
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    device = _wallbox_device(hass, entry)
+    assert device is not None
+    assert device.name == "Garage"
+    assert registry.async_get(entity_id) is not None
+    assert registry.async_get(entity_id).device_id == device.id
+
+
+async def test_removing_the_wallbox_takes_its_device_and_entities_with_it(
+    hass: HomeAssistant,
+) -> None:
+    """Nothing of the wallbox is left when its subentry is removed."""
+    from homeassistant.helpers import entity_registry as er
+
+    entry, _ = await _setup(hass)
+    subentry_id = _wallbox_subentry_id(entry)
+    assert _wallbox_device(hass, entry) is not None
+
+    hass.config_entries.async_remove_subentry(entry, subentry_id)
+    await hass.async_block_till_done()
+
+    assert _wallbox_device(hass, entry) is None
+    assert [
+        entity
+        for entity in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+        if entity.config_subentry_id == subentry_id
+    ] == []
+
+
 async def test_the_documented_entities_exist(hass: HomeAssistant) -> None:
     """The entities of the wallbox level are created under their documented ids."""
     await _setup(hass)
 
     for entity_id in (
-        "binary_sensor.ev_charging_wallbox_session",
-        "sensor.ev_charging_wallbox_state",
-        "sensor.ev_charging_active_vehicle",
-        "sensor.ev_charging_session_cost",
-        "sensor.ev_charging_session_energy_grid",
-        "sensor.ev_charging_session_energy_solar",
-        "sensor.ev_charging_price_effective",
-        "sensor.ev_charging_open_followups",
+        "binary_sensor.carport_wallbox_session",
+        "sensor.carport_wallbox_state",
+        "sensor.carport_active_vehicle",
+        "sensor.carport_session_cost",
+        "sensor.carport_session_energy_grid",
+        "sensor.carport_session_energy_solar",
+        "sensor.carport_price_effective",
+        "sensor.carport_open_followups",
     ):
         assert hass.states.get(entity_id) is not None, entity_id
 
@@ -2094,14 +2239,14 @@ async def test_the_resolving_entities_are_disabled_by_default(hass: HomeAssistan
     registry = er.async_get(hass)
 
     for entity_id in (
-        "sensor.ev_charging_active_vehicle_soc",
-        "sensor.ev_charging_active_vehicle_soc_target",
-        "sensor.ev_charging_active_vehicle_charge_state",
-        "sensor.ev_charging_active_vehicle_charge_end",
-        "sensor.ev_charging_session_soc_start",
-        "sensor.ev_charging_session_odometer_start",
-        "sensor.ev_charging_session_duration_net",
-        "sensor.ev_charging_grid_share",
+        "sensor.carport_active_vehicle_soc",
+        "sensor.carport_active_vehicle_soc_target",
+        "sensor.carport_active_vehicle_charge_state",
+        "sensor.carport_active_vehicle_charge_end",
+        "sensor.carport_session_soc_start",
+        "sensor.carport_session_odometer_start",
+        "sensor.carport_session_duration_net",
+        "sensor.carport_grid_share",
     ):
         entry = registry.async_get(entity_id)
         assert entry is not None, entity_id
@@ -2117,13 +2262,13 @@ async def test_session_values_are_published_on_the_interval(
     await _start_charging(hass, freezer, power_kw=6.0)
     await _advance(hass, freezer, 600)
     await _set(hass, TOTAL, "101.0", "kWh")
-    published = hass.states.get("sensor.ev_charging_session_cost").state
+    published = hass.states.get("sensor.carport_session_cost").state
 
     await _set(hass, TOTAL, "101.1", "kWh")
-    assert hass.states.get("sensor.ev_charging_session_cost").state == published
+    assert hass.states.get("sensor.carport_session_cost").state == published
 
     await _advance(hass, freezer, 61)
-    assert hass.states.get("sensor.ev_charging_session_cost").state != published
+    assert hass.states.get("sensor.carport_session_cost").state != published
 
 
 async def test_open_followups_counts_the_stored_sessions_that_wait(
@@ -2131,14 +2276,14 @@ async def test_open_followups_counts_the_stored_sessions_that_wait(
 ) -> None:
     """An unassigned session is an open follow-up."""
     await _setup(hass)
-    assert hass.states.get("sensor.ev_charging_open_followups").state == "0"
+    assert hass.states.get("sensor.carport_open_followups").state == "0"
     await _touch_year_file(hass, 2026)
 
     await _start_charging(hass, freezer)
     await _unplug(hass, freezer)
     await _advance(hass, freezer, 31)
 
-    assert hass.states.get("sensor.ev_charging_open_followups").state == "1"
+    assert hass.states.get("sensor.carport_open_followups").state == "1"
 
 
 async def test_the_live_payload_does_not_carry_personal_values(
@@ -2225,7 +2370,7 @@ async def test_a_source_that_changes_its_unit_is_not_read_and_raises_an_issue(
     await _set(hass, POWER, "7000", "W")
     await _advance(hass, freezer, 2)
 
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "paused"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "paused"
     issue_id = problems.role_unit_changed_issue_id(_wallbox_subentry_id(entry), "charge_power")
     assert _issue(hass, issue_id) is not None
 
@@ -2243,7 +2388,6 @@ def _register_wallbox(**overrides: Any) -> dict[str, Any]:
     """A wallbox whose identification comes from a register of the device."""
     fields: dict[str, Any] = {
         "identification": None,
-        "direct_read_enabled": True,
         "host": DEVICE_HOST,
         "identification_from_register": True,
     }
@@ -2342,12 +2486,12 @@ async def test_a_known_card_identifies_the_vehicle_whatever_its_source(
     """A card read from the register is matched like one an entity reports."""
     await _setup_with_card(hass, monkeypatch, source, GLB_REPORTED, vehicles=(_glb(), _eqb()))
     await _start_charging(hass, freezer)
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "unresolved"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "unresolved"
 
     await _advance(hass, freezer, 8)
     await _advance(hass, freezer, 5)
 
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "GLB"
     await _unplug(hass, freezer)
     session = (await _stored(hass))[0]
     assert session.vehicle_id == "v001"
@@ -2432,7 +2576,7 @@ async def test_the_first_sequence_reads_after_ten_seconds_at_most_ten_times(
     await _advance(hass, freezer, 3600)
 
     assert len(device.clients) == 10
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "paused"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "paused"
     assert not _direct_read_issue(hass, entry, "direct_read_unreachable")
     assert not _direct_read_issue(hass, entry, "direct_read_invalid_value")
 
@@ -2463,7 +2607,7 @@ async def test_the_second_sequence_starts_with_the_first_phase_and_replaces_the_
     assert not _direct_read_issue(hass, entry, "direct_read_invalid_value")
     await _advance(hass, freezer, 3600)
     assert len(device.clients) == 11
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "charging"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "charging"
 
 
 async def test_the_second_sequence_runs_after_a_first_that_ended_without_a_value(
@@ -2484,7 +2628,7 @@ async def test_the_second_sequence_runs_after_a_first_that_ended_without_a_value
 
     assert len(device.clients) == 11
     assert _read_state(manager) == _reading(2, 1, "read")
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "GLB"
     await _advance(hass, freezer, 3600)
     assert len(device.clients) == 11
     assert not _direct_read_issue(hass, entry, "direct_read_unreachable")
@@ -2509,7 +2653,7 @@ async def test_a_value_of_zero_is_a_failed_read_and_is_repeated(
     assert len(device.clients) == 10
     assert _direct_read_issue(hass, entry, "direct_read_invalid_value")
     assert not _direct_read_issue(hass, entry, "direct_read_unreachable")
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "unresolved"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "unresolved"
     assert _issue(hass, problems.unknown_card_issue_id(subentry_id)) is None
     await _unplug(hass, freezer)
     session = (await _stored(hass))[0]
@@ -2553,7 +2697,7 @@ async def test_the_first_valid_value_ends_the_reading(
 
     await _advance(hass, freezer, 3600)
     assert len(device.clients) == 3
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "GLB"
     await _set(hass, TOTAL, "100.05", "kWh")
     await _unplug(hass, freezer)
 
@@ -2584,7 +2728,7 @@ async def test_the_decision_does_not_wait_for_the_reading(
     assert payload["identification_decided"] is True
     assert payload["identification_source"] == "vehicle_api"
     assert _read_state(manager) == _reading(1, 3)
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "GLB"
     await _set(hass, TOTAL, "100.05", "kWh")
     await _unplug(hass, freezer)
     assert (await _stored(hass))[0].identification_source == "vehicle_api"
@@ -2603,7 +2747,7 @@ async def test_without_an_identification_window_the_cascade_decides_at_once(
     await _set(hass, PLUG, PLUGGED)
 
     assert manager.live_payload()["identification_decided"] is True
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "GLB"
     assert device.clients == []
 
 
@@ -2748,12 +2892,12 @@ async def test_a_late_card_changes_neither_energy_nor_cost_nor_phases(
     await _advance(hass, freezer, 5)
     await _set(hass, TOTAL, "100.2", "kWh")
     await _advance(hass, freezer, 3)
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "unresolved"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "unresolved"
     before = manager.live_payload()
 
     await _advance(hass, freezer, 2)
 
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "GLB"
     after = manager.live_payload()
     for key in ("energy_kwh", "energy_grid_kwh", "energy_solar_kwh", "cost", "phase_count"):
         assert after[key] == before[key], key
@@ -2779,7 +2923,7 @@ async def test_a_candidate_that_is_dropped_stops_the_reading(
     assert _read_state(manager) == _reading(1, 1)
     await _advance(hass, freezer, 1)
     await _set(hass, POWER, "0", "kW")
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "idle"
+    assert hass.states.get("sensor.carport_wallbox_state").state == "idle"
     assert _read_state(manager) is None
 
     await _advance(hass, freezer, 60)
@@ -2841,7 +2985,7 @@ async def test_the_reading_is_taken_up_again_after_a_restart(
     assert len(device.clients) == 1
     await _advance(hass, freezer, 5)
 
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "GLB"
 
 
 async def test_a_restored_session_that_already_charged_reads_at_once(
@@ -2869,7 +3013,7 @@ async def test_a_restored_session_that_holds_its_card_does_not_read_again(
     entry, _ = await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
     await _start_charging(hass, freezer)
     await _advance(hass, freezer, 13)
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "GLB"
     reads_before = len(device.clients)
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
@@ -2879,7 +3023,7 @@ async def test_a_restored_session_that_holds_its_card_does_not_read_again(
     await _advance(hass, freezer, 3600)
 
     assert len(device.clients) == reads_before
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "GLB"
 
 
 async def test_the_progress_of_the_reading_is_reported_on_the_live_payload(
@@ -2958,7 +3102,7 @@ async def test_the_connection_settings_of_the_wallbox_are_used(
 async def test_nothing_is_read_or_imported_while_the_direct_read_is_off(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Without the switch, or without the register as the source, there is no client at all."""
+    """Without an address, or without the register as the source, there is no client at all."""
     device = install(monkeypatch, FakeDevice([_card(GLB_REPORTED)]))
     entry, _ = await _setup(hass, vehicles=(_glb(),))
     await _start_charging(hass, freezer)
@@ -2968,7 +3112,7 @@ async def test_nothing_is_read_or_imported_while_the_direct_read_is_off(
     await hass.async_block_till_done()
 
     for overrides in (
-        {"direct_read_enabled": False},
+        {"host": None},
         {"identification_from_register": False},
     ):
         wallbox = _register_wallbox(**overrides)
@@ -3015,7 +3159,7 @@ async def test_a_later_read_that_succeeds_clears_the_repair_issue(
 
     assert _direct_read_issue(hass, entry, "direct_read_unreachable") is None
     await _advance(hass, freezer, 13)
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+    assert hass.states.get("sensor.carport_active_vehicle").state == "GLB"
 
 
 async def test_a_stale_repair_issue_is_cleared_when_the_integration_starts(

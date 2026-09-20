@@ -112,13 +112,12 @@ class Wallbox:
     start_debounce_s: int = DEFAULT_START_DEBOUNCE_S
     identification_window_s: int = DEFAULT_IDENTIFICATION_WINDOW_S
     # Read-only access to the wallbox itself. host, port and unit_id are only
-    # used while direct_read_enabled is set.
-    direct_read_enabled: bool = False
+    # used while the identification is read from the register.
     host: str | None = None
     port: int = DEFAULT_DIRECT_READ_PORT
     unit_id: int = DEFAULT_DIRECT_READ_UNIT_ID
     # The identification role is read from the device's register, taken from
-    # the chosen mapping, instead of from an entity. Needs direct_read_enabled.
+    # the chosen mapping, instead of from an entity.
     identification_from_register: bool = False
     # id of the chosen mapping file (4.7). Mandatory before a wallbox can be
     # saved, since plug_state can only be classified once a device is chosen.
@@ -146,7 +145,6 @@ class Wallbox:
             "power_threshold_kw": self.power_threshold_kw,
             "start_debounce_s": self.start_debounce_s,
             "identification_window_s": self.identification_window_s,
-            "direct_read_enabled": self.direct_read_enabled,
             "host": self.host,
             "port": self.port,
             "unit_id": self.unit_id,
@@ -175,7 +173,6 @@ class Wallbox:
             identification_window_s=data.get(
                 "identification_window_s", DEFAULT_IDENTIFICATION_WINDOW_S
             ),
-            direct_read_enabled=data.get("direct_read_enabled", False),
             host=data.get("host"),
             port=data.get("port", DEFAULT_DIRECT_READ_PORT),
             unit_id=data.get("unit_id", DEFAULT_DIRECT_READ_UNIT_ID),

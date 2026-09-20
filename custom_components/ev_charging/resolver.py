@@ -310,10 +310,10 @@ def _register_request(
 ) -> tuple[direct_read.Endpoint, direct_read.RegisterSpec] | None:
     """Return what to read to get the identification from the device, or None.
 
-    None when the wallbox takes the identification from an entity, when the
-    direct read is off, or when the chosen device has no register for it.
+    None when the wallbox takes the identification from an entity, when no
+    address is set, or when the chosen device has no register for it.
     """
-    if not (wallbox.direct_read_enabled and wallbox.identification_from_register and wallbox.host):
+    if not (wallbox.identification_from_register and wallbox.host):
         return None
     register = device_mapping.role_register(ROLE_IDENTIFICATION) if device_mapping else None
     if register is None:

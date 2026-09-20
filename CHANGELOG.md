@@ -4,6 +4,14 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.4.3] - 2026-09-20
+
+### Geändert
+
+- Der Schalter „Wallbox direkt lesen (Modbus TCP)“ entfällt. Die Kennung wird aus dem Register gelesen, sobald im Wallbox-Dialog „Kennung aus dem Register der Wallbox lesen“ gewählt ist. Adresse, Port und Unit-ID bleiben in den Expertenoptionen, die Adresse ist dann Pflicht. Das Feld `direct_read_enabled` des Wallbox-Untereintrags entfällt, ein gespeicherter Wert wird ignoriert
+- Die Entitäten der Wallbox gehören zum Untereintrag der Wallbox und hängen an einem Gerät mit Name, Hersteller und Modell der Wallbox statt am Gerät „EV Charging“. Bestehende Entitäten wechseln mit unveränderter Entitäts-ID und unverändertem Aktivierungszustand, das dann leere Gerät „EV Charging“ wird entfernt. Die Entitäts-IDs neuer Entitäten beginnen mit dem Namen der Wallbox
+- Die Beschreibungen des direkten Lesens und der Rollenoption „Kennung aus dem Register der Wallbox lesen“ im Wallbox-Dialog sind gekürzt
+
 ## [0.4.2] - 2026-09-20
 
 ### Hinzugefügt

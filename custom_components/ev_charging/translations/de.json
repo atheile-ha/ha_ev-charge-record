@@ -71,11 +71,9 @@
         "charge_power_required": "Die Ladeleistung ist erforderlich.",
         "plug_state_required": "Der Steckerzustand ist erforderlich.",
         "energy_counter_required": "Mindestens ein Energiezähler, Gesamt- oder Sessionzähler, ist erforderlich.",
-        "host_required": "Die Adresse ist erforderlich, solange das direkte Lesen aktiv ist.",
+        "host_required": "Die Adresse ist erforderlich, solange die Kennung aus dem Register gelesen wird.",
         "port_out_of_range": "Der Port muss zwischen 1 und 65535 liegen.",
         "unit_id_out_of_range": "Die Unit-ID muss zwischen 0 und 255 liegen.",
-        "direct_read_not_supported": "Das gewählte Wallbox-Gerät hat kein Register, das direkt gelesen werden kann.",
-        "direct_read_required": "Das Lesen der Kennung aus dem Register erfordert, dass das direkte Lesen in den Expertenoptionen aktiviert ist.",
         "identification_source_conflict": "Entweder eine Kennungs-Entität oder das Register wählen, nicht beide."
       },
       "step": {
@@ -142,7 +140,7 @@
                 "plug_state": "Erforderlich. Entität mit Zustandswerten der Kabelverbindung an der Wallbox",
                 "identification": "Von der Wallbox gemeldete RFID- oder eMAID-Kennung, falls vorhanden",
                 "error": "Entität, die einen Fehlerzustand der Wallbox anzeigt",
-                "identification_from_register": "Liest die Kennung statt aus einer Entität unmittelbar aus der Wallbox, in höchstens zwei Folgen je Ladevorgang: kurz nach dessen Beginn und, falls dabei nichts gefunden wird, mit dem ersten Laden. Erfordert das direkte Lesen in den Expertenoptionen und ein Gerät, das dafür ein Register bereitstellt. Die Kennungs-Entität leer lassen"
+                "identification_from_register": "Liest die Kartenkennung aus dem Register der Wallbox statt aus einer Entität. Erfordert Adresse, Port und Unit-ID in den Expertenoptionen. Die Kennungs-Entität leer lassen"
               }
             },
             "expert": {
@@ -151,7 +149,6 @@
                 "power_threshold_kw": "Leistungsschwelle (kW)",
                 "start_debounce_s": "Entprellzeit Sessionsstart (s)",
                 "identification_window_s": "Erkennungsfenster (s)",
-                "direct_read_enabled": "Wallbox direkt lesen (Modbus TCP)",
                 "host": "Adresse",
                 "port": "Port",
                 "unit_id": "Unit-ID"
@@ -160,12 +157,11 @@
                 "power_threshold_kw": "Leistung, oberhalb der eine Ladephase beginnt. Ohne verwertbaren Steckerzustand beginnt auch eine Session",
                 "start_debounce_s": "Wie lange der Steckerzustand, ersatzweise die Leistung, anhalten muss, bevor die Session bestätigt wird",
                 "identification_window_s": "Wartezeit nach Sessionbeginn, bevor anhand der Fahrzeugentitäten das ladende Fahrzeug identifiziert wird. Relevant, wenn keine Erkennung über RFID oder eMAID möglich ist und die Aktualisierung der Entitäten verzögert stattfindet",
-                "direct_read_enabled": "Standardmäßig aus. Solange aus, wird keine Verbindung aufgebaut, und Adresse, Port und Unit-ID unten werden nicht verwendet",
-                "host": "Hostname oder IP-Adresse der Wallbox. Erforderlich, solange das direkte Lesen aktiv ist",
+                "host": "Hostname oder IP-Adresse der Wallbox. Erforderlich, solange die Kennung aus dem Register gelesen wird",
                 "port": "Modbus-TCP-Port, 1 bis 65535",
                 "unit_id": "Modbus-Unit-ID, 0 bis 255"
               },
-              "description": "Direktes Lesen: Die Wallbox wird über Modbus TCP ausschließlich lesend und in höchstens zwei Folgen je Ladevorgang gelesen: ab zehn Sekunden nach dessen Beginn und mit der ersten Ladephase, je Folge höchstens zehnmal im Abstand von 5 Sekunden. Modbus TCP ist bei der KEBA P40 im Auslieferungszustand abgeschaltet und in der KEBA-eMobility-App freizugeben; das Auslesen von Kartenkennungen ist dort zusätzlich einzeln freizugeben. Die Verbindung ist nicht verschlüsselt und gehört in ein vertrauenswürdiges Netzsegment. Die Wallbox nimmt möglicherweise nur einen Modbus-Client gleichzeitig an, und ob ein zweiter Client neben einem Energiemanagement angenommen wird, ist nicht zugesichert. Ist die Wallbox nicht erreichbar, entsteht eine Repair Issue. Softwarestände vor 1.2.1 melden die Energieregister im zehnfachen Maßstab"
+              "description": "Verbindung zum Lesen der Kartenkennung über Modbus TCP, ausschließlich lesend. Wird nur verwendet, solange die Kennung aus dem Register gelesen wird. Bei der KEBA P40 sind Modbus TCP und das Auslesen von Kartenkennungen in der KEBA-eMobility-App freizugeben. Die Verbindung ist nicht verschlüsselt."
             }
           }
         },
@@ -202,7 +198,7 @@
                 "plug_state": "Erforderlich. Entität mit Zustandswerten der Kabelverbindung an der Wallbox",
                 "identification": "Von der Wallbox gemeldete RFID- oder eMAID-Kennung, falls vorhanden",
                 "error": "Entität, die einen Fehlerzustand der Wallbox anzeigt",
-                "identification_from_register": "Liest die Kennung statt aus einer Entität unmittelbar aus der Wallbox, in höchstens zwei Folgen je Ladevorgang: kurz nach dessen Beginn und, falls dabei nichts gefunden wird, mit dem ersten Laden. Erfordert das direkte Lesen in den Expertenoptionen und ein Gerät, das dafür ein Register bereitstellt. Die Kennungs-Entität leer lassen"
+                "identification_from_register": "Liest die Kartenkennung aus dem Register der Wallbox statt aus einer Entität. Erfordert Adresse, Port und Unit-ID in den Expertenoptionen. Die Kennungs-Entität leer lassen"
               }
             },
             "expert": {
@@ -211,7 +207,6 @@
                 "power_threshold_kw": "Leistungsschwelle (kW)",
                 "start_debounce_s": "Entprellzeit Sessionsstart (s)",
                 "identification_window_s": "Erkennungsfenster (s)",
-                "direct_read_enabled": "Wallbox direkt lesen (Modbus TCP)",
                 "host": "Adresse",
                 "port": "Port",
                 "unit_id": "Unit-ID"
@@ -220,12 +215,11 @@
                 "power_threshold_kw": "Leistung, oberhalb der eine Ladephase beginnt. Ohne verwertbaren Steckerzustand beginnt auch eine Session",
                 "start_debounce_s": "Wie lange der Steckerzustand, ersatzweise die Leistung, anhalten muss, bevor die Session bestätigt wird",
                 "identification_window_s": "Wartezeit nach Sessionbeginn, bevor anhand der Fahrzeugentitäten das ladende Fahrzeug identifiziert wird. Relevant, wenn keine Erkennung über RFID oder eMAID möglich ist und die Aktualisierung der Entitäten verzögert stattfindet",
-                "direct_read_enabled": "Standardmäßig aus. Solange aus, wird keine Verbindung aufgebaut, und Adresse, Port und Unit-ID unten werden nicht verwendet",
-                "host": "Hostname oder IP-Adresse der Wallbox. Erforderlich, solange das direkte Lesen aktiv ist",
+                "host": "Hostname oder IP-Adresse der Wallbox. Erforderlich, solange die Kennung aus dem Register gelesen wird",
                 "port": "Modbus-TCP-Port, 1 bis 65535",
                 "unit_id": "Modbus-Unit-ID, 0 bis 255"
               },
-              "description": "Direktes Lesen: Die Wallbox wird über Modbus TCP ausschließlich lesend und in höchstens zwei Folgen je Ladevorgang gelesen: ab zehn Sekunden nach dessen Beginn und mit der ersten Ladephase, je Folge höchstens zehnmal im Abstand von 5 Sekunden. Modbus TCP ist bei der KEBA P40 im Auslieferungszustand abgeschaltet und in der KEBA-eMobility-App freizugeben; das Auslesen von Kartenkennungen ist dort zusätzlich einzeln freizugeben. Die Verbindung ist nicht verschlüsselt und gehört in ein vertrauenswürdiges Netzsegment. Die Wallbox nimmt möglicherweise nur einen Modbus-Client gleichzeitig an, und ob ein zweiter Client neben einem Energiemanagement angenommen wird, ist nicht zugesichert. Ist die Wallbox nicht erreichbar, entsteht eine Repair Issue. Softwarestände vor 1.2.1 melden die Energieregister im zehnfachen Maßstab"
+              "description": "Verbindung zum Lesen der Kartenkennung über Modbus TCP, ausschließlich lesend. Wird nur verwendet, solange die Kennung aus dem Register gelesen wird. Bei der KEBA P40 sind Modbus TCP und das Auslesen von Kartenkennungen in der KEBA-eMobility-App freizugeben. Die Verbindung ist nicht verschlüsselt."
             }
           }
         }

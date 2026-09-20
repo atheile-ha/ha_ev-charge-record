@@ -38,19 +38,19 @@ Ein Ladevorgang beginnt, sobald der Steckerzustand der Wallbox ein verbundenes F
 
 ### Entitäten
 
-Alle Entitäten liegen am Gerät „EV Charging“. Sie werden höchstens im Takt von `update_interval_s` fortgeschrieben, ein Zustandswechsel wird sofort veröffentlicht.
+Alle Entitäten der Wallbox liegen am Gerät der Wallbox, unter dem Untereintrag der Wallbox. Das Gerät trägt Name, Hersteller und Modell der Wallbox. Die Entitäts-IDs beginnen mit dem Namen der Wallbox zum Zeitpunkt des Anlegens, hier als `<wallbox>` geschrieben. Bereits angelegte Entitäten behalten ihre ID. Sie werden höchstens im Takt von `update_interval_s` fortgeschrieben, ein Zustandswechsel wird sofort veröffentlicht.
 
 | Entität | Inhalt |
 |---|---|
-| `binary_sensor.ev_charging_wallbox_session` | an, solange ein Kandidat oder Ladevorgang besteht |
-| `sensor.ev_charging_wallbox_state` | Zustand des Ladevorgangs |
-| `sensor.ev_charging_active_vehicle` | Name des Fahrzeugs, `guest`, `unresolved` oder `none` |
-| `sensor.ev_charging_session_cost` | Kosten des Ladevorgangs |
-| `sensor.ev_charging_session_energy_grid`, `sensor.ev_charging_session_energy_solar` | Netz- und Sonnenanteil in kWh |
-| `sensor.ev_charging_price_effective` | Preis je kWh aus Netz- und Sonnenanteil |
-| `sensor.ev_charging_open_followups` | Anzahl offener Nacherfassungen |
+| `binary_sensor.<wallbox>_wallbox_session` | an, solange ein Kandidat oder Ladevorgang besteht |
+| `sensor.<wallbox>_wallbox_state` | Zustand des Ladevorgangs |
+| `sensor.<wallbox>_active_vehicle` | Name des Fahrzeugs, `guest`, `unresolved` oder `none` |
+| `sensor.<wallbox>_session_cost` | Kosten des Ladevorgangs |
+| `sensor.<wallbox>_session_energy_grid`, `sensor.<wallbox>_session_energy_solar` | Netz- und Sonnenanteil in kWh |
+| `sensor.<wallbox>_price_effective` | Preis je kWh aus Netz- und Sonnenanteil |
+| `sensor.<wallbox>_open_followups` | Anzahl offener Nacherfassungen |
 
-Standardmäßig deaktiviert, in der Entitätsverwaltung aktivierbar: `sensor.ev_charging_active_vehicle_soc`, `_soc_target`, `_charge_state`, `_charge_end`, `sensor.ev_charging_session_soc_start`, `_odometer_start`, `_duration_net` und `sensor.ev_charging_grid_share`.
+Standardmäßig deaktiviert, in der Entitätsverwaltung aktivierbar: `sensor.<wallbox>_active_vehicle_soc`, `_soc_target`, `_charge_state`, `_charge_end`, `sensor.<wallbox>_session_soc_start`, `_odometer_start`, `_duration_net` und `sensor.<wallbox>_grid_share`.
 
 Ohne laufenden Ladevorgang haben die Sensoren des Ladevorgangs keinen Wert. `vin`, Kennungen, Adressen und Koordinaten erscheinen in keiner Entität.
 
@@ -82,13 +82,13 @@ mehrere hinterlegte Kennungen, ordnet die Integration kein Fahrzeug zu.
 
 ## Direktes Lesen der Wallbox (optional)
 
-Stellt keine Quellintegration die Kennung der RFID-Karte bereit, kann die Integration sie unmittelbar aus der Wallbox lesen. Unterstützt ist die KEBA P40 (Register 1500) über Modbus TCP. Das direkte Lesen ist ausgeschaltet, bis es in den Expertenoptionen der Wallbox aktiviert wird.
+Stellt keine Quellintegration die Kennung der RFID-Karte bereit, kann die Integration sie unmittelbar aus der Wallbox lesen. Unterstützt ist die KEBA P40 (Register 1500) über Modbus TCP. Das direkte Lesen ist ausgeschaltet, bis im Wallbox-Dialog die Kennung aus dem Register gelesen werden soll.
 
 Einrichtung:
 
 1. Am Gerät Modbus TCP und das Auslesen der Kartenkennung freigeben.
-2. Im Wallbox-Dialog unter Expertenoptionen „Wallbox direkt lesen (Modbus TCP)“ aktivieren und Adresse, Port (Standard 502) und Unit-ID (Standard 255) eintragen.
-3. Unter Entitätsrollen bei der Kennung „Kennung aus dem Register der Wallbox lesen“ wählen. Eine Kennungs-Entität bleibt dann leer.
+2. Im Wallbox-Dialog unter Entitätsrollen „Kennung aus dem Register der Wallbox lesen“ wählen. Eine Kennungs-Entität bleibt dann leer.
+3. Unter Expertenoptionen Adresse, Port (Standard 502) und Unit-ID (Standard 255) eintragen. Die Adresse ist Pflicht, solange die Kennung aus dem Register gelesen wird.
 
 Ablauf:
 

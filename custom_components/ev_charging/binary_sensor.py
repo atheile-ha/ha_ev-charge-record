@@ -39,4 +39,7 @@ async def async_setup_entry(
     manager = entry.runtime_data.manager
     if manager is None:
         return
-    async_add_entities([EvChargingSessionBinarySensor(manager, entry.entry_id)])
+    async_add_entities(
+        [EvChargingSessionBinarySensor(manager, entry.entry_id)],
+        config_subentry_id=manager.wallbox_subentry_id,
+    )

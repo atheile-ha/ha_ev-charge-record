@@ -15,12 +15,13 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import PERCENTAGE, UnitOfEnergy, UnitOfLength, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from .const import CHARGE_STATE_CLASSES, DOMAIN, SESSION_STATES, TITLE
+from .const import CHARGE_STATE_CLASSES, DOMAIN, SESSION_STATES
+from .models import Wallbox
 from .session_manager import SessionManager, WallboxSnapshot
 
 if TYPE_CHECKING:
@@ -167,10 +168,13 @@ SENSORS: tuple[EvChargingSensorDescription, ...] = (
 )
 
 
-def hub_device_info(entry_id: str) -> DeviceInfo:
-    """Return the device that carries the entities of the session capture."""
+def wallbox_device_info(entry_id: str, wallbox: Wallbox) -> DeviceInfo:
+    """Return the device of the wallbox, which carries the entities of its session capture."""
     return DeviceInfo(
-        identifiers={(DOMAIN, entry_id)}, name=TITLE, entry_type=DeviceEntryType.SERVICE
+        identifiers={(DOMAIN, f"{entry_id}_{wallbox.id}")},
+        name=wallbox.name,
+        manufacturer=wallbox.manufacturer,
+        model=wallbox.model,
     )
 
 
@@ -183,8 +187,9 @@ class EvChargingEntity(Entity):
     def __init__(self, manager: SessionManager, entry_id: str, key: str) -> None:
         """Bind the entity to the manager."""
         self._manager = manager
+        assert manager.wallbox is not None
         self._attr_unique_id = f"{entry_id}_{key}"
-        self._attr_device_info = hub_device_info(entry_id)
+        self._attr_device_info = wallbox_device_info(entry_id, manager.wallbox)
 
     async def async_added_to_hass(self) -> None:
         """Follow published snapshots for as long as the entity exists."""
@@ -238,6 +243,9 @@ async def async_setup_entry(
     if manager is None:
         return
     async_add_entities(
-        EvChargingSensor(manager, entry.entry_id, description, hass.config.currency)
-        for description in SENSORS
+        (
+            EvChargingSensor(manager, entry.entry_id, description, hass.config.currency)
+            for description in SENSORS
+        ),
+        config_subentry_id=manager.wallbox_subentry_id,
     )

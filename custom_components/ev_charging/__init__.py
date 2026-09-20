@@ -13,6 +13,8 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.loader import async_get_integration
 
 from . import mappings, problems, resolver, services, websocket
@@ -258,7 +260,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: EvChargingConfigEntry) -
     )
     services.async_setup_services(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    _remove_empty_hub_device(hass, entry)
     return True
+
+
+def _remove_empty_hub_device(hass: HomeAssistant, entry: EvChargingConfigEntry) -> None:
+    """Remove the device of the hub entry once no entity is left on it.
+
+    Earlier versions put the entities of the wallbox on this device. They now
+    belong to the device of the wallbox, so nothing keeps an empty one.
+    """
+    devices = dr.async_get(hass)
+    device = devices.async_get_device_by_identifier((DOMAIN, entry.entry_id), entry.entry_id)
+    if device is None:
+        return
+    if er.async_entries_for_device(er.async_get(hass), device.id, include_disabled_entities=True):
+        return
+    devices.async_remove_device(device.id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: EvChargingConfigEntry) -> bool:

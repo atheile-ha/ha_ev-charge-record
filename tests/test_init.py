@@ -345,11 +345,10 @@ async def test_migrate_entry_discards_stored_state_mappings(hass: HomeAssistant)
 async def test_migrate_entry_v4_adds_the_direct_read_settings_once(
     hass: HomeAssistant, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """v4 to v5 gives the wallbox its direct read settings, switched off, and runs once."""
+    """v4 to v5 gives the wallbox its settings for reading the register, off, and runs once."""
     caplog.set_level(logging.INFO)
     wallbox = _wallbox_subentry_data(charge_power=EntityRole(entity_id="sensor.wallbox_power"))
     for key in (
-        "direct_read_enabled",
         "host",
         "port",
         "unit_id",
@@ -388,7 +387,7 @@ async def test_migrate_entry_v4_adds_the_direct_read_settings_once(
     wallbox_data = next(
         sub.data for sub in entry.subentries.values() if sub.subentry_type == SUBENTRY_TYPE_WALLBOX
     )
-    assert wallbox_data["direct_read_enabled"] is False
+    assert "direct_read_enabled" not in wallbox_data
     assert wallbox_data["host"] is None
     assert wallbox_data["port"] == 502
     assert wallbox_data["unit_id"] == 255

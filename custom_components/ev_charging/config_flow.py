@@ -378,7 +378,7 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
             user_input["manufacturer"] = user_input.get("manufacturer") or None
             user_input["model"] = user_input.get("model") or None
             user_input["host"] = (user_input.get("host") or "").strip() or None
-            errors = self._validate(user_input, has_register=has_register)
+            errors = self._validate(user_input)
             if not errors:
                 self._pending.update(user_input)
                 return self._finish()
@@ -389,7 +389,7 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
             errors=errors,
         )
 
-    def _validate(self, user_input: dict[str, Any], *, has_register: bool) -> dict[str, str]:
+    def _validate(self, user_input: dict[str, Any]) -> dict[str, str]:
         errors: dict[str, str] = {}
         if not (MIN_START_DEBOUNCE_S <= user_input["start_debounce_s"] <= MAX_START_DEBOUNCE_S):
             errors["start_debounce_s"] = "start_debounce_out_of_range"
@@ -410,20 +410,15 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
         if not user_input.get("energy_total") and not user_input.get("energy_session"):
             errors["energy_total"] = "energy_counter_required"
 
-        # Host, port and unit id are only looked at while the direct read is on.
-        direct_read_enabled = user_input["direct_read_enabled"]
-        if direct_read_enabled:
+        # Host, port and unit id are only looked at while the identification is
+        # read from the register.
+        if user_input.get("identification_from_register"):
             if not user_input["host"]:
                 errors["host"] = "host_required"
             if not (MIN_DIRECT_READ_PORT <= user_input["port"] <= MAX_DIRECT_READ_PORT):
                 errors["port"] = "port_out_of_range"
             if not (MIN_DIRECT_READ_UNIT_ID <= user_input["unit_id"] <= MAX_DIRECT_READ_UNIT_ID):
                 errors["unit_id"] = "unit_id_out_of_range"
-            if not has_register:
-                errors["direct_read_enabled"] = "direct_read_not_supported"
-        if user_input.get("identification_from_register"):
-            if not direct_read_enabled:
-                errors["identification_from_register"] = "direct_read_required"
             if user_input.get("identification"):
                 errors["identification"] = "identification_source_conflict"
         return errors
@@ -443,7 +438,6 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
             power_threshold_kw=data["power_threshold_kw"],
             start_debounce_s=data["start_debounce_s"],
             identification_window_s=data["identification_window_s"],
-            direct_read_enabled=data["direct_read_enabled"],
             host=data["host"],
             port=data["port"],
             unit_id=data["unit_id"],
@@ -546,10 +540,6 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
                                     else DEFAULT_IDENTIFICATION_WINDOW_S
                                 ),
                             ): vol.Coerce(int),
-                            vol.Required(
-                                "direct_read_enabled",
-                                default=d.direct_read_enabled if d else False,
-                            ): bool,
                             vol.Optional(
                                 "host", description={"suggested_value": d.host if d else None}
                             ): str,
