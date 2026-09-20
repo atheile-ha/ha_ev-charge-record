@@ -569,10 +569,10 @@ function T(r, e, t) {
 function $(r, e, t = !1) {
   return r === null ? m : `${t ? "~" : ""}${T(r, e, 3)} kWh`;
 }
-function Ve(r, e, t = !1) {
+function We(r, e, t = !1) {
   return r === null ? m : `${t ? "~" : ""}${T(r, e, 0)} kWh`;
 }
-function We(r, e, t) {
+function Ve(r, e, t) {
   if (r === null)
     return m;
   try {
@@ -592,7 +592,7 @@ function Be(r) {
   const e = Math.round(r);
   return e < 60 ? `${e} min` : `${Math.round(e / 60)} h`;
 }
-function V(r, e, t) {
+function W(r, e, t) {
   if (r === null)
     return m;
   try {
@@ -736,7 +736,7 @@ function Ft(r, e, t) {
 function jt(r, e) {
   return r.phase_count === 0 ? null : r.phase_count === 1 ? e("live_phase_one") : e("live_phase_other", { count: r.phase_count });
 }
-function Vt(r, e, t) {
+function Wt(r, e, t) {
   const { plug: s } = r;
   switch (s.state) {
     case "connected":
@@ -750,7 +750,7 @@ function Vt(r, e, t) {
       }) : e("live_plug_unavailable");
   }
 }
-function Wt(r, e) {
+function Vt(r, e) {
   return r.vehicle_guest ? e("live_vehicle_guest") : r.vehicle !== null ? r.vehicle.name : r.identification_decided ? e("unassigned") : e("live_assign_detecting");
 }
 const Bt = {
@@ -982,7 +982,7 @@ class A extends v {
   }
   _vehicle(e, t) {
     const s = !e.vehicle_guest && e.vehicle === null;
-    return o`<div class="vehicle ${s ? "unassigned" : ""}">${Wt(e, t)}</div>`;
+    return o`<div class="vehicle ${s ? "unassigned" : ""}">${Vt(e, t)}</div>`;
   }
   _format(e) {
     return {
@@ -996,7 +996,7 @@ class A extends v {
   _status(e, t, s) {
     const i = jt(e, t), n = [
       qt(e, t),
-      Vt(e, t, s),
+      Wt(e, t, s),
       Kt(e, t)
     ].filter((a) => a !== null);
     return o`<div class="status">
@@ -1039,7 +1039,7 @@ class A extends v {
       ${this._soc(e, t, i)}
       ${this._row(t("live_power"), Qe(e.charge_power_kw, i))}
       ${this._row(t("live_energy"), $(e.energy_kwh, i))} ${c}
-      ${this._row(t("live_cost"), l.cost ?? V(e.cost, i, n))} ${h}
+      ${this._row(t("live_cost"), l.cost ?? W(e.cost, i, n))} ${h}
       ${this._row(
       t("live_charge_time"),
       S(zt(e, this._received, this._now))
@@ -1317,7 +1317,9 @@ function ur(r, e, t) {
     e.map((n) => n.card_uid).filter((n) => n !== null)
   ), i = /* @__PURE__ */ new Map();
   for (const n of r) {
-    const a = [...s].find((l) => l !== "" && n.uid.endsWith(l));
+    const a = [...s].find(
+      (l) => l !== "" && (n.uid.startsWith(l) || n.uid.endsWith(l))
+    );
     i.set(a ?? n.uid, n.label || n.uid);
   }
   for (const n of e)
@@ -1336,7 +1338,7 @@ var fr = Object.defineProperty, te = (r, e, t, s) => {
   return i && fr(e, t, i), i;
 };
 const gr = 600 * 1e3, mr = "ev_charging/live/subscribe";
-class W extends v {
+class V extends v {
   constructor() {
     super(...arguments), this._config = {}, this._failed = !1, this._started = !1, this._wasActive = !1;
   }
@@ -1429,7 +1431,7 @@ class W extends v {
       <h2>${a}</h2>
       <dl>
         ${this._row(e("total_energy"), $(l.energy_kwh, s, l.energy_is_estimate))}
-        ${this._row(e("total_cost"), V(l.cost, s, t.config.currency))}
+        ${this._row(e("total_cost"), W(l.cost, s, t.config.currency))}
         ${this._row(e("month_solar_share"), k(c, s))}
       </dl>
     `;
@@ -1482,19 +1484,19 @@ class W extends v {
 }
 te([
   g({ attribute: !1 })
-], W.prototype, "hass");
+], V.prototype, "hass");
 te([
   p()
-], W.prototype, "_config");
+], V.prototype, "_config");
 te([
   p()
-], W.prototype, "_t");
+], V.prototype, "_t");
 te([
   p()
-], W.prototype, "_sessions");
+], V.prototype, "_sessions");
 te([
   p()
-], W.prototype, "_failed");
+], V.prototype, "_failed");
 /**
  * @license
  * Copyright 2017 Google LLC
@@ -1608,7 +1610,7 @@ function Er(r, e, t) {
           <td>${le(a.end, i, n)}</td>
           <td class="num">${S(a.duration_min)}</td>
           <td class="num">${$(a.energy_kwh, i)}</td>
-          <td class="num">${V(a.cost, i, t.config.currency)}</td>
+          <td class="num">${W(a.cost, i, t.config.currency)}</td>
         </tr>`
   )}
     </tbody>
@@ -1736,7 +1738,7 @@ class pe extends v {
           <div class="line">
             <span>
               ${$(e.energy_kwh, i, e.energy_is_estimate)} ·
-              ${V(e.cost, i, s.config.currency)} ·
+              ${W(e.cost, i, s.config.currency)} ·
               ${S(e.charge_duration_min)}
             </span>
             <span class="muted">${n}</span>
@@ -2002,7 +2004,7 @@ class y extends v {
   _renderTiles(e, t) {
     const s = this.hass, i = s.locale.language, n = [
       ["total_energy", $(t.energy_kwh, i, t.energy_is_estimate)],
-      ["total_cost", V(t.cost, i, s.config.currency)],
+      ["total_cost", W(t.cost, i, s.config.currency)],
       ["total_duration", S(t.charge_duration_min)],
       ["total_sessions", String(t.count)],
       ["open_followups", String(t.open_followups)]
@@ -2044,11 +2046,11 @@ class y extends v {
     const t = this.hass, s = t.locale.language;
     switch (this._metric) {
       case "cost":
-        return We(e.cost, s, t.config.currency);
+        return Ve(e.cost, s, t.config.currency);
       case "duration":
         return Be(e.charge_duration_min);
       default:
-        return Ve(e.energy_kwh, s, e.energy_is_estimate);
+        return We(e.energy_kwh, s, e.energy_is_estimate);
     }
   }
   _renderChart(e, t, s) {
@@ -2095,8 +2097,8 @@ class y extends v {
       ["scope_internal", s.internal],
       ["scope_external", s.external]
     ], l = [
-      ["total_energy", (c) => Ve(c.energy_kwh, n, c.energy_is_estimate)],
-      ["total_cost", (c) => We(c.cost, n, i.config.currency)],
+      ["total_energy", (c) => We(c.energy_kwh, n, c.energy_is_estimate)],
+      ["total_cost", (c) => Ve(c.cost, n, i.config.currency)],
       ["total_duration", (c) => Be(c.charge_duration_min)],
       ["total_sessions", (c) => String(c.count)]
     ];
@@ -2227,7 +2229,7 @@ class y extends v {
         <span class="c-energy num"
           >${$(e.energy_kwh, i, e.energy_is_estimate)}</span
         >
-        <span class="c-cost num">${V(e.cost, i, s.config.currency)}</span>
+        <span class="c-cost num">${W(e.cost, i, s.config.currency)}</span>
         <span class="c-duration num">${S(e.charge_duration_min)}</span>
         <span class="c-status">
           ${e.status === "complete" ? d : o`<span class="chip warn">${t(`status_${e.status}`)}</span>`}
@@ -2990,7 +2992,7 @@ O("ev-charging-panel-card", Pe);
 O("ev-charging-recent-card", B);
 O("ev-charging-recent-card-editor", fe);
 O("ev-charging-live-card", A);
-O("ev-charging-month-card", W);
+O("ev-charging-month-card", V);
 const de = window;
 de.customCards = de.customCards ?? [];
 for (const r of [

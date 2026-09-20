@@ -31,7 +31,7 @@ Ein Ladevorgang beginnt, sobald der Steckerzustand der Wallbox ein verbundenes F
 - Zustände: `idle`, `candidate`, `charging`, `paused`, `error`, `awaiting_final`. Der Kandidat wird sofort veröffentlicht, die Entprellzeit entscheidet nur, ob der Ladevorgang bestehen bleibt. Ein Ladevorgang ohne Leistung steht im Zustand `paused`. Nach dem Speichern oder Verwerfen eines Ladevorgangs beginnt bei noch verbundenem Fahrzeug sofort der nächste.
 - Energie: Beide Energiezähler werden inkrementell akkumuliert. Ein Rückgang gilt als Rücksetzung des Zählers. Ein Zuwachs, den die Wallbox mit der Nennleistung zuzüglich 15 Prozent nicht liefern kann, wird nicht gezählt und markiert den Ladevorgang. Steht der Gesamtzähler während des Ladens still und der Sitzungszähler steigt, wechselt die Erfassung auf den Sitzungszähler und erzeugt eine Repair Issue. Weichen beide Zähler am Ende um mehr als 5 Prozent ab, ist der Ladevorgang markiert.
 - Netz- und Sonnenanteil: Aus dem geglätteten Netzsaldo der globalen Einstellungen (Mittel über 60 Sekunden) und der Ladeleistung. Kosten aus Netzpreis und Sonnenbewertung. Ohne Netzsaldo wird die Energie nicht aufgeteilt, ohne Netzpreis werden keine Kosten ermittelt.
-- Fahrzeugzuordnung nach `identification_window_s` (Standard 15 Sekunden): erstens über die gemeldete Kennung, die höchstens 5 Minuten alt sein darf und als Ende einer hinterlegten Kennung passen muss, zweitens über genau ein aktives Fahrzeug mit Fahrzeugidentifikation, das den Standort `home` meldet, sonst bleibt der Ladevorgang unzugeordnet. Eine gemeldete Kennung, die kein Fahrzeug hinterlegt hat, führt zu einem unzugeordneten Ladevorgang und einer Repair Issue. Ein unzugeordneter Ladevorgang wird, solange er läuft, dem Fahrzeug zugeordnet, sobald genau ein Fahrzeug mit Fahrzeugidentifikation `charging` meldet; Ladestand und Kilometerstand bei Beginn bleiben dann offen. Widersprechen sich Kennung und Fahrzeugmeldung, gilt die Kennung, und der Ladevorgang ist markiert. Eine Kennung, die erst nach dieser Entscheidung gelesen wird, ordnet nachträglich zu: Ein unzugeordneter Ladevorgang wird dem Fahrzeug der Karte zugeordnet und Ladestand und Kilometerstand bei Beginn bleiben offen. Ist er über die Fahrzeugmeldung demselben Fahrzeug zugeordnet, ändert sich nur die Quelle der Zuordnung. Ist er einem anderen Fahrzeug zugeordnet, gilt die Kennung: Das Fahrzeug wechselt, Ladestand und Kilometerstand bei Beginn bleiben offen und der Ladevorgang ist markiert. Passt die Kennung auf keine hinterlegte Karte, bleibt ein unzugeordneter Ladevorgang unzugeordnet, ein zugeordneter behält sein Fahrzeug und ist markiert, und es entsteht eine Repair Issue. Energie, Kosten und Phasen bleiben unverändert.
+- Fahrzeugzuordnung nach `identification_window_s` (Standard 15 Sekunden): erstens über die gemeldete Kennung, die höchstens 5 Minuten alt sein darf und als Anfang oder Ende einer hinterlegten Kennung passen muss, zweitens über genau ein aktives Fahrzeug mit Fahrzeugidentifikation, das den Standort `home` meldet, sonst bleibt der Ladevorgang unzugeordnet. Eine gemeldete Kennung, die kein Fahrzeug hinterlegt hat, führt zu einem unzugeordneten Ladevorgang und einer Repair Issue. Ein unzugeordneter Ladevorgang wird, solange er läuft, dem Fahrzeug zugeordnet, sobald genau ein Fahrzeug mit Fahrzeugidentifikation `charging` meldet; Ladestand und Kilometerstand bei Beginn bleiben dann offen. Widersprechen sich Kennung und Fahrzeugmeldung, gilt die Kennung, und der Ladevorgang ist markiert. Eine Kennung, die erst nach dieser Entscheidung gelesen wird, ordnet nachträglich zu: Ein unzugeordneter Ladevorgang wird dem Fahrzeug der Karte zugeordnet und Ladestand und Kilometerstand bei Beginn bleiben offen. Ist er über die Fahrzeugmeldung demselben Fahrzeug zugeordnet, ändert sich nur die Quelle der Zuordnung. Ist er einem anderen Fahrzeug zugeordnet, gilt die Kennung: Das Fahrzeug wechselt, Ladestand und Kilometerstand bei Beginn bleiben offen und der Ladevorgang ist markiert. Passt die Kennung auf keine hinterlegte Karte, bleibt ein unzugeordneter Ladevorgang unzugeordnet, ein zugeordneter behält sein Fahrzeug und ist markiert, und es entsteht eine Repair Issue. Energie, Kosten und Phasen bleiben unverändert.
 - Verwerfen: Ein Ladevorgang, der durch das Abstecken endet, ohne dass Energie geflossen ist und ohne dass je eine Phase begann, wird nicht gespeichert. Das gilt nur, wenn der Energiezähler von Beginn an lesbar war und nicht gestiegen ist und der Ladevorgang weder einen Ladefehler noch eine Markierung trägt, sonst bleibt er erhalten. Ein Ladevorgang, der nach 12 Stunden ohne verwertbaren Steckerzustand geschlossen wird, wird nie verworfen.
 - Neustart: Steckt bei der Einrichtung oder nach einem Neustart ein Fahrzeug und ist kein Ladevorgang gespeichert, beginnt der Ladevorgang zu diesem Zeitpunkt. Ein gespeicherter Ladevorgang wird fortgesetzt. Energie, die während des Ausfalls geliefert wurde, geht in die Gesamtmenge ein und wird als nicht zugeordnet ausgewiesen.
 - Ladeort ist `home`, die Ladeart die der Wallbox. Meldet der Standort des zugeordneten Fahrzeugs `not_home`, während die Wallbox lädt, erhält der Ladevorgang den Vermerk Standortwiderspruch.
@@ -77,8 +77,8 @@ In der Kartenauswahl eines Dashboards stehen vier Karten zur Verfügung, sie ers
 
 Beim Fahrzeug wird stets die vollständige, aufgedruckte Seriennummer hinterlegt. Meldet die Wallbox nur einen
 Ausschnitt, wie die KEBA P40 mit den letzten vier Bytes der Seriennummer, prüft der Abgleich zur Laufzeit, ob
-der gemeldete Ausschnitt das Ende der hinterlegten Kennung bildet. Ein fehlender vorangestellter Teil ist beim
-Anlegen der Kennung von Hand zu ergänzen.
+der gemeldete Ausschnitt den Anfang oder das Ende der hinterlegten Kennung bildet. Passt ein Ausschnitt auf
+mehrere hinterlegte Kennungen, ordnet die Integration kein Fahrzeug zu.
 
 ## Direktes Lesen der Wallbox (optional)
 
@@ -103,6 +103,18 @@ Hinweise:
 - Die Schnittstelle ist nicht verschlüsselt und gehört in ein vertrauenswürdiges Netzsegment.
 - Die Wallbox nimmt möglicherweise nur einen Modbus-Client an. Ob ein zweiter Client neben einem Energiemanagement angenommen wird, sichert das Gerätehandbuch nicht zu.
 - Softwarestände der KEBA P40 vor 1.2.1 melden die Energieregister im zehnfachen Maßstab.
+
+## Protokoll
+
+Auf der Stufe `DEBUG` schreibt die Integration die Zustandswechsel des Ladevorgangs, den Beginn jeder Ladephase, die Steckerklasse, jeden Lesevorgang der Kennung mit Ziel, Dauer und Antwort des Geräts sowie das Ergebnis der Fahrzeugzuordnung. Kennung, VIN, Adresse und Koordinaten stehen nicht im Protokoll, eine gelesene Kennung nur mit ihren letzten zwei Zeichen. Einschalten unter Einstellungen, Geräte & Dienste, EV Charging im Menü „Debug-Protokollierung aktivieren“; beim Ausschalten lädt Home Assistant das Protokoll herunter. Dauerhaft in der `configuration.yaml`:
+
+```yaml
+logger:
+  logs:
+    custom_components.ev_charging: debug
+```
+
+Mit zusätzlich `pymodbus: debug` protokolliert die Modbus-Bibliothek die übertragenen Rohdaten. Diese enthalten den Registerinhalt und damit die Kennung im Klartext.
 
 ## Installation
 

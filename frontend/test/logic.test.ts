@@ -187,6 +187,27 @@ describe("filter options", () => {
     expect(options).toEqual([{ value: "AABBCCDD", label: "Green" }]);
   });
 
+  it("merges a configured card with an identifier that is the start of it", () => {
+    const options = cardOptions(
+      [{ uid: "AABBCCDD0011", label: "Green", type: "rfid", active: true }],
+      [session({ card_uid: "AABBCCDD", card_label: null })],
+      "",
+    );
+    expect(options).toEqual([{ value: "AABBCCDD", label: "Green" }]);
+  });
+
+  it("does not merge an identifier that is neither the start nor the end", () => {
+    const options = cardOptions(
+      [{ uid: "0011AABBCCDD0022", label: "Green", type: "rfid", active: true }],
+      [session({ card_uid: "AABBCCDD", card_label: null })],
+      "",
+    );
+    expect(options).toEqual([
+      { value: "0011AABBCCDD0022", label: "Green" },
+      { value: "AABBCCDD", label: "AABBCCDD" },
+    ]);
+  });
+
   it("keeps a selected card that is not in the current month", () => {
     expect(cardOptions([], [], "ZZZZ")).toEqual([{ value: "ZZZZ", label: "ZZZZ" }]);
   });

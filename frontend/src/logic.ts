@@ -206,8 +206,9 @@ export function vehicleOptions(vehicles: Vehicle[], sessions: Session[]): Option
 }
 
 // Cards configured at the vehicles come first, then cards that only appear in
-// the sessions. A wallbox may report only the end of a card's identifier; such
-// a session identifier and the configured full identifier are one option.
+// the sessions. A wallbox may report only the start or the end of a card's
+// identifier; such a session identifier and the configured full identifier are
+// one option.
 export function cardOptions(
   cards: VehicleCard[],
   sessions: Session[],
@@ -218,7 +219,9 @@ export function cardOptions(
   );
   const options = new Map<string, string>();
   for (const card of cards) {
-    const reported = [...seen].find((uid) => uid !== "" && card.uid.endsWith(uid));
+    const reported = [...seen].find(
+      (uid) => uid !== "" && (card.uid.startsWith(uid) || card.uid.endsWith(uid)),
+    );
     options.set(reported ?? card.uid, card.label || card.uid);
   }
   for (const session of sessions) {

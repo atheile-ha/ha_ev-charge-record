@@ -105,6 +105,10 @@ async def async_read_register(
     Connects, reads once and closes the connection again. Returns None when
     the device gives no valid answer: no connection, no reply in time, an
     error reply or a reply of the wrong length. Never raises for those.
+
+    Every step is traced on the debug level: where it was read, how long it
+    took and how the device answered. The register values themselves are
+    never written to the log.
     """
     backend = await _async_backend(hass)
     client = backend.client_class(
@@ -114,19 +118,45 @@ async def async_read_register(
         retries=0,
         reconnect_delay=0,
     )
+    started = hass.loop.time()
+    target = f"{endpoint.host}:{endpoint.port}, unit {endpoint.unit_id}, register {spec.address}"
     try:
         async with asyncio.timeout(2 * DIRECT_READ_TIMEOUT_S):
             if not await client.connect():
+                _LOGGER.debug(
+                    "Read of %s: no connection after %.1f s", target, hass.loop.time() - started
+                )
                 return None
             response = await client.read_holding_registers(
                 spec.address, count=spec.count, device_id=endpoint.unit_id
             )
     except backend.errors as err:
-        _LOGGER.debug("Reading a register of the wallbox failed: %s", type(err).__name__)
+        _LOGGER.debug(
+            "Read of %s failed after %.1f s: %s %s",
+            target,
+            hass.loop.time() - started,
+            type(err).__name__,
+            err,
+        )
         return None
     finally:
         client.close()
 
+    elapsed = hass.loop.time() - started
     if response.isError():
+        _LOGGER.debug(
+            "Read of %s: the device answered with an error (%s) after %.1f s",
+            target,
+            response,
+            elapsed,
+        )
         return None
-    return decode_registers(response.registers, spec.decode)
+    value = decode_registers(response.registers, spec.decode)
+    _LOGGER.debug(
+        "Read of %s: %d registers came back after %.1f s%s",
+        target,
+        len(response.registers),
+        elapsed,
+        "" if value is not None else ", which cannot be decoded",
+    )
+    return value

@@ -424,7 +424,9 @@ class IdentificationReader:
         self._on_event = on_event
         self._active = True
         elapsed = (dt_util.utcnow() - since).total_seconds()
-        self._start_sequence(1, max(DIRECT_READ_FIRST_DELAY_S - elapsed, 0))
+        delay = max(DIRECT_READ_FIRST_DELAY_S - elapsed, 0)
+        _LOGGER.debug("Identification: the first sequence of reads begins in %.0f s", delay)
+        self._start_sequence(1, delay)
 
     def begin_charging(self) -> None:
         """Start the second sequence with the first charging phase.
@@ -432,14 +434,16 @@ class IdentificationReader:
         It replaces a first sequence that is still under way, and does not
         run at all once a value was read or the second sequence already ran.
         """
-        if (
-            self._request is None
-            or not self._active
-            or self._value is not None
-            or self._sequence != 1
-        ):
+        if self._request is None or not self._active:
+            return
+        if self._value is not None or self._sequence != 1:
+            _LOGGER.debug(
+                "Identification: no second sequence, %s",
+                "it was already read" if self._value is not None else "it already ran",
+            )
             return
         self._halt()
+        _LOGGER.debug("Identification: the second sequence of reads begins with the first phase")
         self._start_sequence(2, 0)
 
     def stop(self) -> None:
@@ -528,18 +532,33 @@ class IdentificationReader:
             _LOGGER.exception("Reading the identification from the wallbox raised an error")
             raw = None
         if generation != self._generation:
+            _LOGGER.debug(
+                "Identification: an answer arrived after its sequence ended and is dropped"
+            )
             return
 
         self._attempts += 1
         value: str | None = None
         failure = READ_FAILURE_UNREACHABLE
+        outcome = "no valid answer from the device"
         if raw == 0:
             failure = READ_FAILURE_INVALID_VALUE
+            outcome = "the register holds 0"
         elif raw is not None:
             text = direct_read.format_value(raw, spec.output)
             value = normalize_card_uid(text) if text else None
             if not value or value in INVALID_CARD_UIDS:
                 value, failure = None, READ_FAILURE_INVALID_VALUE
+                outcome = "the register holds no valid identifier"
+            else:
+                outcome = f"identification read, ends in ..{value[-2:]}"
+        _LOGGER.debug(
+            "Identification: sequence %d, read %d of %d: %s",
+            self._sequence,
+            self._attempts,
+            DIRECT_READ_MAX_READS,
+            outcome,
+        )
 
         if value is not None:
             self._value = value
@@ -551,6 +570,9 @@ class IdentificationReader:
             self._emit(ReadEvent.PROGRESS)
         else:
             self._reading = False
+            _LOGGER.debug(
+                "Identification: sequence %d ended without an identification", self._sequence
+            )
             if self._sequence == 2:
                 self._failure = failure
                 self._emit(ReadEvent.EXHAUSTED)

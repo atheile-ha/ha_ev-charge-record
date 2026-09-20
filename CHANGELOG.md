@@ -4,6 +4,16 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.4.2] - 2026-09-20
+
+### Hinzugefügt
+
+- Protokolleinträge auf `DEBUG` zu den Zustandswechseln des Ladevorgangs, dem Beginn jeder Ladephase, der Steckerklasse, jedem Lesevorgang der Kennung (Ziel, Dauer, Antwort des Geräts, Ergebnis) und dem Ergebnis der Fahrzeugzuordnung. Die Kennung erscheint darin nicht, eine gelesene Kennung nur mit ihren letzten zwei Zeichen
+
+### Geändert
+
+- Ein von der Wallbox gemeldeter Ausschnitt der Kennung gilt als Treffer, wenn er den Anfang oder das Ende einer hinterlegten Kennung bildet, bisher nur das Ende. Passt er auf mehrere hinterlegte Kennungen, wird weiterhin kein Fahrzeug zugeordnet. Der Kartenfilter des Panels führt eine hinterlegte Karte ebenso mit einer gemeldeten Kennung zusammen, die deren Anfang oder Ende ist
+
 ## [0.4.1] - 2026-09-20
 
 ### Hinzugefügt

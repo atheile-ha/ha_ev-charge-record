@@ -330,14 +330,45 @@ def test_identify_uses_the_card_type_as_source() -> None:
     assert identify(GLB_CARD, [vehicle], set()).source == "emaid"
 
 
-def test_identify_ignores_the_start_of_a_card() -> None:
-    """A value that is the start of a card and not its end is no match."""
+def test_identify_by_the_start_of_a_card() -> None:
+    """The wallbox may report the start of the serial number instead of its end."""
     glb = _vehicle("v001", Card(uid=GLB_CARD, label="a"))
 
     result = identify("AABBCCDD", [glb], set())
 
+    assert (result.source, result.vehicle_id, result.card_uid) == ("rfid", "v001", GLB_CARD)
+
+
+def test_identify_ignores_the_middle_of_a_card() -> None:
+    """A value that is neither the start nor the end of a card is no match."""
+    glb = _vehicle("v001", Card(uid=GLB_CARD, label="a"))
+
+    result = identify("BBCCDD11", [glb], set())
+
     assert result.vehicle_id is None
     assert result.unknown_card is True
+
+
+def test_identify_a_card_that_matches_at_both_ends_is_one_match() -> None:
+    """The same card at the start and at the end of the value is not ambiguous."""
+    vehicle = _vehicle("v001", Card(uid="AABB1122AABB", label="a"))
+
+    result = identify("AABB", [vehicle], set())
+
+    assert result.vehicle_id == "v001"
+    assert result.unknown_card is False
+
+
+def test_identify_a_value_that_starts_one_card_and_ends_another_is_no_match() -> None:
+    """Two cards fit, one at its start and one at its end: nothing is guessed."""
+    first = _vehicle("v001", Card(uid="11223344AAAA", label="a"))
+    second = _vehicle("v002", Card(uid="BBBB11223344", label="b"))
+
+    result = identify("11223344", [first, second], set())
+
+    assert result.vehicle_id is None
+    assert result.unknown_card is False
+    assert result.card_uid == "11223344"
 
 
 def test_identify_ambiguous_ending_is_no_match() -> None:
@@ -443,6 +474,16 @@ def test_a_late_card_assigns_an_unassigned_session_to_its_vehicle() -> None:
     assert result.card_label == "Card GLB"
     assert result.conflict is False
     assert result.unknown_card is False
+
+
+def test_a_late_card_is_matched_by_the_start_of_the_stored_card() -> None:
+    """The wallbox reports the start of the printed serial number."""
+    glb = _vehicle("v001", Card(uid=GLB_CARD, label="a"))
+
+    result = _late("AABBCCDD", [glb])
+
+    assert result.vehicle_id == "v001"
+    assert result.card_uid == GLB_CARD
 
 
 def test_a_late_card_is_matched_by_the_end_of_the_stored_card() -> None:
@@ -1353,6 +1394,63 @@ async def test_energy_grid_solar_and_cost_are_recorded(
     assert sum(phase.energy_kwh for phase in session.phases) == pytest.approx(2.0)
 
 
+async def test_a_short_grid_spike_is_smoothed_over_the_window(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """Ten seconds of grid import weigh in with their share of the last 60 seconds only."""
+    await _setup(hass)
+    await _start_charging(hass, freezer, power_kw=6.0)
+    await _advance(hass, freezer, 120)
+
+    await _set(hass, GRID, "3000", "W")
+    await _advance(hass, freezer, 5)
+    await _set(hass, TOTAL, "100.1", "kWh")
+    await _advance(hass, freezer, 5)
+    await _set(hass, GRID, "0", "W")
+    await _advance(hass, freezer, 5)
+    await _set(hass, TOTAL, "100.2", "kWh")
+    await _unplug(hass, freezer)
+
+    session = (await _stored(hass))[0]
+    assert session.energy_measured_kwh == pytest.approx(0.2)
+    # Read unsmoothed, the first increment alone would have been half grid energy (0.05 kWh).
+    # The spike of 3 kW for 10 s counts as 250 W and then 500 W over the window of 60 s.
+    expected_grid = 0.1 * 0.25 / 6 + 0.1 * 0.5 / 6
+    assert session.energy_grid_kwh == pytest.approx(expected_grid, abs=6e-4)
+    assert session.energy_grid_kwh < 0.02
+    assert session.energy_grid_kwh + session.energy_solar_kwh == pytest.approx(0.2, abs=2e-3)
+
+
+async def test_a_grid_balance_that_swings_every_second_gives_a_steady_share(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """A sensor that reports every second and swings between 0 and 2 kW does not skew an increment.
+
+    The counter increments arrive alternately right after the balance jumped up and right after
+    it jumped down. Each is valued with the share of the last 60 seconds, one sixth of 6 kW,
+    and not with the value of the moment.
+    """
+    _, manager = await _setup(hass)
+    await _start_charging(hass, freezer, power_kw=6.0)
+    shares: list[float] = []
+    total = 100.0
+
+    for step in range(120):
+        await _set(hass, GRID, "2000" if step % 2 == 0 else "0", "W")
+        if step % 5 == 0 and step >= 60:
+            total += 0.02
+            await _set(hass, TOTAL, f"{total:.3f}", "kWh")
+            shares.append(manager.live_payload()["grid_share_pct"])
+        await _advance(hass, freezer, 1)
+
+    assert len(shares) == 12
+    high_moment = shares[0::2]
+    low_moment = shares[1::2]
+    for share in shares:
+        assert share == pytest.approx(100 / 6, abs=0.5)
+    assert max(high_moment) - min(low_moment) < 1.0
+
+
 async def test_solar_valuation_zero_makes_the_sun_free(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
@@ -1608,6 +1706,19 @@ async def test_a_known_card_assigns_the_vehicle_after_the_window(
     assert session.card_uid == GLB_CARD
     assert session.card_label == "Card GLB"
     assert session.id.endswith("_v001")
+
+
+async def test_a_card_reported_as_its_start_identifies_the_vehicle(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """The start of the serial number is enough, as its end is."""
+    await _setup(hass, vehicles=(_glb(), _eqb()))
+    await _set(hass, CARD, "AABBCCDD")
+    await _start_charging(hass, freezer)
+
+    await _advance(hass, freezer, 20)
+
+    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
 
 
 async def test_an_unknown_card_leaves_the_session_unassigned_and_raises_an_issue(
@@ -2991,3 +3102,70 @@ async def test_the_live_payload_carries_no_card_when_the_register_is_read(
 
     for value in (GLB_REPORTED, GLB_CARD, "Card GLB"):
         assert value not in rendered
+
+
+async def test_the_debug_log_traces_the_session_and_the_reading_without_the_identification(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The log shows the plug, the state changes, every read and what came of the card."""
+    install(
+        monkeypatch,
+        FakeDevice([_unreachable(), _card(NOTHING_READ), _card(GLB_REPORTED)]),
+    )
+    await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+    caplog.set_level(logging.DEBUG, logger="custom_components.ev_charging")
+
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 10)
+    await _advance(hass, freezer, 5)
+    await _advance(hass, freezer, 5)
+    await _set(hass, POWER, "7.0", "kW")
+
+    text = "\n".join(
+        record.getMessage()
+        for record in caplog.records
+        if record.name.startswith("custom_components")
+    )
+    for line in (
+        "Plug state 'plugged_and_locked' reads as connected",
+        "A candidate begins, started by the plug",
+        "Session state candidate -> paused",
+        "the first sequence of reads begins in 10 s",
+        "Read of 192.0.2.10:502, unit 255, register 1500: no connection",
+        "Identification: sequence 1, read 1 of 10: no valid answer from the device",
+        "Identification: sequence 1, read 2 of 10: the register holds 0",
+        "Identification decided: source unresolved, vehicle None, card read False, conflict False",
+        "Identification: sequence 1, read 3 of 10: identification read, ends in ..44",
+        "Identification read after the decision: source rfid, vehicle v001, conflict False",
+        "Phase 1 begins",
+        "Session state paused -> charging",
+    ):
+        assert line in text, line
+    assert "no second sequence, it was already read" in text
+    assert GLB_REPORTED not in text
+    assert GLB_CARD not in text
+    assert all(
+        record.levelno == logging.DEBUG
+        for record in caplog.records
+        if record.name.startswith("custom_components") and "Read of" in record.getMessage()
+    )
+
+
+async def test_the_debug_log_says_why_a_session_is_not_stored(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A session that held nothing is dropped, and the log says so."""
+    await _setup(hass)
+    caplog.set_level(logging.DEBUG, logger="custom_components.ev_charging")
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 60)
+
+    await _unplug(hass, freezer)
+
+    text = "\n".join(record.getMessage() for record in caplog.records)
+    assert "The session ends: 0 phases, it holds nothing and is not stored" in text

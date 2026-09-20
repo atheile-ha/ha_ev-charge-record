@@ -281,7 +281,7 @@
         },
         "details": {
           "title": "Add vehicle",
-          "description": "Current value reported by the wallbox's identification entity: {identification_hint}. Some wallboxes report only the end of the full serial number printed on the card; if so, prepend the missing leading part by hand when entering a card below. Matching happens against the end of the stored value. Not shown while the wallbox reads the identification from its register.",
+          "description": "Current value reported by the wallbox's identification entity: {identification_hint}. Some wallboxes report only the start or the end of the serial number printed on the card; if so, enter the full serial number when adding a card below. The reported value is matched against the start and the end of the stored value. Not shown while the wallbox reads the identification from its register.",
           "data": {
             "name": "Name",
             "active": "Active",
@@ -339,7 +339,7 @@
         },
         "details_reconfigure": {
           "title": "Edit vehicle",
-          "description": "Current value reported by the wallbox's identification entity: {identification_hint}. Some wallboxes report only the end of the full serial number printed on the card; if so, prepend the missing leading part by hand when entering a card below. Matching happens against the end of the stored value. Not shown while the wallbox reads the identification from its register.",
+          "description": "Current value reported by the wallbox's identification entity: {identification_hint}. Some wallboxes report only the start or the end of the serial number printed on the card; if so, enter the full serial number when adding a card below. The reported value is matched against the start and the end of the stored value. Not shown while the wallbox reads the identification from its register.",
           "data": {
             "name": "Name",
             "active": "Active",

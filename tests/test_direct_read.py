@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import logging
 import socket
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -188,6 +189,38 @@ async def test_no_valid_answer_yields_none_and_closes_the_connection(
     assert await direct_read.async_read_register(hass, ENDPOINT, SPEC) is None
 
     assert device.clients[0].calls[-1] == "close"
+
+
+@pytest.mark.parametrize(
+    ("outcome", "traced"),
+    [
+        ((OK, registers_for("D4CD7650")), "2 registers came back"),
+        ((NO_CONNECTION,), "no connection"),
+        ((CONNECT_ERROR,), "failed after"),
+        ((MODBUS_ERROR, [0, 0]), "failed after"),
+        ((ERROR_RESPONSE,), "answered with an error"),
+        ((SHORT_RESPONSE, [1, 2]), "cannot be decoded"),
+    ],
+)
+async def test_every_read_is_traced_on_the_debug_level_without_the_values(
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    outcome: tuple,
+    traced: str,
+) -> None:
+    """The log says where it was read and how the device answered, never what the registers hold."""
+    install(monkeypatch, FakeDevice([outcome]))
+    caplog.set_level(logging.DEBUG, logger="custom_components.ev_charging")
+
+    await direct_read.async_read_register(hass, ENDPOINT, SPEC)
+
+    lines = [record.getMessage() for record in caplog.records if "Read of" in record.getMessage()]
+    assert len(lines) == 1
+    assert "192.0.2.10:502, unit 255, register 1500" in lines[0]
+    assert traced in lines[0]
+    assert "D4CD7650" not in lines[0].upper()
+    assert all(record.levelno == logging.DEBUG for record in caplog.records)
 
 
 async def test_a_reply_that_does_not_come_is_given_up_on(

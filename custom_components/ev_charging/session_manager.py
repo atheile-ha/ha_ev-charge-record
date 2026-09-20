@@ -166,13 +166,17 @@ class Identification:
 
 
 def _matching_cards(reported_card: str, vehicles: Sequence[Vehicle]) -> list[tuple[Vehicle, Card]]:
-    """Return the active cards of active vehicles that end with the reported value."""
+    """Return the active cards of active vehicles that begin or end with the reported value.
+
+    A wallbox may report only the start or only the end of the serial number, so
+    both count. A card that matches at both ends is still one match.
+    """
     return [
         (vehicle, card)
         for vehicle in vehicles
         if vehicle.active
         for card in vehicle.cards
-        if card.active and card.uid.endswith(reported_card)
+        if card.active and (card.uid.startswith(reported_card) or card.uid.endswith(reported_card))
     ]
 
 
@@ -188,9 +192,10 @@ def identify(
     identify themselves through their own integration and report being at
     home. A vehicle is never chosen because the others are absent.
 
-    A reported value matches a stored card when it forms the end of the full
-    identifier. A value that matches several cards is no match. A valid value
-    that matches no card at all stops the cascade: the card is someone else's.
+    A reported value matches a stored card when it forms the start or the end
+    of the full identifier. A value that matches several cards is no match. A
+    valid value that matches no card at all stops the cascade: the card is
+    someone else's.
     """
     card_uid: str | None = None
     if reported_card is not None:
@@ -848,6 +853,8 @@ class SessionManager:
             raw, mapping, default=PLUG_STATE_CONNECTED, last_class=self._plug_class
         )
         self._raise_unknown_value(found, self._wallbox_subentry, ROLE_PLUG_STATE, raw)
+        if klass != self._plug_class:
+            _LOGGER.debug("Plug state '%s' reads as %s", raw, klass)
         if klass is not None:
             self._plug_class = klass
         if klass == PLUG_STATE_NOT_CONNECTED and session is not None:
@@ -1067,6 +1074,7 @@ class SessionManager:
             trigger=trigger,
             power_since=now if self._power_active() else None,
         )
+        _LOGGER.debug("A candidate begins, started by the %s", trigger)
         session.authoritative = self._default_authoritative()
         session.last_share = self._last_share
         for kind, role in (
@@ -1144,6 +1152,8 @@ class SessionManager:
         session = self._session
         if session.state != state or session.state_since is None:
             session.state_since = self._now()
+        if session.state != state:
+            _LOGGER.debug("Session state %s -> %s", session.state, state)
         session.state = state
         self._persist()
         self._publish()
@@ -1179,6 +1189,7 @@ class SessionManager:
 
     def _discard_candidate(self) -> None:
         """Drop a candidate that did not last."""
+        _LOGGER.debug("The candidate is dropped")
         self._clear_session_timers()
         self._session = None
         self._persist()
@@ -1222,6 +1233,7 @@ class SessionManager:
             session.phases = list(merge_shortest_pauses(tuple(session.phases), MAX_PHASES - 1))
             session.flagged = True
         session.phases.append(Phase(start=_iso(now), power_max_kw=self._power_kw))
+        _LOGGER.debug("Phase %d begins", len(session.phases))
         if first and self._card_reader is not None:
             self._card_reader.begin_charging()
 
@@ -1471,6 +1483,9 @@ class SessionManager:
         assert self._card_reader is not None
         if event is resolver.ReadEvent.VALUE:
             self._report_read_failure(None)
+            session = self._session
+            if session is not None and not session.identification_decided:
+                _LOGGER.debug("Identification read; it is held for the decision")
             self._assign_late_card()
         elif event is resolver.ReadEvent.EXHAUSTED:
             self._report_read_failure(self._card_reader.failure)
@@ -1525,6 +1540,13 @@ class SessionManager:
         if result.conflict:
             session.identification_conflict = True
             session.flagged = True
+        _LOGGER.debug(
+            "Identification decided: source %s, vehicle %s, card read %s, conflict %s",
+            result.source,
+            result.vehicle_id,
+            result.card_uid is not None,
+            result.conflict,
+        )
         self._update_unknown_card_issue(result.unknown_card)
         self._evaluate_location_conflict()
         self._resolve_late()
@@ -1549,6 +1571,7 @@ class SessionManager:
             return
         reported = self._card_reader.value(session.start)
         if reported is None:
+            _LOGGER.debug("A read finished, but there is no identification to apply")
             return
         result = identify_late(
             reported,
@@ -1568,6 +1591,14 @@ class SessionManager:
         if result.conflict:
             session.identification_conflict = True
             session.flagged = True
+        _LOGGER.debug(
+            "Identification read after the decision: source %s, vehicle %s, conflict %s, "
+            "card unknown %s",
+            result.source,
+            result.vehicle_id,
+            result.conflict,
+            result.unknown_card,
+        )
         self._update_unknown_card_issue(result.unknown_card)
         self._evaluate_location_conflict()
         self._persist()
@@ -1681,6 +1712,11 @@ class SessionManager:
             return
         self._finalizing = True
         empty = self._is_empty(session, ended_by_unplug=not stale)
+        _LOGGER.debug(
+            "The session ends: %d phases, %s",
+            len(session.phases),
+            "it holds nothing and is not stored" if empty else "it is stored",
+        )
         try:
             if not empty:
                 stored = self._build_session(session, stale=stale)
