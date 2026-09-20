@@ -17,7 +17,16 @@ from .const import (
     ERROR_CLASSES,
     MAPPING_CLASS_NEUTRAL,
     MAPPING_FORMAT_VERSION,
+    MAX_DIRECT_READ_UNIT_ID,
+    MIN_DIRECT_READ_UNIT_ID,
+    MODBUS_FUNCTION_READ_HOLDING_REGISTERS,
+    MODBUS_MAX_REGISTER_ADDRESS,
+    MODBUS_MAX_REGISTER_COUNT,
     PLUG_STATE_CLASSES,
+    REGISTER_DECODE_UINT32_BIG_ENDIAN,
+    REGISTER_DECODES,
+    REGISTER_FORMATS,
+    REGISTER_ROLES,
     ROLE_CHARGE_STATE,
     ROLE_CHARGE_TYPE,
     ROLE_ERROR,
@@ -31,9 +40,8 @@ _LOGGER = logging.getLogger(__name__)
 MAPPINGS_DIR = Path(__file__).parent / "mappings"
 
 # The set of classes a role's raw values may resolve to, in addition to
-# MAPPING_CLASS_NEUTRAL. Roles not listed here (currently only
-# identification) carry a register instead of values and are not validated
-# against a class set.
+# MAPPING_CLASS_NEUTRAL. Roles not listed here carry a register instead of
+# values and are not validated against a class set.
 _ROLE_CLASSES: dict[str, tuple[str, ...]] = {
     ROLE_PLUG_STATE: PLUG_STATE_CLASSES,
     ROLE_ERROR: ERROR_CLASSES,
@@ -96,6 +104,42 @@ class DeviceMapping:
             return {}
         return role_entry.values
 
+    def role_register(self, role: str) -> dict[str, Any] | None:
+        """Return a role's register description, or None if the role has none."""
+        role_entry = self.roles.get(role)
+        return role_entry.register if role_entry is not None else None
+
+
+def _is_int_in_range(value: Any, low: int, high: int) -> bool:
+    """Whether value is an integer, and not a boolean, within low and high."""
+    return isinstance(value, int) and not isinstance(value, bool) and low <= value <= high
+
+
+def _register_error(register: dict[str, Any]) -> str | None:
+    """Return why a register entry is not acceptable, or None if it is.
+
+    Only reading holding registers (function code 3) can be expressed, and
+    only the decodings and formats the reader implements.
+    """
+    if register.get("function_code") != MODBUS_FUNCTION_READ_HOLDING_REGISTERS:
+        return "function_code must be 3"
+    if not _is_int_in_range(register.get("address"), 0, MODBUS_MAX_REGISTER_ADDRESS):
+        return "address must be an integer from 0 to 65535"
+    if not _is_int_in_range(register.get("count"), 1, MODBUS_MAX_REGISTER_COUNT):
+        return "count must be 1 or 2"
+    if register.get("decode") not in REGISTER_DECODES:
+        return f"decode must be one of {REGISTER_DECODES}"
+    if register["decode"] == REGISTER_DECODE_UINT32_BIG_ENDIAN and register["count"] != 2:
+        return "decode uint32 needs count 2"
+    if register.get("format") not in REGISTER_FORMATS:
+        return f"format must be one of {REGISTER_FORMATS}"
+    unit_id_default = register.get("unit_id_default")
+    if unit_id_default is not None and not _is_int_in_range(
+        unit_id_default, MIN_DIRECT_READ_UNIT_ID, MAX_DIRECT_READ_UNIT_ID
+    ):
+        return "unit_id_default must be an integer from 0 to 255"
+    return None
+
 
 def _parse_role(role_name: str, raw_role: Any, *, mapping_id: str) -> MappingRole | None:
     """Parse and validate one role entry. Returns None if invalid."""
@@ -129,9 +173,24 @@ def _parse_role(role_name: str, raw_role: Any, *, mapping_id: str) -> MappingRol
                 return None
         values = dict(raw_values)
 
-    if register is not None and not isinstance(register, dict):
-        _LOGGER.error("Mapping %s: role %s register must be an object", mapping_id, role_name)
-        return None
+    if register is not None:
+        if not isinstance(register, dict):
+            _LOGGER.error("Mapping %s: role %s register must be an object", mapping_id, role_name)
+            return None
+        if role_name not in REGISTER_ROLES:
+            _LOGGER.error(
+                "Mapping %s: role %s cannot be read from a register", mapping_id, role_name
+            )
+            return None
+        register_error = _register_error(register)
+        if register_error is not None:
+            _LOGGER.error(
+                "Mapping %s: role %s has an invalid register: %s",
+                mapping_id,
+                role_name,
+                register_error,
+            )
+            return None
 
     return MappingRole(
         values=values,

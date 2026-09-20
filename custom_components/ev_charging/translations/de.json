@@ -70,7 +70,13 @@
         "must_not_be_negative": "Darf nicht negativ sein.",
         "charge_power_required": "Die Ladeleistung ist erforderlich.",
         "plug_state_required": "Der Steckerzustand ist erforderlich.",
-        "energy_counter_required": "Mindestens ein Energiezähler, Gesamt- oder Sessionzähler, ist erforderlich."
+        "energy_counter_required": "Mindestens ein Energiezähler, Gesamt- oder Sessionzähler, ist erforderlich.",
+        "host_required": "Die Adresse ist erforderlich, solange das direkte Lesen aktiv ist.",
+        "port_out_of_range": "Der Port muss zwischen 1 und 65535 liegen.",
+        "unit_id_out_of_range": "Die Unit-ID muss zwischen 0 und 255 liegen.",
+        "direct_read_not_supported": "Das gewählte Wallbox-Gerät hat kein Register, das direkt gelesen werden kann.",
+        "direct_read_required": "Das Lesen der Kennung aus dem Register erfordert, dass das direkte Lesen in den Expertenoptionen aktiviert ist.",
+        "identification_source_conflict": "Entweder eine Kennungs-Entität oder das Register wählen, nicht beide."
       },
       "step": {
         "user": {
@@ -126,7 +132,8 @@
                 "energy_session": "Sessionenergiezähler",
                 "plug_state": "Steckerzustand",
                 "identification": "Kennung",
-                "error": "Fehler"
+                "error": "Fehler",
+                "identification_from_register": "Kennung aus dem Register der Wallbox lesen"
               },
               "data_description": {
                 "charge_power": "Erforderlich. Leistung, die die Wallbox liefert",
@@ -134,7 +141,8 @@
                 "energy_session": "Zähler, der bei jedem Ladevorgang zurückgesetzt wird. Mindestens ein Energiezähler ist erforderlich",
                 "plug_state": "Erforderlich. Entität mit Zustandswerten der Kabelverbindung an der Wallbox",
                 "identification": "Von der Wallbox gemeldete RFID- oder eMAID-Kennung, falls vorhanden",
-                "error": "Entität, die einen Fehlerzustand der Wallbox anzeigt"
+                "error": "Entität, die einen Fehlerzustand der Wallbox anzeigt",
+                "identification_from_register": "Liest die Kennung beim Beginn eines Ladevorgangs einmalig unmittelbar aus der Wallbox, statt aus einer Entität. Erfordert das direkte Lesen in den Expertenoptionen und ein Gerät, das dafür ein Register bereitstellt. Die Kennungs-Entität leer lassen"
               }
             },
             "expert": {
@@ -142,13 +150,22 @@
               "data": {
                 "power_threshold_kw": "Leistungsschwelle (kW)",
                 "start_debounce_s": "Entprellzeit Sessionsstart (s)",
-                "identification_window_s": "Erkennungsfenster (s)"
+                "identification_window_s": "Erkennungsfenster (s)",
+                "direct_read_enabled": "Wallbox direkt lesen (Modbus TCP)",
+                "host": "Adresse",
+                "port": "Port",
+                "unit_id": "Unit-ID"
               },
               "data_description": {
                 "power_threshold_kw": "Leistung, oberhalb der ein Sessionkandidat beginnt",
                 "start_debounce_s": "Wie lange die Leistungsschwelle überschritten bleiben muss, bevor die Session bestätigt wird",
-                "identification_window_s": "Wartezeit nach Sessionbeginn, bevor anhand der Fahrzeugentitäten das ladende Fahrzeug identifiziert wird. Relevant, wenn keine Erkennung über RFID oder eMAID möglich ist und die Aktualisierung der Entitäten verzögert stattfindet"
-              }
+                "identification_window_s": "Wartezeit nach Sessionbeginn, bevor anhand der Fahrzeugentitäten das ladende Fahrzeug identifiziert wird. Relevant, wenn keine Erkennung über RFID oder eMAID möglich ist und die Aktualisierung der Entitäten verzögert stattfindet",
+                "direct_read_enabled": "Standardmäßig aus. Solange aus, wird keine Verbindung aufgebaut, und Adresse, Port und Unit-ID unten werden nicht verwendet",
+                "host": "Hostname oder IP-Adresse der Wallbox. Erforderlich, solange das direkte Lesen aktiv ist",
+                "port": "Modbus-TCP-Port, 1 bis 65535",
+                "unit_id": "Modbus-Unit-ID, 0 bis 255"
+              },
+              "description": "Direktes Lesen: Die Wallbox wird über Modbus TCP ausschließlich lesend und einmalig beim Beginn eines Ladevorgangs gelesen. Modbus TCP ist bei der KEBA P40 im Auslieferungszustand abgeschaltet und in der KEBA-eMobility-App freizugeben; das Auslesen von Kartenkennungen ist dort zusätzlich einzeln freizugeben. Die Verbindung ist nicht verschlüsselt und gehört in ein vertrauenswürdiges Netzsegment. Die Wallbox nimmt möglicherweise nur einen Modbus-Client gleichzeitig an, und ob ein zweiter Client neben einem Energiemanagement angenommen wird, ist nicht zugesichert. Ist die Wallbox nicht erreichbar, entsteht eine Repair Issue. Softwarestände vor 1.2.1 melden die Energieregister im zehnfachen Maßstab"
             }
           }
         },
@@ -175,7 +192,8 @@
                 "energy_session": "Sessionenergiezähler",
                 "plug_state": "Steckerzustand",
                 "identification": "Kennung",
-                "error": "Fehler"
+                "error": "Fehler",
+                "identification_from_register": "Kennung aus dem Register der Wallbox lesen"
               },
               "data_description": {
                 "charge_power": "Erforderlich. Leistung, die die Wallbox liefert",
@@ -183,7 +201,8 @@
                 "energy_session": "Zähler, der bei jedem Ladevorgang zurückgesetzt wird. Mindestens ein Energiezähler ist erforderlich",
                 "plug_state": "Erforderlich. Entität mit Zustandswerten der Kabelverbindung an der Wallbox",
                 "identification": "Von der Wallbox gemeldete RFID- oder eMAID-Kennung, falls vorhanden",
-                "error": "Entität, die einen Fehlerzustand der Wallbox anzeigt"
+                "error": "Entität, die einen Fehlerzustand der Wallbox anzeigt",
+                "identification_from_register": "Liest die Kennung beim Beginn eines Ladevorgangs einmalig unmittelbar aus der Wallbox, statt aus einer Entität. Erfordert das direkte Lesen in den Expertenoptionen und ein Gerät, das dafür ein Register bereitstellt. Die Kennungs-Entität leer lassen"
               }
             },
             "expert": {
@@ -191,13 +210,22 @@
               "data": {
                 "power_threshold_kw": "Leistungsschwelle (kW)",
                 "start_debounce_s": "Entprellzeit Sessionsstart (s)",
-                "identification_window_s": "Erkennungsfenster (s)"
+                "identification_window_s": "Erkennungsfenster (s)",
+                "direct_read_enabled": "Wallbox direkt lesen (Modbus TCP)",
+                "host": "Adresse",
+                "port": "Port",
+                "unit_id": "Unit-ID"
               },
               "data_description": {
                 "power_threshold_kw": "Leistung, oberhalb der ein Sessionkandidat beginnt",
                 "start_debounce_s": "Wie lange die Leistungsschwelle überschritten bleiben muss, bevor die Session bestätigt wird",
-                "identification_window_s": "Wartezeit nach Sessionbeginn, bevor anhand der Fahrzeugentitäten das ladende Fahrzeug identifiziert wird. Relevant, wenn keine Erkennung über RFID oder eMAID möglich ist und die Aktualisierung der Entitäten verzögert stattfindet"
-              }
+                "identification_window_s": "Wartezeit nach Sessionbeginn, bevor anhand der Fahrzeugentitäten das ladende Fahrzeug identifiziert wird. Relevant, wenn keine Erkennung über RFID oder eMAID möglich ist und die Aktualisierung der Entitäten verzögert stattfindet",
+                "direct_read_enabled": "Standardmäßig aus. Solange aus, wird keine Verbindung aufgebaut, und Adresse, Port und Unit-ID unten werden nicht verwendet",
+                "host": "Hostname oder IP-Adresse der Wallbox. Erforderlich, solange das direkte Lesen aktiv ist",
+                "port": "Modbus-TCP-Port, 1 bis 65535",
+                "unit_id": "Modbus-Unit-ID, 0 bis 255"
+              },
+              "description": "Direktes Lesen: Die Wallbox wird über Modbus TCP ausschließlich lesend und einmalig beim Beginn eines Ladevorgangs gelesen. Modbus TCP ist bei der KEBA P40 im Auslieferungszustand abgeschaltet und in der KEBA-eMobility-App freizugeben; das Auslesen von Kartenkennungen ist dort zusätzlich einzeln freizugeben. Die Verbindung ist nicht verschlüsselt und gehört in ein vertrauenswürdiges Netzsegment. Die Wallbox nimmt möglicherweise nur einen Modbus-Client gleichzeitig an, und ob ein zweiter Client neben einem Energiemanagement angenommen wird, ist nicht zugesichert. Ist die Wallbox nicht erreichbar, entsteht eine Repair Issue. Softwarestände vor 1.2.1 melden die Energieregister im zehnfachen Maßstab"
             }
           }
         }
@@ -253,7 +281,7 @@
         },
         "details": {
           "title": "Fahrzeug anlegen",
-          "description": "Aktueller Wert der Kennungs-Entität der Wallbox: {identification_hint}. Manche Wallboxen melden nur das Ende der vollständigen, aufgedruckten Seriennummer; in dem Fall den fehlenden, vorangestellten Teil beim Anlegen einer Karte unten von Hand ergänzen. Der Abgleich prüft das Ende der hinterlegten Kennung.",
+          "description": "Aktueller Wert der Kennungs-Entität der Wallbox: {identification_hint}. Manche Wallboxen melden nur das Ende der vollständigen, aufgedruckten Seriennummer; in dem Fall den fehlenden, vorangestellten Teil beim Anlegen einer Karte unten von Hand ergänzen. Der Abgleich prüft das Ende der hinterlegten Kennung. Wird nicht angezeigt, solange die Wallbox die Kennung aus ihrem Register liest.",
           "data": {
             "name": "Name",
             "active": "Aktiv",
@@ -311,7 +339,7 @@
         },
         "details_reconfigure": {
           "title": "Fahrzeug bearbeiten",
-          "description": "Aktueller Wert der Kennungs-Entität der Wallbox: {identification_hint}. Manche Wallboxen melden nur das Ende der vollständigen, aufgedruckten Seriennummer; in dem Fall den fehlenden, vorangestellten Teil beim Anlegen einer Karte unten von Hand ergänzen. Der Abgleich prüft das Ende der hinterlegten Kennung.",
+          "description": "Aktueller Wert der Kennungs-Entität der Wallbox: {identification_hint}. Manche Wallboxen melden nur das Ende der vollständigen, aufgedruckten Seriennummer; in dem Fall den fehlenden, vorangestellten Teil beim Anlegen einer Karte unten von Hand ergänzen. Der Abgleich prüft das Ende der hinterlegten Kennung. Wird nicht angezeigt, solange die Wallbox die Kennung aus ihrem Register liest.",
           "data": {
             "name": "Name",
             "active": "Aktiv",
@@ -565,6 +593,14 @@
     "energy_counter_switched": {
       "title": "Energiezähler gewechselt",
       "description": "Der bisher an \"{wallbox_title}\" verwendete Energiezähler ist beim Laden nicht gestiegen, der andere schon. Die Erfassung verwendet jetzt {counter}. Prüfe die Zählerzuordnung im Wallbox-Dialog."
+    },
+    "direct_read_unreachable": {
+      "title": "Wallbox nicht direkt lesbar",
+      "description": "Die Kartenkennung konnte nicht aus \"{wallbox_title}\" gelesen werden: Die Wallbox hat auf die Modbus-Anfrage keine gültige Antwort geliefert. Prüfe Adresse, Port und Unit-ID in den Expertenoptionen der Wallbox und ob Modbus TCP an der Wallbox freigegeben ist. Die Wallbox nimmt möglicherweise nur einen Modbus-Client gleichzeitig an. Der Ladevorgang wird vollständig erfasst und über die übrigen Möglichkeiten zugeordnet."
+    },
+    "direct_read_invalid_value": {
+      "title": "Keine Kartenkennung gelesen",
+      "description": "Die Wallbox \"{wallbox_title}\" hat geantwortet, ihr Register enthält aber keine gültige Kartenkennung. Möglicherweise ist das Auslesen von Kartenkennungen in der Wallbox-App freizugeben, oder der Ladevorgang wurde nicht mit einer Karte freigegeben. Der Ladevorgang wird vollständig erfasst und über die übrigen Möglichkeiten zugeordnet."
     }
   },
   "entity": {

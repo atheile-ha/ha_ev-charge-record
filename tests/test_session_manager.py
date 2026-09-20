@@ -32,6 +32,8 @@ from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 
+from tests.fake_modbus import NO_CONNECTION, OK, FakeDevice, install, registers_for
+
 TIME_ZONE = "Europe/Berlin"
 
 POWER = "sensor.wb_power"
@@ -175,7 +177,7 @@ async def _setup(
         domain=DOMAIN,
         title=TITLE,
         data=hub or _hub(),
-        version=4,
+        version=5,
         minor_version=1,
         subentries_data=[
             _subentry(SUBENTRY_TYPE_WALLBOX, wallbox or _wallbox()),
@@ -1406,7 +1408,7 @@ async def test_live_subscription_without_a_wallbox_is_an_error(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator
 ) -> None:
     """Without a wallbox there is nothing to show."""
-    entry = MockConfigEntry(domain=DOMAIN, title=TITLE, data=_hub(), version=4, minor_version=1)
+    entry = MockConfigEntry(domain=DOMAIN, title=TITLE, data=_hub(), version=5, minor_version=1)
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
@@ -1431,3 +1433,465 @@ async def test_a_source_that_changes_its_unit_is_not_read_and_raises_an_issue(
     assert hass.states.get("sensor.ev_charging_wallbox_state").state == "idle"
     issue_id = problems.role_unit_changed_issue_id(_wallbox_subentry_id(entry), "charge_power")
     assert _issue(hass, issue_id) is not None
+
+
+# ------------------------------------------- identification read from the device
+
+DEVICE_HOST = "192.0.2.10"
+GLB_REPORTED = "11223344"
+UNKNOWN_REPORTED = "DEADBEEF"
+NOTHING_READ = "00000000"
+
+
+def _register_wallbox(**overrides: Any) -> dict[str, Any]:
+    """A wallbox whose identification comes from a register of the device."""
+    fields: dict[str, Any] = {
+        "identification": None,
+        "direct_read_enabled": True,
+        "host": DEVICE_HOST,
+        "identification_from_register": True,
+    }
+    fields.update(overrides)
+    return _wallbox(**fields)
+
+
+def _unreachable() -> tuple[Any, ...]:
+    return (NO_CONNECTION,)
+
+
+def _card(card: str) -> tuple[Any, ...]:
+    return (OK, registers_for(card))
+
+
+async def _setup_with_card(
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    source: str,
+    card: str,
+    *,
+    vehicles: tuple[dict[str, Any], ...],
+) -> tuple[MockConfigEntry, FakeDevice | None]:
+    """Set up so the wallbox reports the card through an entity or through the register."""
+    if source == "register":
+        device = install(monkeypatch, FakeDevice([_card(card)]))
+        await _setup(hass, wallbox=_register_wallbox(), vehicles=vehicles)
+        return _entry(hass), device
+    entry, _ = await _setup(hass, vehicles=vehicles)
+    await _set(hass, CARD, card)
+    return entry, None
+
+
+def _entry(hass: HomeAssistant) -> MockConfigEntry:
+    return hass.config_entries.async_entries(DOMAIN)[0]
+
+
+@pytest.mark.parametrize("source", ["entity", "register"])
+async def test_a_known_card_identifies_the_vehicle_whatever_its_source(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    source: str,
+) -> None:
+    """A card read from the register is matched like one an entity reports."""
+    await _setup_with_card(hass, monkeypatch, source, GLB_REPORTED, vehicles=(_glb(), _eqb()))
+    await _start_charging(hass, freezer)
+    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "unresolved"
+
+    await _advance(hass, freezer, 20)
+
+    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+    await _unplug(hass, freezer)
+    session = (await _stored(hass))[0]
+    assert session.vehicle_id == "v001"
+    assert session.vehicle_name == "GLB"
+    assert session.identification_source == "rfid"
+    assert session.card_uid == GLB_CARD
+    assert session.card_label == "Card GLB"
+    assert session.id.endswith("_v001")
+
+
+@pytest.mark.parametrize("source", ["entity", "register"])
+async def test_an_unknown_card_is_treated_alike_whatever_its_source(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    source: str,
+) -> None:
+    """A card no vehicle holds: the session stays unassigned, in full, with a repair issue."""
+    entry, _ = await _setup_with_card(
+        hass, monkeypatch, source, UNKNOWN_REPORTED, vehicles=(_glb(), _eqb())
+    )
+    await _set(hass, GLB_TRACKER, "home")
+    await _start_charging(hass, freezer, power_kw=6.0)
+    await _advance(hass, freezer, 600)
+    await _set(hass, TOTAL, "101.0", "kWh")
+
+    await _unplug(hass, freezer)
+
+    session = (await _stored(hass))[0]
+    assert session.vehicle_id is None
+    assert session.identification_source == "unresolved"
+    assert session.status == "followup_open"
+    assert session.card_uid == UNKNOWN_REPORTED
+    assert session.energy_measured_kwh == pytest.approx(1.0)
+    assert _issue(hass, problems.unknown_card_issue_id(_wallbox_subentry_id(entry))) is not None
+
+
+@pytest.mark.parametrize("source", ["entity", "register"])
+async def test_a_card_and_a_different_vehicle_report_conflict_whatever_the_source(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    source: str,
+) -> None:
+    """The card wins and the session is flagged, for a card from either source."""
+    await _setup_with_card(hass, monkeypatch, source, GLB_REPORTED, vehicles=(_glb(), _eqb()))
+    await _set(hass, GLB_TRACKER, "not_home")
+    await _set(hass, EQB_TRACKER, "home")
+
+    await _start_charging(hass, freezer)
+    await _advance(hass, freezer, 20)
+    await _unplug(hass, freezer)
+
+    session = (await _stored(hass))[0]
+    assert session.vehicle_id == "v001"
+    assert session.identification_conflict is True
+    assert session.status == "flagged"
+
+
+async def test_the_register_is_read_once_when_the_session_starts(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One read at the start, and no further read however long the session runs."""
+    device = install(monkeypatch, FakeDevice([_card(GLB_REPORTED)]))
+    await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+    assert len(device.clients) == 0
+
+    await _start_charging(hass, freezer)
+    assert len(device.clients) == 1
+    await _advance(hass, freezer, 20)
+    await _advance(hass, freezer, 3600)
+    await _advance(hass, freezer, 3600)
+
+    assert len(device.clients) == 1
+    assert device.reads == [(1500, 2, 255)]
+    assert device.clients[0].calls == ["connect", "read_holding_registers", "close"]
+
+
+async def test_the_connection_settings_of_the_wallbox_are_used(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Address, port and unit id of the wallbox decide where and as whom the register is read."""
+    device = install(monkeypatch, FakeDevice([_card(GLB_REPORTED)]))
+    await _setup(
+        hass,
+        wallbox=_register_wallbox(host="192.0.2.77", port=1502, unit_id=7),
+        vehicles=(_glb(),),
+    )
+
+    await _start_charging(hass, freezer)
+
+    assert device.clients[0].host == "192.0.2.77"
+    assert device.clients[0].kwargs["port"] == 1502
+    assert device.reads == [(1500, 2, 7)]
+
+
+async def test_no_read_takes_place_without_a_session(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A plugged in vehicle that does not charge, and time passing, cause no read."""
+    device = install(monkeypatch, FakeDevice([_card(GLB_REPORTED)]))
+    await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 3600)
+
+    assert device.reads == []
+
+
+async def test_a_read_that_fails_is_repeated_three_times_and_the_session_carries_on(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A lost connection: four reads in all, two seconds apart, then the role is unavailable.
+
+    The session is not touched: it runs on, is recorded in full and stays unassigned.
+    """
+    device = install(monkeypatch, FakeDevice([_unreachable()]))
+    entry, _ = await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+    subentry_id = _wallbox_subentry_id(entry)
+
+    await _start_charging(hass, freezer, power_kw=6.0)
+    assert len(device.clients) == 1
+    await _advance(hass, freezer, 1)
+    assert len(device.clients) == 1
+    await _advance(hass, freezer, 1)
+    assert len(device.clients) == 2
+    await _advance(hass, freezer, 2)
+    assert len(device.clients) == 3
+    await _advance(hass, freezer, 2)
+    assert len(device.clients) == 4
+    await _advance(hass, freezer, 600)
+    assert len(device.clients) == 4
+
+    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "charging"
+    assert _issue(hass, problems.direct_read_issue_id("direct_read_unreachable", subentry_id))
+    assert not _issue(hass, problems.direct_read_issue_id("direct_read_invalid_value", subentry_id))
+    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "unresolved"
+
+    await _set(hass, TOTAL, "101.0", "kWh")
+    await _unplug(hass, freezer)
+    session = (await _stored(hass))[0]
+    assert session.identification_source == "unresolved"
+    assert session.vehicle_id is None
+    assert session.energy_measured_kwh == pytest.approx(1.0)
+    assert session.plug_end is not None
+
+
+async def test_a_value_of_zero_is_a_failed_read_and_is_repeated(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Zero is no card: four reads, a repair issue of its own, and an unassigned session."""
+    device = install(monkeypatch, FakeDevice([_card(NOTHING_READ)]))
+    entry, _ = await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+    subentry_id = _wallbox_subentry_id(entry)
+
+    await _start_charging(hass, freezer)
+    for _ in range(3):
+        await _advance(hass, freezer, 2)
+    await _advance(hass, freezer, 600)
+
+    assert len(device.clients) == 4
+    assert _issue(hass, problems.direct_read_issue_id("direct_read_invalid_value", subentry_id))
+    assert not _issue(hass, problems.direct_read_issue_id("direct_read_unreachable", subentry_id))
+    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "unresolved"
+    assert _issue(hass, problems.unknown_card_issue_id(subentry_id)) is None
+    await _unplug(hass, freezer)
+    session = (await _stored(hass))[0]
+    assert session.identification_source == "unresolved"
+    assert session.card_uid is None
+
+
+async def test_a_valid_value_on_a_repeated_read_identifies_the_vehicle(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The card may appear after the start: a repeated read finds it, and no issue stands."""
+    device = install(
+        monkeypatch,
+        FakeDevice([_card(NOTHING_READ), _unreachable(), _card(GLB_REPORTED)]),
+    )
+    entry, _ = await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+
+    await _start_charging(hass, freezer)
+    await _advance(hass, freezer, 2)
+    await _advance(hass, freezer, 2)
+    await _advance(hass, freezer, 20)
+
+    assert len(device.clients) == 3
+    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+    subentry_id = _wallbox_subentry_id(entry)
+    assert not _issue(hass, problems.direct_read_issue_id("direct_read_unreachable", subentry_id))
+    assert not _issue(hass, problems.direct_read_issue_id("direct_read_invalid_value", subentry_id))
+
+
+async def test_the_decision_waits_for_the_read_to_conclude(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no identification window the cascade still waits for the reads, then goes on."""
+    install(monkeypatch, FakeDevice([_unreachable()]))
+    _, manager = await _setup(
+        hass,
+        wallbox=_register_wallbox(identification_window_s=0),
+        vehicles=(_glb(), _eqb()),
+    )
+    await _set(hass, GLB_TRACKER, "home")
+    await _set(hass, EQB_TRACKER, "not_home")
+
+    await _start_charging(hass, freezer)
+    assert manager.live_payload()["identification_decided"] is False
+    await _advance(hass, freezer, 2)
+    assert manager.live_payload()["identification_decided"] is False
+    await _advance(hass, freezer, 2)
+    await _advance(hass, freezer, 2)
+    assert manager.live_payload()["identification_decided"] is True
+
+    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+    await _unplug(hass, freezer)
+    assert (await _stored(hass))[0].identification_source == "vehicle_api"
+
+
+async def test_a_candidate_that_is_dropped_stops_the_repeated_reads(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A short burst of power that does not become a session leaves no further reads behind."""
+    device = install(monkeypatch, FakeDevice([_unreachable()]))
+    await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+
+    await _set(hass, PLUG, PLUGGED)
+    await _set(hass, POWER, "7.0", "kW")
+    await _advance(hass, freezer, 1)
+    assert len(device.clients) == 1
+    await _set(hass, POWER, "0", "kW")
+    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "idle"
+
+    await _advance(hass, freezer, 60)
+
+    assert len(device.clients) == 1
+
+
+async def test_the_read_is_taken_up_again_after_a_restart_before_the_decision(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A restored session that is not identified yet reads the register again."""
+    device = install(monkeypatch, FakeDevice([_card(GLB_REPORTED)]))
+    entry, _ = await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+    await _start_charging(hass, freezer)
+    assert len(device.clients) == 1
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await _advance(hass, freezer, 1)
+    assert len(device.clients) == 2
+    await _advance(hass, freezer, 20)
+
+    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+
+
+async def test_nothing_is_read_or_imported_while_the_direct_read_is_off(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without the switch, or without the register as the source, there is no client at all."""
+    device = install(monkeypatch, FakeDevice([_card(GLB_REPORTED)]))
+    entry, _ = await _setup(hass, vehicles=(_glb(),))
+    await _start_charging(hass, freezer)
+    await _advance(hass, freezer, 20)
+    await _unplug(hass, freezer)
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    for overrides in (
+        {"direct_read_enabled": False},
+        {"identification_from_register": False},
+    ):
+        wallbox = _register_wallbox(**overrides)
+        subentry = next(iter(entry.subentries.values()))
+        hass.config_entries.async_update_subentry(entry, subentry, data=wallbox)
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        await _start_charging(hass, freezer)
+        await _advance(hass, freezer, 20)
+        await _unplug(hass, freezer)
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert device.imports == 0
+    assert device.clients == []
+
+
+async def test_the_library_is_imported_when_the_wallbox_is_set_up_for_it(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Switching the direct read on is what brings the library in, and no session is needed."""
+    device = install(monkeypatch, FakeDevice([_card(GLB_REPORTED)]))
+
+    await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+
+    assert device.imports == 1
+    assert device.clients == []
+
+
+async def test_a_later_read_that_succeeds_clears_the_repair_issue(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The issue stands until the register can be read again."""
+    install(monkeypatch, FakeDevice([_unreachable()] * 4 + [_card(GLB_REPORTED)]))
+    entry, _ = await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+    issue_id = problems.direct_read_issue_id("direct_read_unreachable", _wallbox_subentry_id(entry))
+
+    await _start_charging(hass, freezer)
+    for _ in range(3):
+        await _advance(hass, freezer, 2)
+    assert _issue(hass, issue_id) is not None
+    await _unplug(hass, freezer)
+    assert _issue(hass, issue_id) is not None
+
+    await _start_charging(hass, freezer)
+    await _advance(hass, freezer, 20)
+
+    assert _issue(hass, issue_id) is None
+    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+
+
+async def test_a_stale_repair_issue_is_cleared_when_the_integration_starts(
+    hass: HomeAssistant,
+) -> None:
+    """After a change of the settings no old issue about the direct read remains."""
+    entry, _ = await _setup(hass, vehicles=(_glb(),))
+    subentry_id = _wallbox_subentry_id(entry)
+    problems.check_direct_read(
+        hass, failure="unreachable", wallbox_id=subentry_id, wallbox_title="Carport"
+    )
+    issue_id = problems.direct_read_issue_id("direct_read_unreachable", subentry_id)
+    assert _issue(hass, issue_id) is not None
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert _issue(hass, issue_id) is None
+
+
+async def test_a_failing_read_logs_one_warning_and_no_flood(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Four failed reads make one warning, and a further failing session none."""
+    install(monkeypatch, FakeDevice([_unreachable()]))
+    await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+    caplog.set_level(logging.INFO, logger="custom_components.ev_charging")
+
+    await _start_charging(hass, freezer)
+    for _ in range(3):
+        await _advance(hass, freezer, 2)
+    await _advance(hass, freezer, 60)
+    await _unplug(hass, freezer)
+    await _start_charging(hass, freezer)
+    for _ in range(3):
+        await _advance(hass, freezer, 2)
+    await _advance(hass, freezer, 60)
+
+    warnings = [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno >= logging.WARNING and record.pathname.endswith("session_manager.py")
+    ]
+    assert len(warnings) == 1
+    assert "could not be read from the wallbox" in warnings[0]
+
+
+async def test_the_card_read_from_the_register_is_never_logged(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Neither the value read nor the stored card shows up in the log, at any level."""
+    install(monkeypatch, FakeDevice([_card(GLB_REPORTED)]))
+    await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+    caplog.set_level(logging.DEBUG)
+
+    await _start_charging(hass, freezer)
+    await _advance(hass, freezer, 20)
+    await _unplug(hass, freezer)
+
+    assert (await _stored(hass))[0].vehicle_id == "v001"
+    text = " ".join(
+        record.getMessage()
+        for record in caplog.records
+        if record.name.startswith("custom_components")
+    ).lower()
+    assert GLB_REPORTED.lower() not in text
+    assert GLB_CARD.lower() not in text

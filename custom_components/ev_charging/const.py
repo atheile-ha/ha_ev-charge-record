@@ -57,6 +57,14 @@ DEFAULT_IDENTIFICATION_WINDOW_S = 15
 MIN_IDENTIFICATION_WINDOW_S = 0
 MAX_IDENTIFICATION_WINDOW_S = 300
 
+# Direct read of the wallbox (expert options of the wallbox subentry).
+DEFAULT_DIRECT_READ_PORT = 502
+MIN_DIRECT_READ_PORT = 1
+MAX_DIRECT_READ_PORT = 65535
+DEFAULT_DIRECT_READ_UNIT_ID = 255
+MIN_DIRECT_READ_UNIT_ID = 0
+MAX_DIRECT_READ_UNIT_ID = 255
+
 # Global hub settings (4.2). Only the fields without an entity selector are
 # handled here; the remaining fields are added once entity roles exist.
 DEFAULT_UPDATE_INTERVAL_S = 30
@@ -197,6 +205,29 @@ MAPPING_CLASS_NEUTRAL = "neutral"
 # Only this mapping file format is understood (4.7).
 MAPPING_FORMAT_VERSION = 1
 
+# What a mapping file's register entry may say. Anything else is rejected when
+# the file is loaded.
+MODBUS_FUNCTION_READ_HOLDING_REGISTERS = 3
+MODBUS_MAX_REGISTER_ADDRESS = 65535
+MODBUS_MAX_REGISTER_COUNT = 2
+REGISTER_DECODE_UINT32_BIG_ENDIAN = "uint32_big_endian_word_order"
+REGISTER_DECODES = (REGISTER_DECODE_UINT32_BIG_ENDIAN,)
+REGISTER_FORMAT_HEX_UPPER_8 = "hex_upper_8"
+REGISTER_FORMATS = (REGISTER_FORMAT_HEX_UPPER_8,)
+# Roles a mapping file may feed from a register instead of an entity.
+REGISTER_ROLES = ("identification",)
+
+# Reading a role from the device: one read when the session starts, and only
+# if that fails up to this many further reads, spaced apart.
+DIRECT_READ_RETRIES = 3
+DIRECT_READ_RETRY_INTERVAL_S = 2
+# Bound for connecting and for the reply of one read.
+DIRECT_READ_TIMEOUT_S = 3
+
+# How a completed read of the identification failed.
+READ_FAILURE_UNREACHABLE = "unreachable"
+READ_FAILURE_INVALID_VALUE = "invalid_value"
+
 # Selectable in the vehicle device-choice step in place of a mapping id, for a
 # vehicle with no connected online integration (5.2). Never stored: resolves
 # to mapping_id = None.
@@ -259,3 +290,5 @@ ISSUE_UNKNOWN_MAPPING_VALUE = "unknown_mapping_value"
 ISSUE_MAPPING_SOURCE_BELOW_MIN_VERSION = "mapping_source_below_min_version"
 ISSUE_UNKNOWN_CARD = "unknown_card"
 ISSUE_COUNTER_SWITCHED = "energy_counter_switched"
+ISSUE_DIRECT_READ_UNREACHABLE = "direct_read_unreachable"
+ISSUE_DIRECT_READ_INVALID_VALUE = "direct_read_invalid_value"

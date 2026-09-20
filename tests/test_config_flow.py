@@ -20,6 +20,8 @@ from pytest_homeassistant_custom_component.common import (
     mock_integration,
 )
 
+from tests.fake_modbus import NO_CONNECTION, FakeDevice, install
+
 WALLBOX_MAPPING_ID = "openems_keba_p40"
 VEHICLE_MAPPING_ID = "mbapi2020_mercedes_me"
 
@@ -85,6 +87,12 @@ def _source_entities(hass: HomeAssistant) -> None:
     hass.states.async_set("sensor.vehicle_charge_type", "13")
     hass.states.async_set("device_tracker.vehicle", "home")
     hass.states.async_set("sensor.grid_power", "500", {"unit_of_measurement": "W"})
+
+
+@pytest.fixture(autouse=True)
+def _no_device(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep every wallbox set up in these tests from reaching a real device."""
+    install(monkeypatch, FakeDevice([(NO_CONNECTION,)]))
 
 
 @pytest.fixture(autouse=True)
@@ -1032,3 +1040,248 @@ async def test_renaming_role_entity_keeps_resolution_valid(hass: HomeAssistant) 
         entity_id=entity_entry.entity_id, registry_entry_id=registry_entry_id, unit="kW"
     )
     assert resolver.resolve_entity_id(hass, role) == "sensor.renamed_power"
+
+
+# ------------------------------------------------------------------ direct read
+
+DEVICE_HOST = "192.0.2.10"
+
+DIRECT_READ = {
+    "direct_read_enabled": True,
+    "host": DEVICE_HOST,
+    "port": 502,
+    "unit_id": 255,
+}
+
+
+def _section_fields(data_schema: Any, section_name: str) -> set[str]:
+    """Return the field names of one section of a details form."""
+    schema = data_schema.schema
+    key = next(key for key in schema if str(key) == section_name)
+    return {str(field) for field in schema[key].schema.schema}
+
+
+async def _details_form(hass: HomeAssistant, entry: MockConfigEntry, mapping_id: str) -> Any:
+    """Open the wallbox details form for a chosen device."""
+    result = await hass.config_entries.subentries.async_init(
+        (entry.entry_id, SUBENTRY_TYPE_WALLBOX), context={"source": SOURCE_USER}
+    )
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"mapping_id": mapping_id}
+    )
+    assert result["step_id"] == "details"
+    return result
+
+
+async def test_the_direct_read_is_off_by_default(hass: HomeAssistant) -> None:
+    """A wallbox saved without touching the expert options does not read the device."""
+    entry = await _setup_hub(hass)
+
+    result = await _add_wallbox(hass, entry)
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"]["direct_read_enabled"] is False
+    assert result["data"]["host"] is None
+    assert result["data"]["port"] == 502
+    assert result["data"]["unit_id"] == 255
+    assert result["data"]["identification_from_register"] is False
+
+
+async def test_the_direct_read_settings_are_expert_options(hass: HomeAssistant) -> None:
+    """Switch, address, port and unit id sit in the expert options, not in a step of their own."""
+    entry = await _setup_hub(hass)
+
+    result = await _details_form(hass, entry, WALLBOX_MAPPING_ID)
+
+    assert {"direct_read_enabled", "host", "port", "unit_id"} <= _section_fields(
+        result["data_schema"], "expert"
+    )
+    assert result["step_id"] == "details"
+
+
+async def test_the_direct_read_can_be_set_up_with_the_register_as_the_identification(
+    hass: HomeAssistant,
+) -> None:
+    """The register is chosen as the source of the identification, next to the entity option."""
+    entry = await _setup_hub(hass)
+
+    result = await _add_wallbox(
+        hass,
+        entry,
+        roles={"identification_from_register": True},
+        expert=DIRECT_READ,
+    )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"]["direct_read_enabled"] is True
+    assert result["data"]["host"] == DEVICE_HOST
+    assert result["data"]["port"] == 502
+    assert result["data"]["unit_id"] == 255
+    assert result["data"]["identification_from_register"] is True
+    assert result["data"]["identification"] is None
+
+
+async def test_the_register_is_offered_only_for_a_device_that_has_one(hass: HomeAssistant) -> None:
+    """The KEBA P40 has a register for the identification; the Webasto Next has none."""
+    entry = await _setup_hub(hass)
+
+    keba = await _details_form(hass, entry, WALLBOX_MAPPING_ID)
+    assert "identification_from_register" in _section_fields(keba["data_schema"], "roles")
+    hass.config_entries.subentries.async_abort(keba["flow_id"])
+
+    webasto = await _details_form(hass, entry, "openems_webasto_next")
+    assert "identification_from_register" not in _section_fields(webasto["data_schema"], "roles")
+
+
+async def test_host_port_and_unit_id_are_not_asked_while_the_direct_read_is_off(
+    hass: HomeAssistant,
+) -> None:
+    """Nothing about the connection is checked while the switch is off."""
+    entry = await _setup_hub(hass)
+
+    result = await _add_wallbox(
+        hass,
+        entry,
+        expert={"direct_read_enabled": False, "host": "", "port": 70000, "unit_id": 999},
+    )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"]["direct_read_enabled"] is False
+    assert result["data"]["host"] is None
+
+
+async def test_the_direct_read_needs_an_address(hass: HomeAssistant) -> None:
+    """With the switch on, an address is required."""
+    entry = await _setup_hub(hass)
+
+    result = await _add_wallbox(hass, entry, expert={**DIRECT_READ, "host": "  "})
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"host": "host_required"}
+
+
+@pytest.mark.parametrize("port", [0, 65536])
+async def test_the_direct_read_port_must_be_valid(hass: HomeAssistant, port: int) -> None:
+    """The port is from 1 to 65535."""
+    entry = await _setup_hub(hass)
+
+    result = await _add_wallbox(hass, entry, expert={**DIRECT_READ, "port": port})
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"port": "port_out_of_range"}
+
+
+@pytest.mark.parametrize("unit_id", [-1, 256])
+async def test_the_direct_read_unit_id_must_be_valid(hass: HomeAssistant, unit_id: int) -> None:
+    """The unit id is from 0 to 255."""
+    entry = await _setup_hub(hass)
+
+    result = await _add_wallbox(hass, entry, expert={**DIRECT_READ, "unit_id": unit_id})
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"unit_id": "unit_id_out_of_range"}
+
+
+async def test_the_unit_id_zero_and_the_port_limits_are_accepted(hass: HomeAssistant) -> None:
+    """The bounds themselves are valid."""
+    entry = await _setup_hub(hass)
+
+    result = await _add_wallbox(hass, entry, expert={**DIRECT_READ, "port": 65535, "unit_id": 0})
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"]["port"] == 65535
+    assert result["data"]["unit_id"] == 0
+
+
+async def test_the_direct_read_is_refused_for_a_device_without_a_register(
+    hass: HomeAssistant,
+) -> None:
+    """A device the mapping gives no register for cannot be read directly."""
+    entry = await _setup_hub(hass)
+
+    result = await _add_wallbox(hass, entry, mapping_id="openems_webasto_next", expert=DIRECT_READ)
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"direct_read_enabled": "direct_read_not_supported"}
+
+
+async def test_the_register_as_identification_needs_the_direct_read(hass: HomeAssistant) -> None:
+    """Choosing the register while the switch is off is rejected."""
+    entry = await _setup_hub(hass)
+
+    result = await _add_wallbox(hass, entry, roles={"identification_from_register": True})
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"identification_from_register": "direct_read_required"}
+
+
+async def test_the_identification_is_an_entity_or_the_register_not_both(
+    hass: HomeAssistant,
+) -> None:
+    """An identification entity and the register together are rejected."""
+    entry = await _setup_hub(hass)
+
+    result = await _add_wallbox(
+        hass,
+        entry,
+        roles={
+            "identification": "sensor.wallbox_identification",
+            "identification_from_register": True,
+        },
+        expert=DIRECT_READ,
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"identification": "identification_source_conflict"}
+
+
+async def test_the_direct_read_settings_can_be_changed_without_a_new_wallbox(
+    hass: HomeAssistant,
+) -> None:
+    """A new address is a change of the expert options; the wallbox keeps its id."""
+    entry = await _setup_hub(hass)
+    await _add_wallbox(
+        hass, entry, roles={"identification_from_register": True}, expert=DIRECT_READ
+    )
+    subentry = next(iter(entry.get_subentries_of_type(SUBENTRY_TYPE_WALLBOX)))
+
+    result = await _add_wallbox(
+        hass,
+        entry,
+        subentry_id=subentry.subentry_id,
+        roles={"identification_from_register": True},
+        expert={**DIRECT_READ, "host": "192.0.2.11", "port": 1502, "unit_id": 1},
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    data = entry.subentries[subentry.subentry_id].data
+    assert data["id"] == "wb001"
+    assert data["host"] == "192.0.2.11"
+    assert data["port"] == 1502
+    assert data["unit_id"] == 1
+    assert data["identification_from_register"] is True
+
+
+async def test_changing_to_a_device_without_a_register_drops_the_register_choice(
+    hass: HomeAssistant,
+) -> None:
+    """The register option is not offered for the new device, so the choice does not carry over."""
+    entry = await _setup_hub(hass)
+    await _add_wallbox(
+        hass, entry, roles={"identification_from_register": True}, expert=DIRECT_READ
+    )
+    subentry = next(iter(entry.get_subentries_of_type(SUBENTRY_TYPE_WALLBOX)))
+
+    result = await _add_wallbox(
+        hass,
+        entry,
+        subentry_id=subentry.subentry_id,
+        mapping_id="openems_webasto_next",
+        expert={"direct_read_enabled": False},
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    data = entry.subentries[subentry.subentry_id].data
+    assert data["identification_from_register"] is False
+    assert data["direct_read_enabled"] is False

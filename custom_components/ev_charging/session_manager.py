@@ -45,10 +45,8 @@ from .const import (
     ERROR_DEBOUNCE_S,
     FINAL_VALUES_GRACE_S,
     GRID_POWER_WINDOW_S,
-    IDENTIFICATION_MAX_AGE_MIN,
     IDENTIFICATION_SOURCE_UNRESOLVED,
     IDENTIFICATION_SOURCE_VEHICLE_API,
-    INVALID_CARD_UIDS,
     LIVE_PUSH_INTERVAL_S,
     LOCATION_HOME,
     MAX_PHASES,
@@ -98,7 +96,6 @@ from .models import (
     Wallbox,
     derive_energy_kwh,
     merge_shortest_pauses,
-    normalize_card_uid,
 )
 from .store import RuntimeStore, SessionYearStore, async_list_session_years
 
@@ -458,6 +455,9 @@ class SessionManager:
         self._counter_detection: dict[str, str] | None = None
         self._open_followups = 0
         self._finalizing = False
+        self._card_reader: resolver.IdentificationReader | None = None
+        self._identification_waiting = False
+        self._direct_read_failure: str | None = None
         self.snapshot = self._build_snapshot()
 
     # ------------------------------------------------------------------ setup
@@ -492,6 +492,11 @@ class SessionManager:
         self._wallbox_mapping = await resolver.async_get_mapping(
             self._hass, self.wallbox.mapping_id
         )
+        self._card_reader = resolver.IdentificationReader(
+            self._hass, self.wallbox, self._wallbox_mapping
+        )
+        await self._card_reader.async_prepare()
+        problems.async_clear_direct_read_issues(self._hass, wallbox_id=wallbox_subentry.subentry_id)
         for subentry in self._entry.subentries.values():
             if subentry.subentry_type == SUBENTRY_TYPE_VEHICLE:
                 vehicle = Vehicle.from_dict(subentry.data)
@@ -538,6 +543,8 @@ class SessionManager:
         self._source_unsubs.clear()
         for name in list(self._timers):
             self._cancel_timer(name)
+        if self._card_reader is not None:
+            self._card_reader.cancel()
         self._listeners.clear()
         self._live_listeners.clear()
         if self._session is not None:
@@ -960,6 +967,7 @@ class SessionManager:
             self._confirm_candidate(now)
         else:
             self._set_timer("debounce", self.wallbox.start_debounce_s, self._on_debounce_timer)
+        self._begin_identification()
         self._schedule_identification()
 
     def _start_counter_check(self) -> None:
@@ -981,6 +989,9 @@ class SessionManager:
             "counter_check",
         ):
             self._cancel_timer(name)
+        if self._card_reader is not None:
+            self._card_reader.cancel()
+        self._identification_waiting = False
 
     def _default_authoritative(self) -> str:
         """Return the counter that carries the energy, from the stored detection or the setup."""
@@ -1295,20 +1306,38 @@ class SessionManager:
         self._timers.pop("identification", None)
         self._decide_identification()
 
-    def _read_reported_card(self, session_start: datetime) -> str | None:
-        """Return the card value the wallbox reports, if it is valid and recent."""
-        assert self.wallbox is not None
-        entity_id = resolver.resolve_entity_id(self._hass, self.wallbox.identification)
-        state = self._hass.states.get(entity_id) if entity_id else None
-        raw = resolver.usable_state(state)
-        if raw is None or state is None:
-            return None
-        normalized = normalize_card_uid(raw)
-        if not normalized or normalized in INVALID_CARD_UIDS:
-            return None
-        if state.last_changed < session_start - timedelta(minutes=IDENTIFICATION_MAX_AGE_MIN):
-            return None
-        return normalized
+    def _begin_identification(self) -> None:
+        """Start retrieving the reported identification for the session that just began."""
+        assert self._card_reader is not None
+        self._identification_waiting = False
+        self._card_reader.begin(self._on_identification_read_done)
+
+    @callback
+    def _on_identification_read_done(self) -> None:
+        """Note that the identification is retrieved, and decide if that was waited for."""
+        assert self._card_reader is not None
+        self._report_read_failure(self._card_reader.failure)
+        if self._identification_waiting:
+            self._identification_waiting = False
+            self._decide_identification()
+
+    def _report_read_failure(self, failure: str | None) -> None:
+        """Raise or clear the repair issue for a failed retrieval, and log a change once."""
+        subentry = self._wallbox_subentry
+        assert subentry is not None
+        problems.check_direct_read(
+            self._hass,
+            failure=failure,
+            wallbox_id=subentry.subentry_id,
+            wallbox_title=subentry.title,
+        )
+        if failure is not None and failure != self._direct_read_failure:
+            _LOGGER.warning("The identification could not be read from the wallbox: %s", failure)
+        elif failure is not None:
+            _LOGGER.debug("The identification could not be read from the wallbox: %s", failure)
+        elif self._direct_read_failure is not None:
+            _LOGGER.info("The identification can be read from the wallbox again")
+        self._direct_read_failure = failure
 
     def _vehicle_location(self, context: VehicleContext) -> str | None:
         """Return the state of a vehicle's location tracker, None when unusable."""
@@ -1321,6 +1350,10 @@ class SessionManager:
         session = self._session
         if session is None or session.identification_decided:
             return
+        assert self._card_reader is not None
+        if self._card_reader.pending:
+            self._identification_waiting = True
+            return
         vehicles = [context.vehicle for context in self._vehicles.values()]
         home_ids = {
             context.vehicle.id
@@ -1329,7 +1362,7 @@ class SessionManager:
             and context.vehicle.identify_by_vehicle_api
             and self._vehicle_location(context) == TRACKER_STATE_HOME
         }
-        result = identify(self._read_reported_card(session.start), vehicles, home_ids)
+        result = identify(self._card_reader.value(session.start), vehicles, home_ids)
         session.identification_decided = True
         session.identification_source = result.source
         session.card_uid = result.card_uid
@@ -1645,6 +1678,7 @@ class SessionManager:
             elapsed = (now - session.plug_unavailable_since).total_seconds()
             self._set_timer("stale", SESSION_TIMEOUT_H * 3600 - elapsed, self._on_stale_timer)
         if not session.identification_decided:
+            self._begin_identification()
             self._schedule_identification()
         self._start_counter_check()
 

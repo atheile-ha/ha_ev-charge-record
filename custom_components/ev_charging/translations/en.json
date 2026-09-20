@@ -70,7 +70,13 @@
         "must_not_be_negative": "Must not be negative.",
         "charge_power_required": "Charging power is required.",
         "plug_state_required": "Plug state is required.",
-        "energy_counter_required": "At least one energy counter, total or session, is required."
+        "energy_counter_required": "At least one energy counter, total or session, is required.",
+        "host_required": "The address is required while the direct read is on.",
+        "port_out_of_range": "The port must be between 1 and 65535.",
+        "unit_id_out_of_range": "The unit ID must be between 0 and 255.",
+        "direct_read_not_supported": "The chosen wallbox device has no register that can be read directly.",
+        "direct_read_required": "Reading the identification from the register needs the direct read to be switched on in the expert options.",
+        "identification_source_conflict": "Choose either an identification entity or the register, not both."
       },
       "step": {
         "user": {
@@ -126,7 +132,8 @@
                 "energy_session": "Session energy counter",
                 "plug_state": "Plug state",
                 "identification": "Identification",
-                "error": "Error"
+                "error": "Error",
+                "identification_from_register": "Read identification from the wallbox register"
               },
               "data_description": {
                 "charge_power": "Required. Power the wallbox delivers",
@@ -134,7 +141,8 @@
                 "energy_session": "Counter that resets at the start of each charging session. At least one energy counter is required",
                 "plug_state": "Required. Entity with status values of the wallbox's cable connection",
                 "identification": "RFID or eMAID reported by the wallbox, if available",
-                "error": "Entity indicating an error state of the wallbox"
+                "error": "Entity indicating an error state of the wallbox",
+                "identification_from_register": "Reads the identification directly from the wallbox once when a charging session starts, instead of from an entity. Needs the direct read in the expert options and a device that provides a register for it. Leave the identification entity empty"
               }
             },
             "expert": {
@@ -142,13 +150,22 @@
               "data": {
                 "power_threshold_kw": "Power threshold (kW)",
                 "start_debounce_s": "Session start debounce (s)",
-                "identification_window_s": "Identification window (s)"
+                "identification_window_s": "Identification window (s)",
+                "direct_read_enabled": "Read the wallbox directly (Modbus TCP)",
+                "host": "Address",
+                "port": "Port",
+                "unit_id": "Unit ID"
               },
               "data_description": {
                 "power_threshold_kw": "Power above which a session candidate starts",
                 "start_debounce_s": "How long the power threshold must hold before the session is confirmed",
-                "identification_window_s": "How long to wait after session start before the charging vehicle is identified from the vehicle entities. Relevant when identification via RFID or eMAID is not possible and entity updates arrive with a delay"
-              }
+                "identification_window_s": "How long to wait after session start before the charging vehicle is identified from the vehicle entities. Relevant when identification via RFID or eMAID is not possible and entity updates arrive with a delay",
+                "direct_read_enabled": "Off by default. While off, no connection is made and the address, port and unit ID below are not used",
+                "host": "Host name or IP address of the wallbox. Required while the direct read is on",
+                "port": "Modbus TCP port, 1 to 65535",
+                "unit_id": "Modbus unit ID, 0 to 255"
+              },
+              "description": "Direct read: the wallbox is read over Modbus TCP, read-only, once when a charging session starts. Modbus TCP is switched off on delivery of the KEBA P40 and has to be enabled in the KEBA eMobility app; reading card identifiers has to be enabled there separately. The connection is not encrypted, use it in a trusted network segment. The wallbox may accept only one Modbus client at a time, and whether a second client is accepted next to an energy management system is not guaranteed. If the wallbox cannot be reached, a repair issue is created. Firmware versions before 1.2.1 report the energy registers at ten times the scale"
             }
           }
         },
@@ -175,7 +192,8 @@
                 "energy_session": "Session energy counter",
                 "plug_state": "Plug state",
                 "identification": "Identification",
-                "error": "Error"
+                "error": "Error",
+                "identification_from_register": "Read identification from the wallbox register"
               },
               "data_description": {
                 "charge_power": "Required. Power the wallbox delivers",
@@ -183,7 +201,8 @@
                 "energy_session": "Counter that resets at the start of each charging session. At least one energy counter is required",
                 "plug_state": "Required. Entity with status values of the wallbox's cable connection",
                 "identification": "RFID or eMAID reported by the wallbox, if available",
-                "error": "Entity indicating an error state of the wallbox"
+                "error": "Entity indicating an error state of the wallbox",
+                "identification_from_register": "Reads the identification directly from the wallbox once when a charging session starts, instead of from an entity. Needs the direct read in the expert options and a device that provides a register for it. Leave the identification entity empty"
               }
             },
             "expert": {
@@ -191,13 +210,22 @@
               "data": {
                 "power_threshold_kw": "Power threshold (kW)",
                 "start_debounce_s": "Session start debounce (s)",
-                "identification_window_s": "Identification window (s)"
+                "identification_window_s": "Identification window (s)",
+                "direct_read_enabled": "Read the wallbox directly (Modbus TCP)",
+                "host": "Address",
+                "port": "Port",
+                "unit_id": "Unit ID"
               },
               "data_description": {
                 "power_threshold_kw": "Power above which a session candidate starts",
                 "start_debounce_s": "How long the power threshold must hold before the session is confirmed",
-                "identification_window_s": "How long to wait after session start before the charging vehicle is identified from the vehicle entities. Relevant when identification via RFID or eMAID is not possible and entity updates arrive with a delay"
-              }
+                "identification_window_s": "How long to wait after session start before the charging vehicle is identified from the vehicle entities. Relevant when identification via RFID or eMAID is not possible and entity updates arrive with a delay",
+                "direct_read_enabled": "Off by default. While off, no connection is made and the address, port and unit ID below are not used",
+                "host": "Host name or IP address of the wallbox. Required while the direct read is on",
+                "port": "Modbus TCP port, 1 to 65535",
+                "unit_id": "Modbus unit ID, 0 to 255"
+              },
+              "description": "Direct read: the wallbox is read over Modbus TCP, read-only, once when a charging session starts. Modbus TCP is switched off on delivery of the KEBA P40 and has to be enabled in the KEBA eMobility app; reading card identifiers has to be enabled there separately. The connection is not encrypted, use it in a trusted network segment. The wallbox may accept only one Modbus client at a time, and whether a second client is accepted next to an energy management system is not guaranteed. If the wallbox cannot be reached, a repair issue is created. Firmware versions before 1.2.1 report the energy registers at ten times the scale"
             }
           }
         }
@@ -253,7 +281,7 @@
         },
         "details": {
           "title": "Add vehicle",
-          "description": "Current value reported by the wallbox's identification entity: {identification_hint}. Some wallboxes report only the end of the full serial number printed on the card; if so, prepend the missing leading part by hand when entering a card below. Matching happens against the end of the stored value.",
+          "description": "Current value reported by the wallbox's identification entity: {identification_hint}. Some wallboxes report only the end of the full serial number printed on the card; if so, prepend the missing leading part by hand when entering a card below. Matching happens against the end of the stored value. Not shown while the wallbox reads the identification from its register.",
           "data": {
             "name": "Name",
             "active": "Active",
@@ -311,7 +339,7 @@
         },
         "details_reconfigure": {
           "title": "Edit vehicle",
-          "description": "Current value reported by the wallbox's identification entity: {identification_hint}. Some wallboxes report only the end of the full serial number printed on the card; if so, prepend the missing leading part by hand when entering a card below. Matching happens against the end of the stored value.",
+          "description": "Current value reported by the wallbox's identification entity: {identification_hint}. Some wallboxes report only the end of the full serial number printed on the card; if so, prepend the missing leading part by hand when entering a card below. Matching happens against the end of the stored value. Not shown while the wallbox reads the identification from its register.",
           "data": {
             "name": "Name",
             "active": "Active",
@@ -565,6 +593,14 @@
     "energy_counter_switched": {
       "title": "Energy counter switched",
       "description": "The energy counter previously used at \"{wallbox_title}\" did not increase during charging while the other one did. The capture now uses {counter}. Check the counter assignment in the wallbox dialog."
+    },
+    "direct_read_unreachable": {
+      "title": "Wallbox not readable directly",
+      "description": "The card identifier could not be read from \"{wallbox_title}\": the wallbox gave no valid answer to the Modbus request. Check the address, port and unit ID in the expert options of the wallbox and that Modbus TCP is enabled on the wallbox. The wallbox may accept only one Modbus client at a time. The charging session is recorded in full and is identified by the other means available."
+    },
+    "direct_read_invalid_value": {
+      "title": "No card identifier read",
+      "description": "The wallbox \"{wallbox_title}\" answered, but its register holds no valid card identifier. Reading card identifiers may need to be enabled in the wallbox app, or the charging session was not authorized with a card. The charging session is recorded in full and is identified by the other means available."
     }
   },
   "entity": {

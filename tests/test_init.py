@@ -1,5 +1,8 @@
 """Tests for setting up, unloading and removing the ev_charging config entry."""
 
+import logging
+
+import pytest
 from custom_components.ev_charging import problems
 from custom_components.ev_charging.const import (
     DOMAIN,
@@ -79,7 +82,7 @@ async def test_migrate_entry_adds_hub_settings(hass: HomeAssistant) -> None:
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert entry.version == 4
+    assert entry.version == 5
     assert entry.minor_version == 1
     assert entry.data == CURRENT_DATA
 
@@ -102,7 +105,7 @@ async def test_migrate_entry_v2_adds_grid_and_price_roles(hass: HomeAssistant) -
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert entry.version == 4
+    assert entry.version == 5
     assert entry.data == CURRENT_DATA
 
 
@@ -324,7 +327,7 @@ async def test_migrate_entry_discards_stored_state_mappings(hass: HomeAssistant)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert entry.version == 4
+    assert entry.version == 5
     wallbox_data = next(
         sub.data for sub in entry.subentries.values() if sub.subentry_type == SUBENTRY_TYPE_WALLBOX
     )
@@ -337,6 +340,71 @@ async def test_migrate_entry_discards_stored_state_mappings(hass: HomeAssistant)
     assert "charge_state_mapping" not in vehicle_data
     assert "charge_type_mapping" not in vehicle_data
     assert vehicle_data["mapping_id"] is None
+
+
+async def test_migrate_entry_v4_adds_the_direct_read_settings_once(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """v4 to v5 gives the wallbox its direct read settings, switched off, and runs once."""
+    caplog.set_level(logging.INFO)
+    wallbox = _wallbox_subentry_data(charge_power=EntityRole(entity_id="sensor.wallbox_power"))
+    for key in (
+        "direct_read_enabled",
+        "host",
+        "port",
+        "unit_id",
+        "identification_from_register",
+    ):
+        del wallbox[key]
+    wallbox["mapping_id"] = "openems_keba_p40"
+    vehicle = Vehicle(id="v001", name="GLB 250+ EQ", capacity_kwh=85.0).to_dict()
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title=TITLE,
+        data=CURRENT_DATA,
+        version=4,
+        minor_version=1,
+        subentries_data=[
+            {
+                "data": wallbox,
+                "subentry_type": SUBENTRY_TYPE_WALLBOX,
+                "title": "Carport",
+                "unique_id": None,
+            },
+            {
+                "data": vehicle,
+                "subentry_type": SUBENTRY_TYPE_VEHICLE,
+                "title": "GLB 250+ EQ",
+                "unique_id": None,
+            },
+        ],
+    )
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.version == 5
+    wallbox_data = next(
+        sub.data for sub in entry.subentries.values() if sub.subentry_type == SUBENTRY_TYPE_WALLBOX
+    )
+    assert wallbox_data["direct_read_enabled"] is False
+    assert wallbox_data["host"] is None
+    assert wallbox_data["port"] == 502
+    assert wallbox_data["unit_id"] == 255
+    assert wallbox_data["identification_from_register"] is False
+    assert wallbox_data["mapping_id"] == "openems_keba_p40"
+    assert wallbox_data["name"] == "Carport"
+    vehicle_data = next(
+        sub.data for sub in entry.subentries.values() if sub.subentry_type == SUBENTRY_TYPE_VEHICLE
+    )
+    assert dict(vehicle_data) == vehicle
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    migrations = [message for message in caplog.messages if "to 5.1" in message]
+    assert len(migrations) == 1
 
 
 async def test_mapping_source_below_min_version_creates_repair_issue(hass: HomeAssistant) -> None:

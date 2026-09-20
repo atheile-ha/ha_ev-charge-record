@@ -10,6 +10,8 @@ from .const import (
     CARD_TYPE_RFID,
     CHARGE_TYPE_UNKNOWN,
     COST_MODE_DYNAMIC,
+    DEFAULT_DIRECT_READ_PORT,
+    DEFAULT_DIRECT_READ_UNIT_ID,
     DEFAULT_ESTIMATE_UNCERTAIN_THRESHOLD_PCT,
     DEFAULT_GEOCODING_ENABLED,
     DEFAULT_GEOCODING_URL,
@@ -109,6 +111,15 @@ class Wallbox:
     power_threshold_kw: float = DEFAULT_POWER_THRESHOLD_KW
     start_debounce_s: int = DEFAULT_START_DEBOUNCE_S
     identification_window_s: int = DEFAULT_IDENTIFICATION_WINDOW_S
+    # Read-only access to the wallbox itself. host, port and unit_id are only
+    # used while direct_read_enabled is set.
+    direct_read_enabled: bool = False
+    host: str | None = None
+    port: int = DEFAULT_DIRECT_READ_PORT
+    unit_id: int = DEFAULT_DIRECT_READ_UNIT_ID
+    # The identification role is read from the device's register, taken from
+    # the chosen mapping, instead of from an entity. Needs direct_read_enabled.
+    identification_from_register: bool = False
     # id of the chosen mapping file (4.7). Mandatory before a wallbox can be
     # saved, since plug_state can only be classified once a device is chosen.
     mapping_id: str | None = None
@@ -135,6 +146,11 @@ class Wallbox:
             "power_threshold_kw": self.power_threshold_kw,
             "start_debounce_s": self.start_debounce_s,
             "identification_window_s": self.identification_window_s,
+            "direct_read_enabled": self.direct_read_enabled,
+            "host": self.host,
+            "port": self.port,
+            "unit_id": self.unit_id,
+            "identification_from_register": self.identification_from_register,
             "mapping_id": self.mapping_id,
             "charge_power": _role_to_dict(self.charge_power),
             "energy_total": _role_to_dict(self.energy_total),
@@ -159,6 +175,11 @@ class Wallbox:
             identification_window_s=data.get(
                 "identification_window_s", DEFAULT_IDENTIFICATION_WINDOW_S
             ),
+            direct_read_enabled=data.get("direct_read_enabled", False),
+            host=data.get("host"),
+            port=data.get("port", DEFAULT_DIRECT_READ_PORT),
+            unit_id=data.get("unit_id", DEFAULT_DIRECT_READ_UNIT_ID),
+            identification_from_register=data.get("identification_from_register", False),
             mapping_id=data.get("mapping_id"),
             charge_power=_role_from_dict(data.get("charge_power")),
             energy_total=_role_from_dict(data.get("energy_total")),

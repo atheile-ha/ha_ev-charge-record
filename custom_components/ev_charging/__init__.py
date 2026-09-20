@@ -335,4 +335,19 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             entry.entry_id,
             from_version,
         )
+
+    if entry.version == 4:
+        from_version = f"{entry.version}.{entry.minor_version}"
+        for subentry in entry.subentries.values():
+            if subentry.subentry_type == SUBENTRY_TYPE_WALLBOX:
+                wallbox = Wallbox.from_dict(subentry.data)
+                hass.config_entries.async_update_subentry(entry, subentry, data=wallbox.to_dict())
+
+        hass.config_entries.async_update_entry(entry, version=5, minor_version=1)
+        _LOGGER.info(
+            "Migrated ev_charging config entry %s from version %s to 5.1, adding the direct "
+            "read settings of the wallbox with the direct read switched off",
+            entry.entry_id,
+            from_version,
+        )
     return True

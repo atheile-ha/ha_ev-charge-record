@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from datetime import datetime, timedelta
 
 from awesomeversion import AwesomeVersion
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -11,21 +12,31 @@ from homeassistant.core import Event, HomeAssistant, State, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.entity_registry import EventEntityRegistryUpdatedData
-from homeassistant.helpers.event import async_track_entity_registry_updated_event
+from homeassistant.helpers.event import (
+    async_call_later,
+    async_track_entity_registry_updated_event,
+)
 from homeassistant.loader import IntegrationNotFound, async_get_integration
 
-from . import mappings
+from . import direct_read, mappings
 from .const import (
     CHARGE_STATE_DEFAULT,
+    DIRECT_READ_RETRIES,
+    DIRECT_READ_RETRY_INTERVAL_S,
     DISTANCE_UNIT_FACTORS_TO_KM,
     DOMAIN,
     ENERGY_UNIT_FACTORS_TO_KWH,
     ERROR_CLASS_OK,
+    IDENTIFICATION_MAX_AGE_MIN,
+    INVALID_CARD_UIDS,
     MAPPING_CLASS_NEUTRAL,
     PLUG_STATE_CONNECTED,
     POWER_UNIT_FACTORS_TO_KW,
+    READ_FAILURE_INVALID_VALUE,
+    READ_FAILURE_UNREACHABLE,
+    ROLE_IDENTIFICATION,
 )
-from .models import EntityRole
+from .models import EntityRole, Wallbox, normalize_card_uid
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -283,3 +294,163 @@ async def async_integration_meets_min_version(
     except IntegrationNotFound:
         return None
     return AwesomeVersion(integration.version) >= AwesomeVersion(min_version)
+
+
+def _register_request(
+    wallbox: Wallbox, device_mapping: mappings.DeviceMapping | None
+) -> tuple[direct_read.Endpoint, direct_read.RegisterSpec] | None:
+    """Return what to read to get the identification from the device, or None.
+
+    None when the wallbox takes the identification from an entity, when the
+    direct read is off, or when the chosen device has no register for it.
+    """
+    if not (wallbox.direct_read_enabled and wallbox.identification_from_register and wallbox.host):
+        return None
+    register = device_mapping.role_register(ROLE_IDENTIFICATION) if device_mapping else None
+    if register is None:
+        return None
+    return (
+        direct_read.Endpoint(host=wallbox.host, port=wallbox.port, unit_id=wallbox.unit_id),
+        direct_read.RegisterSpec(
+            address=register["address"],
+            count=register["count"],
+            decode=register["decode"],
+            output=register["format"],
+        ),
+    )
+
+
+class IdentificationReader:
+    """Supplies the identification value a session is matched on.
+
+    The value comes from an entity or, when the wallbox is set up for it,
+    from a register of the device that is read when the session starts. A
+    read that fails is repeated a few times, spaced apart. The caller only
+    sees the value, and whether it is still being retrieved.
+    """
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        wallbox: Wallbox,
+        device_mapping: mappings.DeviceMapping | None,
+    ) -> None:
+        """Prepare the reader for the wallbox's identification role."""
+        self._hass = hass
+        self._wallbox = wallbox
+        self._request = _register_request(wallbox, device_mapping)
+        self._unsub: Callable[[], None] | None = None
+        self._on_done: Callable[[], None] | None = None
+        self._generation = 0
+        self._failed_reads = 0
+        self._pending = False
+        self._value: str | None = None
+        self._failure: str | None = None
+
+    async def async_prepare(self) -> None:
+        """Load what reading the register needs, if that is where the value comes from."""
+        if self._request is None:
+            return
+        try:
+            await direct_read.async_prepare(self._hass)
+        except ImportError:
+            _LOGGER.error("The Modbus client library is missing; the wallbox is not read directly")
+            self._request = None
+
+    @property
+    def pending(self) -> bool:
+        """Whether the value is still being retrieved."""
+        return self._pending
+
+    @property
+    def failure(self) -> str | None:
+        """How the last completed retrieval failed, or None if it did not."""
+        return self._failure
+
+    def begin(self, on_done: Callable[[], None]) -> None:
+        """Start retrieving the value, for a session that just started.
+
+        on_done is called once, when the retrieval is complete. There is
+        nothing to retrieve for an entity, which is read when asked for.
+        """
+        self.cancel()
+        if self._request is None:
+            return
+        self._pending = True
+        self._on_done = on_done
+        self._schedule(0)
+
+    def cancel(self) -> None:
+        """Stop retrieving and forget what was retrieved."""
+        self._generation += 1
+        if self._unsub is not None:
+            self._unsub()
+            self._unsub = None
+        self._pending = False
+        self._on_done = None
+        self._failed_reads = 0
+        self._value = None
+        self._failure = None
+
+    def value(self, session_start: datetime) -> str | None:
+        """Return the identification of the session that started at session_start.
+
+        The value is normalized. None when there is none, when it is not a
+        valid identifier, or, for an entity, when it changed too long before
+        the session started.
+        """
+        if self._request is not None:
+            return self._value
+        entity_id = resolve_entity_id(self._hass, self._wallbox.identification)
+        state = self._hass.states.get(entity_id) if entity_id else None
+        raw = usable_state(state)
+        if raw is None or state is None:
+            return None
+        normalized = normalize_card_uid(raw)
+        if not normalized or normalized in INVALID_CARD_UIDS:
+            return None
+        if state.last_changed < session_start - timedelta(minutes=IDENTIFICATION_MAX_AGE_MIN):
+            return None
+        return normalized
+
+    def _schedule(self, delay_s: float) -> None:
+        """Run the next read after delay_s."""
+        self._unsub = async_call_later(self._hass, delay_s, self._async_read)
+
+    async def _async_read(self, _now: datetime) -> None:
+        """Read the register once and either finish or schedule a further read."""
+        assert self._request is not None
+        self._unsub = None
+        generation = self._generation
+        endpoint, spec = self._request
+        try:
+            raw = await direct_read.async_read_register(self._hass, endpoint, spec)
+        except Exception:
+            _LOGGER.exception("Reading the identification from the wallbox raised an error")
+            raw = None
+        if generation != self._generation:
+            return
+
+        value: str | None = None
+        failure: str | None = None
+        if raw is None:
+            failure = READ_FAILURE_UNREACHABLE
+        elif raw == 0:
+            failure = READ_FAILURE_INVALID_VALUE
+        else:
+            text = direct_read.format_value(raw, spec.output)
+            value = normalize_card_uid(text) if text else None
+            if not value or value in INVALID_CARD_UIDS:
+                value, failure = None, READ_FAILURE_INVALID_VALUE
+
+        if failure is not None:
+            self._failed_reads += 1
+            if self._failed_reads <= DIRECT_READ_RETRIES:
+                self._schedule(DIRECT_READ_RETRY_INTERVAL_S)
+                return
+        self._pending = False
+        self._value = value
+        self._failure = failure
+        on_done, self._on_done = self._on_done, None
+        if on_done is not None:
+            on_done()

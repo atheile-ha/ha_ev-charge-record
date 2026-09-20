@@ -1,7 +1,9 @@
 """Tests for loading, validating and looking up device mapping files (4.7)."""
 
+import copy
 import json
 
+import pytest
 from custom_components.ev_charging import mappings
 from custom_components.ev_charging.const import SUBENTRY_TYPE_VEHICLE, SUBENTRY_TYPE_WALLBOX
 from homeassistant.core import HomeAssistant
@@ -179,3 +181,118 @@ def _write_minimal(path, *, mapping_id: str, plug_state_class: str = "not_connec
         ),
         encoding="utf-8",
     )
+
+
+VALID_REGISTER = {
+    "function_code": 3,
+    "address": 1500,
+    "count": 2,
+    "unit_id_default": 255,
+    "decode": "uint32_big_endian_word_order",
+    "format": "hex_upper_8",
+}
+
+
+def _write_register_mapping(path, *, mapping_id: str = "with_register", **changes) -> None:
+    """Write a wallbox mapping whose identification role reads a register."""
+    register = {**copy.deepcopy(VALID_REGISTER), **changes}
+    path.write_text(
+        json.dumps(
+            {
+                "format_version": 1,
+                "id": mapping_id,
+                "kind": "wallbox",
+                "integration": {
+                    "domain": "openems",
+                    "name": "Test",
+                    "short_name": "Test",
+                    "min_version": "1.0.0",
+                },
+                "device": {"manufacturer": "Test", "model": "Model"},
+                "roles": {"identification": {"register": register}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_the_keba_p40_reads_the_identification_from_register_1500() -> None:
+    """The shipped mapping describes register 1500 as two words, read with function code 3."""
+    keba = mappings.load_all(mappings.MAPPINGS_DIR)["openems_keba_p40"]
+
+    assert keba.role_register("identification") == VALID_REGISTER
+    assert keba.role_register("plug_state") is None
+    assert keba.role_register("missing_role") is None
+
+
+def test_only_the_keba_p40_carries_a_register() -> None:
+    """No other shipped device has a register."""
+    loaded = mappings.load_all(mappings.MAPPINGS_DIR)
+
+    assert {
+        mapping_id
+        for mapping_id, mapping in loaded.items()
+        if mapping.role_register("identification") is not None
+    } == {"openems_keba_p40"}
+
+
+def test_a_valid_register_entry_loads(tmp_path) -> None:
+    """A register entry with the supported function code, decoding and format is accepted."""
+    _write_register_mapping(tmp_path / "ok.json")
+
+    assert set(mappings.load_all(tmp_path)) == {"with_register"}
+
+
+@pytest.mark.parametrize("function_code", [1, 2, 4, 5, 6, 16, "3", True, None])
+def test_a_register_that_is_not_read_with_function_code_3_is_rejected(
+    tmp_path, function_code
+) -> None:
+    """Only reading holding registers can be expressed; anything else, above all a write, cannot."""
+    _write_register_mapping(tmp_path / "bad.json", function_code=function_code)
+
+    assert mappings.load_all(tmp_path) == {}
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"address": -1},
+        {"address": 65536},
+        {"address": "1500"},
+        {"address": True},
+        {"count": 0},
+        {"count": 3},
+        {"count": 1},
+        {"decode": "int32_little_endian"},
+        {"format": "decimal"},
+        {"unit_id_default": 256},
+        {"unit_id_default": -1},
+    ],
+)
+def test_a_register_entry_outside_what_the_reader_supports_is_rejected(tmp_path, changes) -> None:
+    """A file describing a register the reader cannot handle is skipped as a whole."""
+    _write_register_mapping(tmp_path / "bad.json", **changes)
+
+    assert mappings.load_all(tmp_path) == {}
+
+
+def test_a_register_entry_needs_its_fields(tmp_path) -> None:
+    """A register entry with a field missing is rejected."""
+    path = tmp_path / "bad.json"
+    _write_register_mapping(path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    del data["roles"]["identification"]["register"]["decode"]
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    assert mappings.load_all(tmp_path) == {}
+
+
+def test_a_role_other_than_the_identification_cannot_read_a_register(tmp_path) -> None:
+    """Registers are only for the identification role."""
+    path = tmp_path / "bad.json"
+    _write_register_mapping(path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["roles"]["plug_state"] = {"register": VALID_REGISTER}
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    assert mappings.load_all(tmp_path) == {}

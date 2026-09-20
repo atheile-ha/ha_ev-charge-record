@@ -4,6 +4,19 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+### Hinzugefügt
+
+- Optionales, ausschließlich lesendes Lesen der Wallbox über Modbus TCP mit Funktionscode 3. Erstes unterstütztes Gerät ist die KEBA P40, deren Kennung der RFID-Karte aus Register 1500 gelesen wird
+- Expertenoptionen `direct_read_enabled`, `host`, `port` und `unit_id` am Wallbox-Subentry und die Rollenoption „Kennung aus dem Register der Wallbox lesen“
+- Die Kennung wird einmal beim Beginn eines Ladevorgangs gelesen. Bei fehlender Antwort oder dem Wert 0 folgen bis zu drei Wiederholungen im Abstand von 2 Sekunden, die Fahrzeugzuordnung wartet auf das Ergebnis
+- Repair Issues `direct_read_unreachable` und `direct_read_invalid_value`
+- Abhängigkeit `pymodbus` 3.13.1
+
+### Geändert
+
+- Schemaversion des Config Entrys auf 5, Wallbox-Subentrys erhalten die Felder des direkten Lesens mit ausgeschaltetem direkten Lesen
+- Register-Einträge in Mapping-Dateien werden beim Laden geprüft: nur Funktionscode 3, nur die Rolle `identification`, bekannte Dekodierung und bekanntes Format. Eine Datei mit einem anderen Eintrag wird übersprungen
+
 ## [0.4.0] - 2026-09-20
 
 ### Hinzugefügt

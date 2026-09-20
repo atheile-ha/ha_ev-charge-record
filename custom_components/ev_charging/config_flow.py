@@ -40,18 +40,25 @@ from .const import (
     COST_MODES,
     CURRENT_TYPE_AC,
     CURRENT_TYPES,
+    DEFAULT_DIRECT_READ_PORT,
+    DEFAULT_DIRECT_READ_UNIT_ID,
     DEFAULT_IDENTIFICATION_WINDOW_S,
     DEFAULT_POWER_THRESHOLD_KW,
     DEFAULT_START_DEBOUNCE_S,
     DOMAIN,
     INVALID_CARD_UIDS,
+    MAX_DIRECT_READ_PORT,
+    MAX_DIRECT_READ_UNIT_ID,
     MAX_IDENTIFICATION_WINDOW_S,
     MAX_START_DEBOUNCE_S,
     MAX_UPDATE_INTERVAL_S,
+    MIN_DIRECT_READ_PORT,
+    MIN_DIRECT_READ_UNIT_ID,
     MIN_IDENTIFICATION_WINDOW_S,
     MIN_START_DEBOUNCE_S,
     MIN_UPDATE_INTERVAL_S,
     NO_VEHICLE_INTEGRATION,
+    ROLE_IDENTIFICATION,
     SOLAR_VALUATIONS,
     SUBENTRY_TYPE_VEHICLE,
     SUBENTRY_TYPE_WALLBOX,
@@ -143,7 +150,7 @@ async def _async_no_vehicle_integration_label(hass: HomeAssistant) -> str:
 class EvChargingConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for ev_charging."""
 
-    VERSION = 4
+    VERSION = 5
     MINOR_VERSION = 1
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
@@ -357,6 +364,10 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
         self, user_input: dict[str, Any] | None, *, step_id: str
     ) -> SubentryFlowResult:
         defaults = Wallbox.from_dict(self._subentry.data) if self._subentry else None
+        device_mapping = await resolver.async_get_mapping(self.hass, self._pending["mapping_id"])
+        has_register = (
+            device_mapping is not None and device_mapping.role_register(ROLE_IDENTIFICATION)
+        ) is not None
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -366,16 +377,19 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
             user_input.update(expert)
             user_input["manufacturer"] = user_input.get("manufacturer") or None
             user_input["model"] = user_input.get("model") or None
-            errors = self._validate(user_input)
+            user_input["host"] = (user_input.get("host") or "").strip() or None
+            errors = self._validate(user_input, has_register=has_register)
             if not errors:
                 self._pending.update(user_input)
                 return self._finish()
 
         return self.async_show_form(
-            step_id=step_id, data_schema=self._schema(defaults=defaults), errors=errors
+            step_id=step_id,
+            data_schema=self._schema(defaults=defaults, has_register=has_register),
+            errors=errors,
         )
 
-    def _validate(self, user_input: dict[str, Any]) -> dict[str, str]:
+    def _validate(self, user_input: dict[str, Any], *, has_register: bool) -> dict[str, str]:
         errors: dict[str, str] = {}
         if not (MIN_START_DEBOUNCE_S <= user_input["start_debounce_s"] <= MAX_START_DEBOUNCE_S):
             errors["start_debounce_s"] = "start_debounce_out_of_range"
@@ -395,6 +409,23 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
             errors["plug_state"] = "plug_state_required"
         if not user_input.get("energy_total") and not user_input.get("energy_session"):
             errors["energy_total"] = "energy_counter_required"
+
+        # Host, port and unit id are only looked at while the direct read is on.
+        direct_read_enabled = user_input["direct_read_enabled"]
+        if direct_read_enabled:
+            if not user_input["host"]:
+                errors["host"] = "host_required"
+            if not (MIN_DIRECT_READ_PORT <= user_input["port"] <= MAX_DIRECT_READ_PORT):
+                errors["port"] = "port_out_of_range"
+            if not (MIN_DIRECT_READ_UNIT_ID <= user_input["unit_id"] <= MAX_DIRECT_READ_UNIT_ID):
+                errors["unit_id"] = "unit_id_out_of_range"
+            if not has_register:
+                errors["direct_read_enabled"] = "direct_read_not_supported"
+        if user_input.get("identification_from_register"):
+            if not direct_read_enabled:
+                errors["identification_from_register"] = "direct_read_required"
+            if user_input.get("identification"):
+                errors["identification"] = "identification_source_conflict"
         return errors
 
     def _subentry_wallbox(self) -> Wallbox:
@@ -412,6 +443,11 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
             power_threshold_kw=data["power_threshold_kw"],
             start_debounce_s=data["start_debounce_s"],
             identification_window_s=data["identification_window_s"],
+            direct_read_enabled=data["direct_read_enabled"],
+            host=data["host"],
+            port=data["port"],
+            unit_id=data["unit_id"],
+            identification_from_register=data.get("identification_from_register", False),
             mapping_id=data["mapping_id"],
             charge_power=resolver.build_role(self.hass, data.get("charge_power")),
             energy_total=resolver.build_role(self.hass, data.get("energy_total")),
@@ -435,8 +471,16 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
         self.hass.config_entries.async_schedule_reload(self._entry.entry_id)
         return result
 
-    def _schema(self, *, defaults: Wallbox | None) -> vol.Schema:
+    def _schema(self, *, defaults: Wallbox | None, has_register: bool) -> vol.Schema:
         d = defaults
+        register_field: dict[Any, Any] = {}
+        if has_register:
+            register_field = {
+                vol.Optional(
+                    "identification_from_register",
+                    default=d.identification_from_register if d else False,
+                ): bool
+            }
         return vol.Schema(
             {
                 vol.Required("name", default=d.name if d else vol.UNDEFINED): str,
@@ -475,6 +519,7 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
                                 "identification",
                                 default=_entity_id(d.identification) if d else None,
                             ): vol.Any(None, EntitySelector()),
+                            **register_field,
                             vol.Optional(
                                 "error", default=_entity_id(d.error) if d else None
                             ): vol.Any(None, EntitySelector()),
@@ -500,6 +545,20 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
                                     if d
                                     else DEFAULT_IDENTIFICATION_WINDOW_S
                                 ),
+                            ): vol.Coerce(int),
+                            vol.Required(
+                                "direct_read_enabled",
+                                default=d.direct_read_enabled if d else False,
+                            ): bool,
+                            vol.Optional(
+                                "host", description={"suggested_value": d.host if d else None}
+                            ): str,
+                            vol.Required(
+                                "port", default=d.port if d else DEFAULT_DIRECT_READ_PORT
+                            ): vol.Coerce(int),
+                            vol.Required(
+                                "unit_id",
+                                default=d.unit_id if d else DEFAULT_DIRECT_READ_UNIT_ID,
                             ): vol.Coerce(int),
                         }
                     ),

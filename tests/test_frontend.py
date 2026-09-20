@@ -56,7 +56,7 @@ async def frontend_stub(hass: HomeAssistant) -> None:
 
 
 def _entry() -> MockConfigEntry:
-    return MockConfigEntry(domain=DOMAIN, title=TITLE, data={}, version=4, minor_version=1)
+    return MockConfigEntry(domain=DOMAIN, title=TITLE, data={}, version=5, minor_version=1)
 
 
 async def _setup(hass: HomeAssistant, entry: MockConfigEntry) -> None:

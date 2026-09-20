@@ -8,11 +8,15 @@ from homeassistant.helpers import issue_registry as ir
 from .const import (
     DOMAIN,
     ISSUE_COUNTER_SWITCHED,
+    ISSUE_DIRECT_READ_INVALID_VALUE,
+    ISSUE_DIRECT_READ_UNREACHABLE,
     ISSUE_MAPPING_SOURCE_BELOW_MIN_VERSION,
     ISSUE_ROLE_ENTITY_REMOVED,
     ISSUE_ROLE_UNIT_CHANGED,
     ISSUE_UNKNOWN_CARD,
     ISSUE_UNKNOWN_MAPPING_VALUE,
+    READ_FAILURE_INVALID_VALUE,
+    READ_FAILURE_UNREACHABLE,
 )
 
 
@@ -167,4 +171,44 @@ def async_create_counter_switched_issue(
         severity=ir.IssueSeverity.WARNING,
         translation_key=ISSUE_COUNTER_SWITCHED,
         translation_placeholders={"wallbox_title": wallbox_title, "counter": counter},
+    )
+
+
+def direct_read_issue_id(issue: str, wallbox_id: str) -> str:
+    """Return the stable issue id of a direct read problem of a wallbox."""
+    return f"{issue}_{wallbox_id}"
+
+
+def async_clear_direct_read_issues(hass: HomeAssistant, *, wallbox_id: str) -> None:
+    """Clear both repair issues about reading the wallbox directly."""
+    for issue in (ISSUE_DIRECT_READ_UNREACHABLE, ISSUE_DIRECT_READ_INVALID_VALUE):
+        ir.async_delete_issue(hass, DOMAIN, direct_read_issue_id(issue, wallbox_id))
+
+
+def check_direct_read(
+    hass: HomeAssistant, *, failure: str | None, wallbox_id: str, wallbox_title: str
+) -> None:
+    """Create or clear the repair issues about reading the wallbox directly.
+
+    failure says how the last completed read of the identification failed:
+    the device gave no valid answer, or it answered with a value that is no
+    identification. At most one of the two issues stands at a time.
+    """
+    issue = {
+        READ_FAILURE_UNREACHABLE: ISSUE_DIRECT_READ_UNREACHABLE,
+        READ_FAILURE_INVALID_VALUE: ISSUE_DIRECT_READ_INVALID_VALUE,
+    }.get(failure or "")
+    for other in (ISSUE_DIRECT_READ_UNREACHABLE, ISSUE_DIRECT_READ_INVALID_VALUE):
+        if other != issue:
+            ir.async_delete_issue(hass, DOMAIN, direct_read_issue_id(other, wallbox_id))
+    if issue is None:
+        return
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        direct_read_issue_id(issue, wallbox_id),
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key=issue,
+        translation_placeholders={"wallbox_title": wallbox_title},
     )

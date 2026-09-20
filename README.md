@@ -19,6 +19,7 @@ Die Integration führt keine Steuerung aus.
 - Home Assistant 2026.9 oder neuer
 - Wallbox mit Ladeleistung, Steckerzustand und mindestens einem Energiezähler als Entität
 - Optional Fahrzeugentitäten für Ladestand, Kilometerstand, Ladezustand und Standort
+- Optional Modbus-TCP-Zugriff auf die Wallbox, um die Kennung der RFID-Karte unmittelbar zu lesen (KEBA P40, siehe „Direktes Lesen der Wallbox“)
 
 Herstellerunabhängig. Die Zuordnung erfolgt über normalisierte Rollen bei der Einrichtung.
 
@@ -77,6 +78,30 @@ Beim Fahrzeug wird stets die vollständige, aufgedruckte Seriennummer hinterlegt
 Ausschnitt, wie die KEBA P40 mit den letzten vier Bytes der Seriennummer, prüft der Abgleich zur Laufzeit, ob
 der gemeldete Ausschnitt das Ende der hinterlegten Kennung bildet. Ein fehlender vorangestellter Teil ist beim
 Anlegen der Kennung von Hand zu ergänzen.
+
+## Direktes Lesen der Wallbox (optional)
+
+Stellt keine Quellintegration die Kennung der RFID-Karte bereit, kann die Integration sie unmittelbar aus der Wallbox lesen. Unterstützt ist die KEBA P40 (Register 1500) über Modbus TCP. Das direkte Lesen ist ausgeschaltet, bis es in den Expertenoptionen der Wallbox aktiviert wird.
+
+Einrichtung:
+
+1. Am Gerät Modbus TCP und das Auslesen der Kartenkennung freigeben.
+2. Im Wallbox-Dialog unter Expertenoptionen „Wallbox direkt lesen (Modbus TCP)“ aktivieren und Adresse, Port (Standard 502) und Unit-ID (Standard 255) eintragen.
+3. Unter Entitätsrollen bei der Kennung „Kennung aus dem Register der Wallbox lesen“ wählen. Eine Kennungs-Entität bleibt dann leer.
+
+Ablauf:
+
+- Gelesen wird ausschließlich mit Funktionscode 3 (Halteregister lesen). Die Integration schreibt nie auf die Wallbox.
+- Die Kennung wird einmal beim Beginn eines Ladevorgangs gelesen, nicht zyklisch. Für jeden Lesevorgang wird eine Verbindung aufgebaut und wieder geschlossen.
+- Liefert das Gerät keine gültige Antwort oder den Wert 0, wird bis zu dreimal im Abstand von 2 Sekunden wiederholt. Danach gilt die Kennung für diesen Ladevorgang als nicht verfügbar, es entsteht eine Repair Issue, und die Fahrzeugzuordnung folgt den übrigen Möglichkeiten. Der Ladevorgang wird dadurch nie beendet.
+- Die Fahrzeugzuordnung wartet auf das Ergebnis des Lesens und gleicht die gelesene Kennung wie eine von einer Entität gemeldete ab.
+
+Hinweise:
+
+- Modbus TCP ist bei der KEBA P40 im Auslieferungszustand abgeschaltet und in der KEBA-eMobility-App freizugeben. Das Auslesen von Kartenkennungen ist dort zusätzlich freizugeben; bis dahin liefert das Register den Wert 0.
+- Die Schnittstelle ist nicht verschlüsselt und gehört in ein vertrauenswürdiges Netzsegment.
+- Die Wallbox nimmt möglicherweise nur einen Modbus-Client an. Ob ein zweiter Client neben einem Energiemanagement angenommen wird, sichert das Gerätehandbuch nicht zu.
+- Softwarestände der KEBA P40 vor 1.2.1 melden die Energieregister im zehnfachen Maßstab.
 
 ## Installation
 
