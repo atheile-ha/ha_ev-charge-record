@@ -12,6 +12,7 @@ import {
   monthOfSession,
   monthlySummaries,
   parseState,
+  phasesNotice,
   serializeState,
   sessionsOfMonth,
   shiftMonth,
@@ -319,5 +320,34 @@ describe("summaries of a year", () => {
     expect(monthlySummaries(filtered, berlin)[0].count).toBe(0);
     expect(summarizeYear(filtered).all.energy_kwh).toBe(30);
     expect(summarizeYear(filtered).internal.count).toBe(0);
+  });
+});
+
+describe("phasesNotice", () => {
+  it("says the phases were not recorded for an imported session", () => {
+    expect(phasesNotice(session({ phases_recorded: false, phases: [] }))).toBe(
+      "detail_phases_not_recorded",
+    );
+  });
+
+  it("says that a session without any phase has none", () => {
+    expect(phasesNotice(session({ phases_recorded: true, phases: [] }))).toBe(
+      "detail_no_phases",
+    );
+  });
+
+  it("has no notice when there are phases to list", () => {
+    const phase = {
+      start: "2026-09-05T18:12:04+02:00",
+      end: "2026-09-05T19:12:04+02:00",
+      duration_min: 60,
+      energy_kwh: 5,
+      energy_grid_kwh: null,
+      energy_solar_kwh: null,
+      cost: null,
+      power_avg_kw: 5,
+      power_max_kw: 6,
+    };
+    expect(phasesNotice(session({ phases_recorded: true, phases: [phase] }))).toBeNull();
   });
 });

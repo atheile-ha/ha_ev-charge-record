@@ -12,7 +12,7 @@ import {
 } from "./format";
 import type { Translate } from "./i18n";
 import { fieldLabel } from "./labels";
-import { mapUrl } from "./logic";
+import { mapUrl, phasesNotice } from "./logic";
 import type { HomeAssistant, Session } from "./types";
 
 const MAP_MARKER =
@@ -47,8 +47,9 @@ function renderLocation(session: Session, t: Translate): TemplateResult | null {
 }
 
 function renderPhases(session: Session, t: Translate, hass: HomeAssistant): TemplateResult {
-  if (!session.phases_recorded || session.phases.length === 0) {
-    return html`<p class="muted">${t("detail_phases_not_recorded")}</p>`;
+  const notice = phasesNotice(session);
+  if (notice !== null) {
+    return html`<p class="muted">${t(notice)}</p>`;
   }
   const locale = hass.locale.language;
   const zone = hass.config.time_zone;

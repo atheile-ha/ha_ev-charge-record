@@ -18,11 +18,14 @@ from custom_components.ev_charging.const import (
 )
 from custom_components.ev_charging.models import Card, EntityRole, HubSettings, Vehicle, Wallbox
 from custom_components.ev_charging.session_manager import (
+    LateIdentification,
     SessionManager,
     StepKind,
     counter_step,
     energy_raw_kwh,
     identify,
+    identify_late,
+    should_discard,
 )
 from custom_components.ev_charging.store import SessionYearStore
 from freezegun.api import FrozenDateTimeFactory
@@ -157,10 +160,11 @@ async def _setup(
     vehicles: tuple[dict[str, Any], ...] = (),
     hub: dict[str, Any] | None = None,
     start_states: bool = True,
+    plug: str = UNPLUGGED,
 ) -> tuple[MockConfigEntry, SessionManager]:
     """Set up the integration with a wallbox and vehicles, all sources idle."""
     if start_states:
-        hass.states.async_set(PLUG, UNPLUGGED)
+        hass.states.async_set(PLUG, plug)
         hass.states.async_set(POWER, "0", {"unit_of_measurement": "kW"})
         hass.states.async_set(TOTAL, "100.0", {"unit_of_measurement": "kWh"})
         hass.states.async_set(SESSION, "0.0", {"unit_of_measurement": "kWh"})
@@ -418,15 +422,139 @@ def test_no_vehicle_is_chosen_because_the_others_are_absent() -> None:
     assert result.source == "unresolved"
 
 
+def _late(
+    card: str,
+    vehicles: list[Vehicle],
+    *,
+    vehicle_id: str | None = None,
+    source: str = "unresolved",
+) -> LateIdentification:
+    return identify_late(card, vehicles, vehicle_id=vehicle_id, source=source)
+
+
+def test_a_late_card_assigns_an_unassigned_session_to_its_vehicle() -> None:
+    """The vehicle of the card is taken, and the source follows the type of the card."""
+    glb = _vehicle("v001", Card(uid=GLB_CARD, label="Card GLB", type="emaid"))
+
+    result = _late(GLB_CARD, [glb])
+
+    assert (result.vehicle_id, result.source) == ("v001", "emaid")
+    assert result.card_uid == GLB_CARD
+    assert result.card_label == "Card GLB"
+    assert result.conflict is False
+    assert result.unknown_card is False
+
+
+def test_a_late_card_is_matched_by_the_end_of_the_stored_card() -> None:
+    """The wallbox reports only the end of the printed serial number."""
+    glb = _vehicle("v001", Card(uid=GLB_CARD, label="a"))
+
+    assert _late("11223344", [glb]).vehicle_id == "v001"
+
+
+def test_a_late_card_of_the_vehicle_already_assigned_changes_only_the_source() -> None:
+    """The vehicle report and the card agree: no conflict, and the source is now the card."""
+    glb = _vehicle("v001", Card(uid=GLB_CARD, label="a"), api=True)
+
+    result = _late(GLB_CARD, [glb], vehicle_id="v001", source="vehicle_api")
+
+    assert (result.vehicle_id, result.source) == ("v001", "rfid")
+    assert result.conflict is False
+
+
+def test_a_late_card_of_another_vehicle_wins_and_is_a_conflict() -> None:
+    """The card names a vehicle other than the one the vehicle report chose."""
+    glb = _vehicle("v001", Card(uid=GLB_CARD, label="a"), api=True)
+    eqb = _vehicle("v002", Card(uid=EQB_CARD, label="b"), api=True)
+
+    result = _late(EQB_CARD, [glb, eqb], vehicle_id="v001", source="vehicle_api")
+
+    assert (result.vehicle_id, result.source) == ("v002", "rfid")
+    assert result.conflict is True
+
+
+def test_a_late_unknown_card_leaves_an_unassigned_session_unassigned() -> None:
+    """A card nobody holds is kept and reported, and does not assign anything."""
+    glb = _vehicle("v001", Card(uid=GLB_CARD, label="a"), api=True)
+
+    result = _late("DEADBEEF", [glb])
+
+    assert result.vehicle_id is None
+    assert result.source == "unresolved"
+    assert result.card_uid == "DEADBEEF"
+    assert result.unknown_card is True
+    assert result.conflict is False
+
+
+def test_a_late_unknown_card_is_a_conflict_for_a_session_the_vehicle_report_assigned() -> None:
+    """The vehicle stays, and the disagreement is recorded."""
+    glb = _vehicle("v001", Card(uid=GLB_CARD, label="a"), api=True)
+
+    result = _late("DEADBEEF", [glb], vehicle_id="v001", source="vehicle_api")
+
+    assert (result.vehicle_id, result.source) == ("v001", "vehicle_api")
+    assert result.unknown_card is True
+    assert result.conflict is True
+
+
+def test_a_late_ending_that_fits_two_cards_changes_nothing() -> None:
+    """An ambiguous ending is no match: no vehicle is chosen, and nothing is a conflict."""
+    first = _vehicle("v001", Card(uid="AAAA11223344", label="a"))
+    second = _vehicle("v002", Card(uid="BBBB11223344", label="b"))
+
+    unassigned = _late("11223344", [first, second])
+    assigned = _late("11223344", [first, second], vehicle_id="v001", source="vehicle_api")
+
+    assert (unassigned.vehicle_id, unassigned.source) == (None, "unresolved")
+    assert (assigned.vehicle_id, assigned.source) == ("v001", "vehicle_api")
+    for result in (unassigned, assigned):
+        assert result.unknown_card is False
+        assert result.conflict is False
+
+
+_NOTHING = {
+    "ended_by_unplug": True,
+    "counter_readable": True,
+    "counter_increased": False,
+    "phase_begun": False,
+    "charge_error": False,
+    "flagged": False,
+    "identification_conflict": False,
+}
+
+
+def test_a_session_without_content_that_ended_by_unplugging_is_discarded() -> None:
+    """Readable counter that did not rise, no phase, no error, no marking: nothing is kept."""
+    assert should_discard(**_NOTHING) is True
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["counter_increased", "phase_begun", "charge_error", "flagged", "identification_conflict"],
+)
+def test_a_session_with_any_content_is_kept(content: str) -> None:
+    """Any one sign that something happened keeps the session."""
+    assert should_discard(**{**_NOTHING, content: True}) is False
+
+
+def test_a_session_is_kept_when_the_counter_was_not_readable() -> None:
+    """Without certainty that no energy flowed, the session stays."""
+    assert should_discard(**{**_NOTHING, "counter_readable": False}) is False
+
+
+def test_a_session_that_did_not_end_by_unplugging_is_never_discarded() -> None:
+    """Ending by the timeout is never a reason to drop a session."""
+    assert should_discard(**{**_NOTHING, "ended_by_unplug": False}) is False
+
+
 # ------------------------------------------------------------------ candidate
 
 
 async def test_candidate_is_published_at_once(hass: HomeAssistant) -> None:
-    """The candidate state and the session flag appear the moment the power rises."""
+    """The candidate state and the session flag appear the moment the plug reports a vehicle."""
     await _setup(hass)
-    await _set(hass, PLUG, PLUGGED)
 
-    await _set(hass, POWER, "7.0", "kW")
+    await _set(hass, PLUG, PLUGGED)
 
     assert hass.states.get("sensor.ev_charging_wallbox_state").state == "candidate"
     assert hass.states.get("binary_sensor.ev_charging_wallbox_session").state == "on"
@@ -435,7 +563,7 @@ async def test_candidate_is_published_at_once(hass: HomeAssistant) -> None:
 async def test_candidate_becomes_a_session_after_the_debounce(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
-    """The candidate turns into a running session once the power held."""
+    """The candidate turns into a running session once the debounce time has passed."""
     await _setup(hass)
 
     await _start_charging(hass, freezer)
@@ -443,12 +571,95 @@ async def test_candidate_becomes_a_session_after_the_debounce(
     assert hass.states.get("sensor.ev_charging_wallbox_state").state == "charging"
 
 
-async def test_candidate_is_dropped_when_the_power_falls_back(
+async def test_a_plugged_vehicle_without_power_is_a_paused_session(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
-    """A brief peak leaves no session behind."""
+    """The session begins with the plug, waits without a phase, and the first power starts one."""
+    _, manager = await _setup(hass)
+    plugged_at = dt_util.utcnow()
+    await _set(hass, PLUG, PLUGGED)
+
+    await _advance(hass, freezer, 2)
+
+    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "paused"
+    assert hass.states.get("binary_sensor.ev_charging_wallbox_session").state == "on"
+    payload = manager.live_payload()
+    assert payload["phase_count"] == 0
+    assert payload["waiting_for_power"] is True
+
+    await _advance(hass, freezer, 3600)
+    await _set(hass, POWER, "7.0", "kW")
+    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "charging"
+    assert manager.live_payload()["waiting_for_power"] is False
+    await _advance(hass, freezer, 600)
+    await _unplug(hass, freezer)
+
+    sessions = await _stored(hass)
+    assert len(sessions) == 1
+    session = sessions[0]
+    plug_start = dt_util.parse_datetime(session.plug_start)
+    assert abs((plug_start - plugged_at).total_seconds()) < 1
+    assert session.phase_count == 1
+    first_phase = dt_util.parse_datetime(session.phases[0].start)
+    assert (first_phase - plug_start).total_seconds() == pytest.approx(3602, abs=2)
+    assert session.pause_duration_min == pytest.approx(60.0, abs=0.5)
+    assert session.charge_duration_min == pytest.approx(10.0, abs=0.2)
+
+
+async def test_the_first_phase_starts_when_the_power_first_exceeded_the_threshold(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """Power that rises within the debounce time dates the phase from that moment."""
+    await _setup(hass)
+    plugged_at = dt_util.utcnow()
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 1)
+    powered_at = dt_util.utcnow()
+    await _set(hass, POWER, "7.0", "kW")
+
+    await _advance(hass, freezer, 1)
+    await _advance(hass, freezer, 600)
+    await _unplug(hass, freezer)
+
+    session = (await _stored(hass))[0]
+    assert abs((dt_util.parse_datetime(session.plug_start) - plugged_at).total_seconds()) < 1
+    assert abs((dt_util.parse_datetime(session.phases[0].start) - powered_at).total_seconds()) < 1
+
+
+async def test_a_flicker_of_the_plug_below_the_debounce_makes_no_session(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """A connector report that does not last leaves no session behind."""
     await _setup(hass)
     await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 1)
+
+    await _set(hass, PLUG, UNPLUGGED)
+    await _advance(hass, freezer, 60)
+
+    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "idle"
+    assert hass.states.get("binary_sensor.ev_charging_wallbox_session").state == "off"
+    assert await _stored(hass) == []
+
+
+async def test_power_starts_a_candidate_while_the_connector_reports_nothing(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """Without a connector report, power above the threshold begins the session instead."""
+    await _setup(hass, plug="undefined")
+
+    await _set(hass, POWER, "7.0", "kW")
+    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "candidate"
+    await _advance(hass, freezer, 2)
+
+    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "charging"
+
+
+async def test_a_candidate_started_by_power_is_dropped_when_the_power_falls_back(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """A brief peak without a connector report leaves no session behind."""
+    await _setup(hass, plug="undefined")
     await _set(hass, POWER, "7.0", "kW")
 
     await _set(hass, POWER, "0.1", "kW")
@@ -459,13 +670,28 @@ async def test_candidate_is_dropped_when_the_power_falls_back(
     assert await _stored(hass) == []
 
 
+async def test_a_candidate_started_by_the_plug_does_not_depend_on_the_power(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """The plug made the candidate, so power that comes and goes does not drop it."""
+    await _setup(hass)
+    await _set(hass, PLUG, PLUGGED)
+    await _set(hass, POWER, "7.0", "kW")
+
+    await _set(hass, POWER, "0.1", "kW")
+    await _advance(hass, freezer, 5)
+
+    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "paused"
+
+
 async def test_a_zero_debounce_confirms_immediately(hass: HomeAssistant) -> None:
     """Without a debounce time the session runs right away."""
     await _setup(hass, wallbox=_wallbox(start_debounce_s=0))
+
     await _set(hass, PLUG, PLUGGED)
+    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "paused"
 
     await _set(hass, POWER, "7.0", "kW")
-
     assert hass.states.get("sensor.ev_charging_wallbox_state").state == "charging"
 
 
@@ -478,6 +704,38 @@ async def test_no_candidate_while_the_connector_reports_not_connected(
     await _set(hass, POWER, "7.0", "kW")
 
     assert hass.states.get("sensor.ev_charging_wallbox_state").state == "idle"
+
+
+async def test_a_vehicle_plugged_in_at_startup_begins_a_session(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """With no stored session, a vehicle that is already plugged in begins one at that moment."""
+    await _setup(hass, plug=PLUGGED)
+
+    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "candidate"
+    await _advance(hass, freezer, 2)
+
+    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "paused"
+    assert hass.states.get("binary_sensor.ev_charging_wallbox_session").state == "on"
+
+
+async def test_the_next_session_begins_at_once_when_the_vehicle_is_still_plugged_in(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """After a session is stored the plug and power are looked at again."""
+    await _setup(hass)
+    await _start_charging(hass, freezer)
+    await _set(hass, POWER, "0", "kW")
+    await _set(hass, PLUG, UNPLUGGED)
+    await _advance(hass, freezer, 1)
+    await _set(hass, PLUG, PLUGGED)
+
+    await _advance(hass, freezer, 2)
+
+    assert len(await _stored(hass)) == 1
+    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "candidate"
+    await _advance(hass, freezer, 2)
+    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "paused"
 
 
 # ---------------------------------------------------------------- one session
@@ -498,6 +756,28 @@ async def test_power_dropping_and_rising_again_makes_one_session(
     await _set(hass, POWER, "0.0", "kW")
     await _advance(hass, freezer, 120)
     await _set(hass, POWER, "5.0", "kW")
+    await _unplug(hass, freezer)
+
+    sessions = await _stored(hass)
+    assert len(sessions) == 1
+    assert sessions[0].phase_count == 1
+
+
+async def test_power_rising_in_a_plugged_session_never_makes_a_second_session(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """A vehicle that waits for power and then charges is one session, not two."""
+    await _setup(hass)
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 1800)
+    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "paused"
+
+    await _set(hass, POWER, "6.5", "kW")
+    await _advance(hass, freezer, 300)
+    await _set(hass, POWER, "0.0", "kW")
+    await _advance(hass, freezer, 300)
+    await _set(hass, POWER, "6.5", "kW")
+    await _advance(hass, freezer, 300)
     await _unplug(hass, freezer)
 
     sessions = await _stored(hass)
@@ -682,6 +962,360 @@ async def test_a_neutral_error_value_keeps_the_error_class(
     await _set(hass, ERROR, "undefined")
 
     assert hass.states.get("sensor.ev_charging_wallbox_state").state == "error"
+
+
+# -------------------------------------------------------------------- discarding
+
+
+async def _year_file_exists(hass: HomeAssistant, year: int = 2026) -> bool:
+    def _exists() -> bool:
+        return os.path.exists(hass.config.path(".storage", store_key_sessions(year)))
+
+    return await hass.async_add_executor_job(_exists)
+
+
+async def test_a_plugged_vehicle_that_never_charges_leaves_no_record(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """Plugged in for half an hour without power, then unplugged: no session is kept."""
+    await _setup(hass)
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 1800)
+    assert hass.states.get("binary_sensor.ev_charging_wallbox_session").state == "on"
+
+    await _unplug(hass, freezer)
+
+    assert await _stored(hass) == []
+    assert not await _year_file_exists(hass)
+    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "idle"
+    assert hass.states.get("binary_sensor.ev_charging_wallbox_session").state == "off"
+
+
+async def test_a_session_that_is_discarded_does_not_touch_the_stored_sessions(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """Sessions kept earlier stay exactly as they were, and their count is not asked again."""
+    await _setup(hass)
+    await _start_charging(hass, freezer, power_kw=6.0)
+    await _advance(hass, freezer, 600)
+    await _set(hass, TOTAL, "101.0", "kWh")
+    await _unplug(hass, freezer)
+    first = await _stored(hass)
+    assert len(first) == 1
+
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 1800)
+    await _unplug(hass, freezer)
+
+    assert await _stored(hass) == first
+
+
+async def test_a_counter_rise_without_a_phase_keeps_the_session_and_books_it_on_the_session(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """Energy that flows below the power threshold is kept, without a phase being invented."""
+    await _setup(hass)
+    await _set(hass, PLUG, PLUGGED)
+    await _set(hass, POWER, "0.3", "kW")
+    await _advance(hass, freezer, 60)
+
+    await _set(hass, TOTAL, "100.1", "kWh")
+    await _unplug(hass, freezer)
+
+    sessions = await _stored(hass)
+    assert len(sessions) == 1
+    session = sessions[0]
+    assert session.phase_count == 0
+    assert session.phases == ()
+    assert session.charge_duration_min == 0
+    assert session.power_avg_kw is None
+    assert session.energy_measured_kwh == pytest.approx(0.1)
+    assert session.energy_grid_kwh == pytest.approx(0.0)
+    assert session.energy_solar_kwh == pytest.approx(0.1)
+    assert session.cost == pytest.approx(0.1 * 0.08)
+
+
+async def test_an_unreadable_counter_keeps_a_session_without_content(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """A counter that cannot be read at the end leaves no certainty that nothing flowed."""
+    await _setup(hass)
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 60)
+    await _set(hass, TOTAL, "unavailable")
+
+    await _unplug(hass, freezer)
+
+    assert len(await _stored(hass)) == 1
+
+
+async def test_a_counter_that_was_unreadable_at_the_start_keeps_a_session_without_content(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """Energy that may have flowed before the counter was first read leaves no certainty."""
+    await _setup(hass)
+    await _set(hass, TOTAL, "unavailable")
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 60)
+    await _set(hass, TOTAL, "100.0", "kWh")
+
+    await _unplug(hass, freezer)
+
+    assert len(await _stored(hass)) == 1
+
+
+async def test_a_reported_charging_error_keeps_a_session_without_a_phase(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """A charging error was reported, so there is something to look at."""
+    await _setup(hass)
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 2)
+    await _set(hass, ERROR, "error")
+    await _advance(hass, freezer, 6)
+    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "error"
+
+    await _unplug(hass, freezer)
+
+    sessions = await _stored(hass)
+    assert len(sessions) == 1
+    assert sessions[0].charge_error is True
+    assert sessions[0].phase_count == 0
+
+
+async def test_a_flagged_session_is_kept_even_without_energy_or_a_phase(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """A counter jump that is not accumulated still flags the session, and that keeps it."""
+    await _setup(hass)
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 600)
+    await _set(hass, TOTAL, "1000.0", "kWh")
+
+    await _unplug(hass, freezer)
+
+    sessions = await _stored(hass)
+    assert len(sessions) == 1
+    assert sessions[0].status == "flagged"
+    assert sessions[0].energy_measured_kwh == 0.0
+
+
+async def test_an_identification_conflict_keeps_a_session_without_a_phase(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """The card and the vehicle report disagree, which is marked and therefore kept."""
+    await _setup(hass, vehicles=(_glb(), _eqb()))
+    await _set(hass, GLB_TRACKER, "not_home")
+    await _set(hass, EQB_TRACKER, "home")
+    await _set(hass, CARD, "11223344")
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 20)
+
+    await _unplug(hass, freezer)
+
+    sessions = await _stored(hass)
+    assert len(sessions) == 1
+    assert sessions[0].identification_conflict is True
+    assert sessions[0].phase_count == 0
+
+
+async def test_a_session_closed_by_the_timeout_is_never_discarded(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """When the source is lost for good the session is closed and kept, empty or not."""
+    await _setup(hass)
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 2)
+    await _set(hass, PLUG, "unavailable")
+
+    await _advance(hass, freezer, 12 * 3600 + 5)
+
+    sessions = await _stored(hass)
+    assert len(sessions) == 1
+    assert sessions[0].status == "flagged"
+    assert sessions[0].phase_count == 0
+
+
+async def test_the_repair_issue_for_an_unknown_card_stays_when_the_session_is_discarded(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """The unknown card was seen, whatever became of the session."""
+    entry, _ = await _setup(hass, vehicles=(_glb(),))
+    await _set(hass, CARD, "DEADBEEF")
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 20)
+    issue_id = problems.unknown_card_issue_id(_wallbox_subentry_id(entry))
+    assert _issue(hass, issue_id) is not None
+
+    await _unplug(hass, freezer)
+
+    assert await _stored(hass) == []
+    assert _issue(hass, issue_id) is not None
+
+
+async def test_the_open_followup_count_is_not_asked_again_for_a_discarded_session(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A discarded session makes no read of the stored sessions."""
+    _, manager = await _setup(hass)
+    calls: list[int] = []
+    original = manager._async_count_followups
+
+    async def _counting() -> int:
+        calls.append(1)
+        return await original()
+
+    monkeypatch.setattr(manager, "_async_count_followups", _counting)
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 60)
+
+    await _unplug(hass, freezer)
+
+    assert calls == []
+
+
+# --------------------------------------------------------------------- live state
+
+
+async def test_the_live_payload_says_what_the_state_is_and_since_when(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """State, its start, the phases so far, the plug and whether the session waits for power."""
+    _, manager = await _setup(hass)
+    idle = manager.live_payload()
+    assert idle["active"] is False
+    assert idle["state_since"] is None
+    assert idle["phase_count"] == 0
+    assert idle["plug"] == {"state": "not_connected", "unavailable_since": None, "timeout_at": None}
+
+    plugged_at = dt_util.utcnow()
+    await _set(hass, PLUG, PLUGGED)
+    candidate = manager.live_payload()
+    assert candidate["state"] == "candidate"
+    assert candidate["plug"]["state"] == "connected"
+    assert abs((dt_util.parse_datetime(candidate["state_since"]) - plugged_at).total_seconds()) < 1
+
+    await _advance(hass, freezer, 2)
+    waiting = manager.live_payload()
+    assert waiting["state"] == "paused"
+    assert waiting["waiting_for_power"] is True
+    assert waiting["phase_count"] == 0
+    waiting_since = dt_util.parse_datetime(waiting["state_since"])
+    assert (waiting_since - plugged_at).total_seconds() == pytest.approx(2, abs=1)
+
+    await _advance(hass, freezer, 600)
+    await _set(hass, POWER, "7.0", "kW")
+    charging = manager.live_payload()
+    assert charging["state"] == "charging"
+    assert charging["waiting_for_power"] is False
+    assert charging["phase_count"] == 1
+    assert (dt_util.parse_datetime(charging["state_since"]) - waiting_since).total_seconds() == (
+        pytest.approx(600, abs=1)
+    )
+
+    await _advance(hass, freezer, 60)
+    await _set(hass, POWER, "0.0", "kW")
+    paused = manager.live_payload()
+    assert paused["state"] == "paused"
+    assert paused["waiting_for_power"] is False
+    assert paused["phase_count"] == 1
+
+
+async def test_the_live_payload_reports_the_state_of_the_plug_with_or_without_a_session(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """Not connected, connected, and not usable, and how long the session may wait for it."""
+    _, manager = await _setup(hass)
+    assert manager.live_payload()["plug"]["state"] == "not_connected"
+
+    await _set(hass, PLUG, "unavailable")
+    without_session = manager.live_payload()
+    assert without_session["plug"] == {
+        "state": "unavailable",
+        "unavailable_since": None,
+        "timeout_at": None,
+    }
+
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 2)
+    assert manager.live_payload()["plug"]["state"] == "connected"
+
+    lost_at = dt_util.utcnow()
+    await _set(hass, PLUG, "unavailable")
+    plug = manager.live_payload()["plug"]
+    assert plug["state"] == "unavailable"
+    assert abs((dt_util.parse_datetime(plug["unavailable_since"]) - lost_at).total_seconds()) < 1
+    timeout_at = dt_util.parse_datetime(plug["timeout_at"])
+    assert (timeout_at - dt_util.parse_datetime(plug["unavailable_since"])).total_seconds() == (
+        12 * 3600
+    )
+
+    await _set(hass, PLUG, PLUGGED)
+    assert manager.live_payload()["plug"] == {
+        "state": "connected",
+        "unavailable_since": None,
+        "timeout_at": None,
+    }
+
+
+async def test_the_live_payload_separates_the_identification_conflict_from_the_marking(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """The conflict is reported by itself, and a marking alone is no conflict."""
+    _, manager = await _setup(hass, vehicles=(_glb(), _eqb()))
+    await _set(hass, GLB_TRACKER, "not_home")
+    await _set(hass, EQB_TRACKER, "home")
+    await _set(hass, CARD, "11223344")
+    await _start_charging(hass, freezer, power_kw=6.0)
+    await _advance(hass, freezer, 20)
+
+    payload = manager.live_payload()
+
+    assert payload["identification_decided"] is True
+    assert payload["identification_conflict"] is True
+    assert payload["flagged"] is True
+
+    await _unplug(hass, freezer)
+    await _start_charging(hass, freezer, power_kw=6.0)
+    await _set(hass, TOTAL, "5000.0", "kWh")
+    payload = manager.live_payload()
+    assert payload["identification_conflict"] is False
+    assert payload["flagged"] is True
+
+
+async def test_the_live_payload_reports_the_energy_counter_and_whether_it_changed(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """The counter that carries the energy, and that it is not the one that was set up."""
+    _, manager = await _setup(hass, wallbox=_both_counters())
+    assert manager.live_payload()["counter"] == {"authoritative": None, "switched": False}
+    await _start_charging(hass, freezer, power_kw=6.0)
+    assert manager.live_payload()["counter"] == {"authoritative": "total", "switched": False}
+
+    for step in (1, 2, 3):
+        await _advance(hass, freezer, 60)
+        await _set(hass, SESSION, f"{step / 10}", "kWh")
+    await _advance(hass, freezer, 60)
+
+    payload = manager.live_payload()
+    assert payload["counter"] == {"authoritative": "session", "switched": True}
+    assert payload["energy_unallocated_kwh"] == pytest.approx(0.2)
+
+
+async def test_the_live_payload_says_which_sources_are_missing_for_the_split_and_the_cost(
+    hass: HomeAssistant,
+) -> None:
+    """Without a grid balance no split, without a grid price no cost."""
+    _, complete = await _setup(hass)
+    assert complete.live_payload()["sources"] == {"grid_balance": True, "grid_price": True}
+    assert complete.live_payload()["energy_unallocated_kwh"] is None
+    await hass.config_entries.async_unload(complete._entry.entry_id)
+
+    _, bare = await _setup(
+        hass, hub=_hub(grid_power=None, price_grid_fixed=None, price_feed_in_fixed=None)
+    )
+
+    assert bare.live_payload()["sources"] == {"grid_balance": False, "grid_price": False}
 
 
 # ----------------------------------------------------------------------- energy
@@ -1212,6 +1846,55 @@ async def test_a_session_unplugged_during_a_restart_is_closed(
     assert hass.states.get("sensor.ev_charging_wallbox_state").state == "idle"
 
 
+async def test_a_waiting_session_survives_a_restart_and_keeps_when_its_state_began(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """A waiting session is continued, with its start and the moment it began waiting."""
+    entry, manager = await _setup(hass)
+    plugged_at = dt_util.utcnow()
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 2)
+    since = manager.live_payload()["state_since"]
+    await _advance(hass, freezer, 600)
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    payload = entry.runtime_data.manager.live_payload()
+    assert payload["state"] == "paused"
+    assert payload["waiting_for_power"] is True
+    assert payload["state_since"] == since
+    await _set(hass, POWER, "7.0", "kW")
+    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "charging"
+    await _advance(hass, freezer, 600)
+    await _unplug(hass, freezer)
+
+    sessions = await _stored(hass)
+    assert len(sessions) == 1
+    assert abs((dt_util.parse_datetime(sessions[0].plug_start) - plugged_at).total_seconds()) < 1
+    assert sessions[0].phase_count == 1
+
+
+async def test_a_candidate_survives_a_restart_and_is_confirmed(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """A candidate that was stored is confirmed once the debounce time has passed."""
+    entry, _ = await _setup(hass, wallbox=_wallbox(start_debounce_s=30))
+    await _set(hass, PLUG, PLUGGED)
+    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "candidate"
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "candidate"
+    await _advance(hass, freezer, 30)
+
+    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "paused"
+
+
 async def test_the_session_belongs_to_the_year_of_its_local_start(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
@@ -1429,8 +2112,9 @@ async def test_a_source_that_changes_its_unit_is_not_read_and_raises_an_issue(
     await _set(hass, PLUG, PLUGGED)
 
     await _set(hass, POWER, "7000", "W")
+    await _advance(hass, freezer, 2)
 
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "idle"
+    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "paused"
     issue_id = problems.role_unit_changed_issue_id(_wallbox_subentry_id(entry), "charge_power")
     assert _issue(hass, issue_id) is not None
 
@@ -1439,6 +2123,7 @@ async def test_a_source_that_changes_its_unit_is_not_read_and_raises_an_issue(
 
 DEVICE_HOST = "192.0.2.10"
 GLB_REPORTED = "11223344"
+EQB_REPORTED = "44556677"
 UNKNOWN_REPORTED = "DEADBEEF"
 NOTHING_READ = "00000000"
 
@@ -1485,6 +2170,57 @@ def _entry(hass: HomeAssistant) -> MockConfigEntry:
     return hass.config_entries.async_entries(DOMAIN)[0]
 
 
+def _read_state(manager: SessionManager) -> dict[str, Any] | None:
+    return manager.live_payload()["identification_read"]
+
+
+def _reading(sequence: int, attempt: int, state: str = "reading") -> dict[str, Any]:
+    return {"state": state, "sequence": sequence, "attempt": attempt, "max_attempts": 10}
+
+
+async def _advance_by(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, seconds: float, times: int
+) -> None:
+    """Advance in equal steps: a timer that a step arms is only fired by a later one."""
+    for _ in range(times):
+        await _advance(hass, freezer, seconds)
+
+
+def _direct_read_issue(hass: HomeAssistant, entry: MockConfigEntry, issue: str) -> Any:
+    return _issue(hass, problems.direct_read_issue_id(issue, _wallbox_subentry_id(entry)))
+
+
+async def _run_late_card(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    card: str,
+    *,
+    vehicles: tuple[dict[str, Any], ...],
+    trackers: dict[str, str] | None = None,
+) -> tuple[Any, MockConfigEntry]:
+    """Plug in, let the cascade decide with nothing read, read the card, unplug, return the record.
+
+    The register holds nothing for the first two reads, at 10 and 15 seconds, and the card at 20.
+    """
+    install(monkeypatch, FakeDevice([_card(NOTHING_READ), _card(NOTHING_READ), _card(card)]))
+    entry, _ = await _setup(hass, wallbox=_register_wallbox(), vehicles=vehicles)
+    for entity_id, value in (trackers or {}).items():
+        await _set(hass, entity_id, value)
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 10)
+    await _advance(hass, freezer, 5)
+    assert _read_state(_manager(entry)) == _reading(1, 3)
+    await _advance(hass, freezer, 5)
+    await _set(hass, TOTAL, "100.05", "kWh")
+    await _unplug(hass, freezer)
+    return (await _stored(hass))[0], entry
+
+
+def _manager(entry: MockConfigEntry) -> SessionManager:
+    return entry.runtime_data.manager
+
+
 @pytest.mark.parametrize("source", ["entity", "register"])
 async def test_a_known_card_identifies_the_vehicle_whatever_its_source(
     hass: HomeAssistant,
@@ -1497,7 +2233,8 @@ async def test_a_known_card_identifies_the_vehicle_whatever_its_source(
     await _start_charging(hass, freezer)
     assert hass.states.get("sensor.ev_charging_active_vehicle").state == "unresolved"
 
-    await _advance(hass, freezer, 20)
+    await _advance(hass, freezer, 8)
+    await _advance(hass, freezer, 5)
 
     assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
     await _unplug(hass, freezer)
@@ -1523,6 +2260,8 @@ async def test_an_unknown_card_is_treated_alike_whatever_its_source(
     )
     await _set(hass, GLB_TRACKER, "home")
     await _start_charging(hass, freezer, power_kw=6.0)
+    await _advance(hass, freezer, 8)
+    await _advance(hass, freezer, 5)
     await _advance(hass, freezer, 600)
     await _set(hass, TOTAL, "101.0", "kWh")
 
@@ -1550,7 +2289,8 @@ async def test_a_card_and_a_different_vehicle_report_conflict_whatever_the_sourc
     await _set(hass, EQB_TRACKER, "home")
 
     await _start_charging(hass, freezer)
-    await _advance(hass, freezer, 20)
+    await _advance(hass, freezer, 8)
+    await _advance(hass, freezer, 5)
     await _unplug(hass, freezer)
 
     session = (await _stored(hass))[0]
@@ -1559,23 +2299,531 @@ async def test_a_card_and_a_different_vehicle_report_conflict_whatever_the_sourc
     assert session.status == "flagged"
 
 
-async def test_the_register_is_read_once_when_the_session_starts(
+async def test_the_first_sequence_reads_after_ten_seconds_at_most_ten_times(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """One read at the start, and no further read however long the session runs."""
-    device = install(monkeypatch, FakeDevice([_card(GLB_REPORTED)]))
-    await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+    """From ten seconds after the session began, every five seconds, at most ten reads."""
+    device = install(monkeypatch, FakeDevice([_unreachable()]))
+    entry, _ = await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
     assert len(device.clients) == 0
+
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 9)
+    assert len(device.clients) == 0
+    await _advance(hass, freezer, 1)
+    assert len(device.clients) == 1
+    for expected in range(2, 11):
+        await _advance(hass, freezer, 4)
+        assert len(device.clients) == expected - 1
+        await _advance(hass, freezer, 1)
+        assert len(device.clients) == expected
+
+    await _advance(hass, freezer, 3600)
+
+    assert len(device.clients) == 10
+    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "paused"
+    assert not _direct_read_issue(hass, entry, "direct_read_unreachable")
+    assert not _direct_read_issue(hass, entry, "direct_read_invalid_value")
+
+
+async def test_the_second_sequence_starts_with_the_first_phase_and_replaces_the_first(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The first phase begins another sequence at once, and the repair issue follows its end."""
+    device = install(monkeypatch, FakeDevice([_unreachable()]))
+    entry, _ = await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 10)
+    await _advance(hass, freezer, 2)
+    assert len(device.clients) == 1
+
+    await _set(hass, POWER, "7.0", "kW")
+    assert len(device.clients) == 2
+    await _advance(hass, freezer, 3)
+    assert len(device.clients) == 2
+    await _advance(hass, freezer, 2)
+    assert len(device.clients) == 3
+    for expected in range(4, 12):
+        assert not _direct_read_issue(hass, entry, "direct_read_unreachable")
+        await _advance(hass, freezer, 5)
+        assert len(device.clients) == expected
+
+    assert _direct_read_issue(hass, entry, "direct_read_unreachable")
+    assert not _direct_read_issue(hass, entry, "direct_read_invalid_value")
+    await _advance(hass, freezer, 3600)
+    assert len(device.clients) == 11
+    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "charging"
+
+
+async def test_the_second_sequence_runs_after_a_first_that_ended_without_a_value(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nothing is read while the session waits, then the first phase reads once more."""
+    device = install(monkeypatch, FakeDevice([_unreachable()] * 10 + [_card(GLB_REPORTED)]))
+    entry, manager = await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 10)
+    await _advance_by(hass, freezer, 5, 9)
+    assert len(device.clients) == 10
+    assert _read_state(manager) == _reading(1, 10, "waiting")
+    await _advance(hass, freezer, 3600)
+    assert len(device.clients) == 10
+
+    await _set(hass, POWER, "7.0", "kW")
+
+    assert len(device.clients) == 11
+    assert _read_state(manager) == _reading(2, 1, "read")
+    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+    await _advance(hass, freezer, 3600)
+    assert len(device.clients) == 11
+    assert not _direct_read_issue(hass, entry, "direct_read_unreachable")
+
+
+async def test_a_value_of_zero_is_a_failed_read_and_is_repeated(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Zero is no card: ten reads, a repair issue of its own, and an unassigned session."""
+    device = install(monkeypatch, FakeDevice([_card(NOTHING_READ)]))
+    entry, _ = await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+    subentry_id = _wallbox_subentry_id(entry)
 
     await _start_charging(hass, freezer)
     assert len(device.clients) == 1
-    await _advance(hass, freezer, 20)
+    await _advance_by(hass, freezer, 5, 8)
+    assert len(device.clients) == 9
+    assert not _direct_read_issue(hass, entry, "direct_read_invalid_value")
+    await _advance(hass, freezer, 5)
+    await _advance(hass, freezer, 600)
+
+    assert len(device.clients) == 10
+    assert _direct_read_issue(hass, entry, "direct_read_invalid_value")
+    assert not _direct_read_issue(hass, entry, "direct_read_unreachable")
+    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "unresolved"
+    assert _issue(hass, problems.unknown_card_issue_id(subentry_id)) is None
+    await _unplug(hass, freezer)
+    session = (await _stored(hass))[0]
+    assert session.identification_source == "unresolved"
+    assert session.card_uid is None
+
+
+async def test_the_kind_of_the_repair_issue_follows_the_last_read(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Zero for nine reads and then no answer makes the device unreachable."""
+    install(monkeypatch, FakeDevice([_card(NOTHING_READ)] * 9 + [_unreachable()]))
+    entry, _ = await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+
+    await _start_charging(hass, freezer)
+    await _advance_by(hass, freezer, 5, 9)
+
+    assert _direct_read_issue(hass, entry, "direct_read_unreachable")
+    assert not _direct_read_issue(hass, entry, "direct_read_invalid_value")
+
+
+async def test_the_first_valid_value_ends_the_reading(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The card may appear after the start: the read that finds it is the last."""
+    device = install(
+        monkeypatch,
+        FakeDevice([_card(NOTHING_READ), _unreachable(), _card(GLB_REPORTED)]),
+    )
+    entry, manager = await _setup(
+        hass, wallbox=_register_wallbox(identification_window_s=30), vehicles=(_glb(),)
+    )
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 10)
+    await _advance(hass, freezer, 5)
+    assert _read_state(manager) == _reading(1, 3)
+    await _advance(hass, freezer, 5)
+    assert len(device.clients) == 3
+    assert _read_state(manager) == _reading(1, 3, "read")
+    assert manager.live_payload()["identification_decided"] is False
+
     await _advance(hass, freezer, 3600)
+    assert len(device.clients) == 3
+    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+    await _set(hass, TOTAL, "100.05", "kWh")
+    await _unplug(hass, freezer)
+
+    session = (await _stored(hass))[0]
+    assert session.vehicle_id == "v001"
+    assert session.identification_source == "rfid"
+    assert session.soc_start == 40
+    assert "soc_start" not in session.open_fields
+    assert not _direct_read_issue(hass, entry, "direct_read_unreachable")
+    assert not _direct_read_issue(hass, entry, "direct_read_invalid_value")
+
+
+async def test_the_decision_does_not_wait_for_the_reading(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The window decides even with no identification: the vehicle report identifies."""
+    install(monkeypatch, FakeDevice([_unreachable()]))
+    _, manager = await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(), _eqb()))
+    await _set(hass, GLB_TRACKER, "home")
+    await _set(hass, EQB_TRACKER, "not_home")
+
+    await _set(hass, PLUG, PLUGGED)
+    assert manager.live_payload()["identification_decided"] is False
+    await _advance(hass, freezer, 10)
+    await _advance(hass, freezer, 5)
+
+    payload = manager.live_payload()
+    assert payload["identification_decided"] is True
+    assert payload["identification_source"] == "vehicle_api"
+    assert _read_state(manager) == _reading(1, 3)
+    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+    await _set(hass, TOTAL, "100.05", "kWh")
+    await _unplug(hass, freezer)
+    assert (await _stored(hass))[0].identification_source == "vehicle_api"
+
+
+async def test_without_an_identification_window_the_cascade_decides_at_once(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A window of zero decides when the session begins, before any read."""
+    device = install(monkeypatch, FakeDevice([_unreachable()]))
+    _, manager = await _setup(
+        hass, wallbox=_register_wallbox(identification_window_s=0), vehicles=(_glb(),)
+    )
+    await _set(hass, GLB_TRACKER, "home")
+
+    await _set(hass, PLUG, PLUGGED)
+
+    assert manager.live_payload()["identification_decided"] is True
+    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+    assert device.clients == []
+
+
+async def test_a_card_read_after_the_decision_assigns_an_unassigned_session(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The card held up after the window: the vehicle is assigned, the start values stay open."""
+    session, entry = await _run_late_card(
+        hass, freezer, monkeypatch, GLB_REPORTED, vehicles=(_glb(), _eqb())
+    )
+
+    assert session.vehicle_id == "v001"
+    assert session.vehicle_name == "GLB"
+    assert session.capacity_kwh == 85.0
+    assert session.identification_source == "rfid"
+    assert session.card_uid == GLB_CARD
+    assert session.card_label == "Card GLB"
+    assert session.identification_conflict is False
+    assert session.soc_start is None
+    assert session.odometer_km is None
+    assert "soc_start" in session.open_fields
+    assert "odometer_km" in session.open_fields
+    assert session.id.endswith("_v001")
+    assert session.energy_measured_kwh == pytest.approx(0.05)
+    assert not _direct_read_issue(hass, entry, "direct_read_unreachable")
+    assert not _direct_read_issue(hass, entry, "direct_read_invalid_value")
+
+
+async def test_a_late_card_of_the_vehicle_the_report_chose_only_changes_the_source(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The vehicle report and the card agree: the start values stay, and there is no conflict."""
+    session, _ = await _run_late_card(
+        hass,
+        freezer,
+        monkeypatch,
+        GLB_REPORTED,
+        vehicles=(_glb(), _eqb()),
+        trackers={GLB_TRACKER: "home", EQB_TRACKER: "not_home"},
+    )
+
+    assert session.vehicle_id == "v001"
+    assert session.identification_source == "rfid"
+    assert session.card_uid == GLB_CARD
+    assert session.identification_conflict is False
+    assert session.status != "flagged"
+    assert session.soc_start == 40
+    assert session.odometer_km == 7699
+
+
+async def test_a_late_card_of_another_vehicle_wins_and_flags_the_session(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The card wins over the vehicle report: the vehicle changes, the start values are open."""
+    session, _ = await _run_late_card(
+        hass,
+        freezer,
+        monkeypatch,
+        EQB_REPORTED,
+        vehicles=(_glb(), _eqb()),
+        trackers={GLB_TRACKER: "home", EQB_TRACKER: "not_home"},
+    )
+
+    assert session.vehicle_id == "v002"
+    assert session.vehicle_name == "EQB"
+    assert session.capacity_kwh == 70.5
+    assert session.identification_source == "rfid"
+    assert session.card_uid == EQB_CARD
+    assert session.identification_conflict is True
+    assert session.status == "flagged"
+    assert session.soc_start is None
+    assert session.odometer_km is None
+    assert {"soc_start", "odometer_km"} <= set(session.open_fields)
+    assert session.location_conflict is True
+    assert session.energy_measured_kwh == pytest.approx(0.05)
+
+
+async def test_an_unknown_card_read_late_leaves_an_unassigned_session_unassigned(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The card is kept and reported, and nothing is assigned."""
+    session, entry = await _run_late_card(
+        hass, freezer, monkeypatch, UNKNOWN_REPORTED, vehicles=(_glb(), _eqb())
+    )
+
+    assert session.vehicle_id is None
+    assert session.identification_source == "unresolved"
+    assert session.card_uid == UNKNOWN_REPORTED
+    assert session.identification_conflict is False
+    assert session.status == "followup_open"
+    assert _issue(hass, problems.unknown_card_issue_id(_wallbox_subentry_id(entry))) is not None
+
+
+async def test_a_late_unknown_card_flags_a_session_the_vehicle_report_assigned(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The vehicle stays, and the disagreement is marked."""
+    session, entry = await _run_late_card(
+        hass,
+        freezer,
+        monkeypatch,
+        UNKNOWN_REPORTED,
+        vehicles=(_glb(), _eqb()),
+        trackers={GLB_TRACKER: "home", EQB_TRACKER: "not_home"},
+    )
+
+    assert session.vehicle_id == "v001"
+    assert session.identification_source == "vehicle_api"
+    assert session.card_uid == UNKNOWN_REPORTED
+    assert session.identification_conflict is True
+    assert session.status == "flagged"
+    assert session.soc_start == 40
+    assert _issue(hass, problems.unknown_card_issue_id(_wallbox_subentry_id(entry))) is not None
+
+
+async def test_a_late_ending_that_fits_two_cards_assigns_nothing(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two cards end alike: no vehicle is guessed, and no repair issue is raised."""
+    first = _glb(cards=(Card(uid="AAAA11223344", label="a"),))
+    second = _eqb(cards=(Card(uid="BBBB11223344", label="b"),))
+
+    session, entry = await _run_late_card(
+        hass, freezer, monkeypatch, GLB_REPORTED, vehicles=(first, second)
+    )
+
+    assert session.vehicle_id is None
+    assert session.identification_source == "unresolved"
+    assert session.identification_conflict is False
+    assert _issue(hass, problems.unknown_card_issue_id(_wallbox_subentry_id(entry))) is None
+
+
+async def test_a_late_card_changes_neither_energy_nor_cost_nor_phases(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only the assignment moves; what was measured stays as it was."""
+    install(monkeypatch, FakeDevice([_card(NOTHING_READ)] * 3 + [_card(GLB_REPORTED)]))
+    _, manager = await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+    await _start_charging(hass, freezer, power_kw=6.0)
+    await _advance(hass, freezer, 5)
+    await _set(hass, TOTAL, "100.1", "kWh")
+    await _advance(hass, freezer, 5)
+    await _set(hass, TOTAL, "100.2", "kWh")
+    await _advance(hass, freezer, 3)
+    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "unresolved"
+    before = manager.live_payload()
+
+    await _advance(hass, freezer, 2)
+
+    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+    after = manager.live_payload()
+    for key in ("energy_kwh", "energy_grid_kwh", "energy_solar_kwh", "cost", "phase_count"):
+        assert after[key] == before[key], key
+    assert after["energy_kwh"] == pytest.approx(0.2)
+    await _unplug(hass, freezer)
+    session = (await _stored(hass))[0]
+    assert session.vehicle_id == "v001"
+    assert session.energy_measured_kwh == pytest.approx(0.2)
+    assert session.energy_grid_kwh == pytest.approx(before["energy_grid_kwh"])
+    assert session.energy_solar_kwh == pytest.approx(before["energy_solar_kwh"])
+    assert session.cost == pytest.approx(before["cost"])
+    assert session.phase_count == 1
+
+
+async def test_a_candidate_that_is_dropped_stops_the_reading(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A brief peak of power that does not become a session leaves no read behind."""
+    device = install(monkeypatch, FakeDevice([_unreachable()]))
+    _, manager = await _setup(hass, wallbox=_register_wallbox(), plug="undefined")
+
+    await _set(hass, POWER, "7.0", "kW")
+    assert _read_state(manager) == _reading(1, 1)
+    await _advance(hass, freezer, 1)
+    await _set(hass, POWER, "0", "kW")
+    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "idle"
+    assert _read_state(manager) is None
+
+    await _advance(hass, freezer, 60)
+
+    assert device.clients == []
+
+
+async def test_a_flicker_of_the_plug_stops_the_reading(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A connector report that does not last leaves no read behind either."""
+    device = install(monkeypatch, FakeDevice([_unreachable()]))
+    await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 1)
+    await _set(hass, PLUG, UNPLUGGED)
+    await _advance(hass, freezer, 60)
+
+    assert device.clients == []
+
+
+async def test_a_session_that_ends_first_stops_the_reading_and_raises_no_issue(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unplugging before the second sequence is over leaves neither a read nor an issue."""
+    device = install(monkeypatch, FakeDevice([_unreachable()]))
+    entry, _ = await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+
+    await _start_charging(hass, freezer)
+    await _advance_by(hass, freezer, 5, 2)
+    assert len(device.clients) == 3
+    await _unplug(hass, freezer)
+    await _advance(hass, freezer, 600)
+
+    assert len(device.clients) == 3
+    assert not _direct_read_issue(hass, entry, "direct_read_unreachable")
+    assert not _direct_read_issue(hass, entry, "direct_read_invalid_value")
+    assert len(await _stored(hass)) == 1
+
+
+async def test_the_reading_is_taken_up_again_after_a_restart(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A restored session whose card was not read reads again, counted from its start."""
+    device = install(monkeypatch, FakeDevice([_card(GLB_REPORTED)]))
+    entry, _ = await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 3)
+    assert len(device.clients) == 0
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await _advance(hass, freezer, 6)
+    assert len(device.clients) == 0
+    await _advance(hass, freezer, 1)
+    assert len(device.clients) == 1
+    await _advance(hass, freezer, 5)
+
+    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+
+
+async def test_a_restored_session_that_already_charged_reads_at_once(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The first phase has begun, so the restored session goes straight to a sequence."""
+    device = install(monkeypatch, FakeDevice([_unreachable()]))
+    entry, _ = await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+    await _start_charging(hass, freezer)
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    reads_before = len(device.clients)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert len(device.clients) == reads_before + 1
+
+
+async def test_a_restored_session_that_holds_its_card_does_not_read_again(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Once the card is held for the session, a restart needs no further read."""
+    device = install(monkeypatch, FakeDevice([_card(GLB_REPORTED)]))
+    entry, _ = await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+    await _start_charging(hass, freezer)
+    await _advance(hass, freezer, 13)
+    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+    reads_before = len(device.clients)
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
     await _advance(hass, freezer, 3600)
 
-    assert len(device.clients) == 1
+    assert len(device.clients) == reads_before
+    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
+
+
+async def test_the_progress_of_the_reading_is_reported_on_the_live_payload(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sequence, attempt and maximum while reading, then waiting, unreadable or read."""
+    install(monkeypatch, FakeDevice([_unreachable()]))
+    _, manager = await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+    assert _read_state(manager) is None
+
+    await _set(hass, PLUG, PLUGGED)
+    assert _read_state(manager) == _reading(1, 1)
+    await _advance(hass, freezer, 10)
+    assert _read_state(manager) == _reading(1, 2)
+    await _advance_by(hass, freezer, 5, 9)
+    assert _read_state(manager) == _reading(1, 10, "waiting")
+
+    await _set(hass, POWER, "7.0", "kW")
+    assert _read_state(manager) == _reading(2, 2)
+    await _advance_by(hass, freezer, 5, 9)
+    assert _read_state(manager) == _reading(2, 10, "unreadable")
+
+    await _unplug(hass, freezer)
+    assert _read_state(manager) is None
+
+
+async def test_the_live_payload_has_no_reading_state_for_an_entity(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """The card is not told whether the identification comes from an entity or a register."""
+    _, manager = await _setup(hass, vehicles=(_glb(),))
+    await _set(hass, CARD, GLB_REPORTED)
+
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 20)
+
+    assert manager.live_payload()["identification_decided"] is True
+    assert _read_state(manager) is None
+
+
+async def test_no_read_takes_place_while_no_vehicle_is_plugged_in(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No read without a session, however long that lasts; with one, the first is delayed."""
+    device = install(monkeypatch, FakeDevice([_card(GLB_REPORTED)]))
+    await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+
+    await _advance(hass, freezer, 3600)
+    assert device.reads == []
+
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 9)
+    assert device.reads == []
+    await _advance(hass, freezer, 1)
     assert device.reads == [(1500, 2, 255)]
-    assert device.clients[0].calls == ["connect", "read_holding_registers", "close"]
 
 
 async def test_the_connection_settings_of_the_wallbox_are_used(
@@ -1594,168 +2842,6 @@ async def test_the_connection_settings_of_the_wallbox_are_used(
     assert device.clients[0].host == "192.0.2.77"
     assert device.clients[0].kwargs["port"] == 1502
     assert device.reads == [(1500, 2, 7)]
-
-
-async def test_no_read_takes_place_without_a_session(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A plugged in vehicle that does not charge, and time passing, cause no read."""
-    device = install(monkeypatch, FakeDevice([_card(GLB_REPORTED)]))
-    await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
-
-    await _set(hass, PLUG, PLUGGED)
-    await _advance(hass, freezer, 3600)
-
-    assert device.reads == []
-
-
-async def test_a_read_that_fails_is_repeated_three_times_and_the_session_carries_on(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A lost connection: four reads in all, two seconds apart, then the role is unavailable.
-
-    The session is not touched: it runs on, is recorded in full and stays unassigned.
-    """
-    device = install(monkeypatch, FakeDevice([_unreachable()]))
-    entry, _ = await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
-    subentry_id = _wallbox_subentry_id(entry)
-
-    await _start_charging(hass, freezer, power_kw=6.0)
-    assert len(device.clients) == 1
-    await _advance(hass, freezer, 1)
-    assert len(device.clients) == 1
-    await _advance(hass, freezer, 1)
-    assert len(device.clients) == 2
-    await _advance(hass, freezer, 2)
-    assert len(device.clients) == 3
-    await _advance(hass, freezer, 2)
-    assert len(device.clients) == 4
-    await _advance(hass, freezer, 600)
-    assert len(device.clients) == 4
-
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "charging"
-    assert _issue(hass, problems.direct_read_issue_id("direct_read_unreachable", subentry_id))
-    assert not _issue(hass, problems.direct_read_issue_id("direct_read_invalid_value", subentry_id))
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "unresolved"
-
-    await _set(hass, TOTAL, "101.0", "kWh")
-    await _unplug(hass, freezer)
-    session = (await _stored(hass))[0]
-    assert session.identification_source == "unresolved"
-    assert session.vehicle_id is None
-    assert session.energy_measured_kwh == pytest.approx(1.0)
-    assert session.plug_end is not None
-
-
-async def test_a_value_of_zero_is_a_failed_read_and_is_repeated(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Zero is no card: four reads, a repair issue of its own, and an unassigned session."""
-    device = install(monkeypatch, FakeDevice([_card(NOTHING_READ)]))
-    entry, _ = await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
-    subentry_id = _wallbox_subentry_id(entry)
-
-    await _start_charging(hass, freezer)
-    for _ in range(3):
-        await _advance(hass, freezer, 2)
-    await _advance(hass, freezer, 600)
-
-    assert len(device.clients) == 4
-    assert _issue(hass, problems.direct_read_issue_id("direct_read_invalid_value", subentry_id))
-    assert not _issue(hass, problems.direct_read_issue_id("direct_read_unreachable", subentry_id))
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "unresolved"
-    assert _issue(hass, problems.unknown_card_issue_id(subentry_id)) is None
-    await _unplug(hass, freezer)
-    session = (await _stored(hass))[0]
-    assert session.identification_source == "unresolved"
-    assert session.card_uid is None
-
-
-async def test_a_valid_value_on_a_repeated_read_identifies_the_vehicle(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The card may appear after the start: a repeated read finds it, and no issue stands."""
-    device = install(
-        monkeypatch,
-        FakeDevice([_card(NOTHING_READ), _unreachable(), _card(GLB_REPORTED)]),
-    )
-    entry, _ = await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
-
-    await _start_charging(hass, freezer)
-    await _advance(hass, freezer, 2)
-    await _advance(hass, freezer, 2)
-    await _advance(hass, freezer, 20)
-
-    assert len(device.clients) == 3
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
-    subentry_id = _wallbox_subentry_id(entry)
-    assert not _issue(hass, problems.direct_read_issue_id("direct_read_unreachable", subentry_id))
-    assert not _issue(hass, problems.direct_read_issue_id("direct_read_invalid_value", subentry_id))
-
-
-async def test_the_decision_waits_for_the_read_to_conclude(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """With no identification window the cascade still waits for the reads, then goes on."""
-    install(monkeypatch, FakeDevice([_unreachable()]))
-    _, manager = await _setup(
-        hass,
-        wallbox=_register_wallbox(identification_window_s=0),
-        vehicles=(_glb(), _eqb()),
-    )
-    await _set(hass, GLB_TRACKER, "home")
-    await _set(hass, EQB_TRACKER, "not_home")
-
-    await _start_charging(hass, freezer)
-    assert manager.live_payload()["identification_decided"] is False
-    await _advance(hass, freezer, 2)
-    assert manager.live_payload()["identification_decided"] is False
-    await _advance(hass, freezer, 2)
-    await _advance(hass, freezer, 2)
-    assert manager.live_payload()["identification_decided"] is True
-
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
-    await _unplug(hass, freezer)
-    assert (await _stored(hass))[0].identification_source == "vehicle_api"
-
-
-async def test_a_candidate_that_is_dropped_stops_the_repeated_reads(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A short burst of power that does not become a session leaves no further reads behind."""
-    device = install(monkeypatch, FakeDevice([_unreachable()]))
-    await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
-
-    await _set(hass, PLUG, PLUGGED)
-    await _set(hass, POWER, "7.0", "kW")
-    await _advance(hass, freezer, 1)
-    assert len(device.clients) == 1
-    await _set(hass, POWER, "0", "kW")
-    assert hass.states.get("sensor.ev_charging_wallbox_state").state == "idle"
-
-    await _advance(hass, freezer, 60)
-
-    assert len(device.clients) == 1
-
-
-async def test_the_read_is_taken_up_again_after_a_restart_before_the_decision(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A restored session that is not identified yet reads the register again."""
-    device = install(monkeypatch, FakeDevice([_card(GLB_REPORTED)]))
-    entry, _ = await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
-    await _start_charging(hass, freezer)
-    assert len(device.clients) == 1
-    assert await hass.config_entries.async_unload(entry.entry_id)
-    await hass.async_block_till_done()
-
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-    await _advance(hass, freezer, 1)
-    assert len(device.clients) == 2
-    await _advance(hass, freezer, 20)
-
-    assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
 
 
 async def test_nothing_is_read_or_imported_while_the_direct_read_is_off(
@@ -1805,21 +2891,19 @@ async def test_a_later_read_that_succeeds_clears_the_repair_issue(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The issue stands until the register can be read again."""
-    install(monkeypatch, FakeDevice([_unreachable()] * 4 + [_card(GLB_REPORTED)]))
+    install(monkeypatch, FakeDevice([_unreachable()] * 10 + [_card(GLB_REPORTED)]))
     entry, _ = await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
-    issue_id = problems.direct_read_issue_id("direct_read_unreachable", _wallbox_subentry_id(entry))
 
     await _start_charging(hass, freezer)
-    for _ in range(3):
-        await _advance(hass, freezer, 2)
-    assert _issue(hass, issue_id) is not None
+    await _advance_by(hass, freezer, 5, 9)
+    assert _direct_read_issue(hass, entry, "direct_read_unreachable") is not None
     await _unplug(hass, freezer)
-    assert _issue(hass, issue_id) is not None
+    assert _direct_read_issue(hass, entry, "direct_read_unreachable") is not None
 
     await _start_charging(hass, freezer)
-    await _advance(hass, freezer, 20)
 
-    assert _issue(hass, issue_id) is None
+    assert _direct_read_issue(hass, entry, "direct_read_unreachable") is None
+    await _advance(hass, freezer, 13)
     assert hass.states.get("sensor.ev_charging_active_vehicle").state == "GLB"
 
 
@@ -1842,25 +2926,23 @@ async def test_a_stale_repair_issue_is_cleared_when_the_integration_starts(
     assert _issue(hass, issue_id) is None
 
 
-async def test_a_failing_read_logs_one_warning_and_no_flood(
+async def test_a_failing_reading_logs_one_warning_and_no_flood(
     hass: HomeAssistant,
     freezer: FrozenDateTimeFactory,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Four failed reads make one warning, and a further failing session none."""
+    """Ten failed reads make one warning, and a further failing session none."""
     install(monkeypatch, FakeDevice([_unreachable()]))
     await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
     caplog.set_level(logging.INFO, logger="custom_components.ev_charging")
 
     await _start_charging(hass, freezer)
-    for _ in range(3):
-        await _advance(hass, freezer, 2)
+    await _advance_by(hass, freezer, 5, 9)
     await _advance(hass, freezer, 60)
     await _unplug(hass, freezer)
     await _start_charging(hass, freezer)
-    for _ in range(3):
-        await _advance(hass, freezer, 2)
+    await _advance_by(hass, freezer, 5, 9)
     await _advance(hass, freezer, 60)
 
     warnings = [
@@ -1884,7 +2966,7 @@ async def test_the_card_read_from_the_register_is_never_logged(
     caplog.set_level(logging.DEBUG)
 
     await _start_charging(hass, freezer)
-    await _advance(hass, freezer, 20)
+    await _advance(hass, freezer, 13)
     await _unplug(hass, freezer)
 
     assert (await _stored(hass))[0].vehicle_id == "v001"
@@ -1895,3 +2977,17 @@ async def test_the_card_read_from_the_register_is_never_logged(
     ).lower()
     assert GLB_REPORTED.lower() not in text
     assert GLB_CARD.lower() not in text
+
+
+async def test_the_live_payload_carries_no_card_when_the_register_is_read(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reading state names sequence and attempt, never the value."""
+    install(monkeypatch, FakeDevice([_card(GLB_REPORTED)]))
+    _, manager = await _setup(hass, wallbox=_register_wallbox(), vehicles=(_glb(),))
+    await _start_charging(hass, freezer)
+
+    rendered = str(manager.live_payload())
+
+    for value in (GLB_REPORTED, GLB_CARD, "Card GLB"):
+        assert value not in rendered

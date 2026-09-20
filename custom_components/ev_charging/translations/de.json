@@ -142,7 +142,7 @@
                 "plug_state": "Erforderlich. Entität mit Zustandswerten der Kabelverbindung an der Wallbox",
                 "identification": "Von der Wallbox gemeldete RFID- oder eMAID-Kennung, falls vorhanden",
                 "error": "Entität, die einen Fehlerzustand der Wallbox anzeigt",
-                "identification_from_register": "Liest die Kennung beim Beginn eines Ladevorgangs einmalig unmittelbar aus der Wallbox, statt aus einer Entität. Erfordert das direkte Lesen in den Expertenoptionen und ein Gerät, das dafür ein Register bereitstellt. Die Kennungs-Entität leer lassen"
+                "identification_from_register": "Liest die Kennung statt aus einer Entität unmittelbar aus der Wallbox, in höchstens zwei Folgen je Ladevorgang: kurz nach dessen Beginn und, falls dabei nichts gefunden wird, mit dem ersten Laden. Erfordert das direkte Lesen in den Expertenoptionen und ein Gerät, das dafür ein Register bereitstellt. Die Kennungs-Entität leer lassen"
               }
             },
             "expert": {
@@ -157,15 +157,15 @@
                 "unit_id": "Unit-ID"
               },
               "data_description": {
-                "power_threshold_kw": "Leistung, oberhalb der ein Sessionkandidat beginnt",
-                "start_debounce_s": "Wie lange die Leistungsschwelle überschritten bleiben muss, bevor die Session bestätigt wird",
+                "power_threshold_kw": "Leistung, oberhalb der eine Ladephase beginnt. Ohne verwertbaren Steckerzustand beginnt auch eine Session",
+                "start_debounce_s": "Wie lange der Steckerzustand, ersatzweise die Leistung, anhalten muss, bevor die Session bestätigt wird",
                 "identification_window_s": "Wartezeit nach Sessionbeginn, bevor anhand der Fahrzeugentitäten das ladende Fahrzeug identifiziert wird. Relevant, wenn keine Erkennung über RFID oder eMAID möglich ist und die Aktualisierung der Entitäten verzögert stattfindet",
                 "direct_read_enabled": "Standardmäßig aus. Solange aus, wird keine Verbindung aufgebaut, und Adresse, Port und Unit-ID unten werden nicht verwendet",
                 "host": "Hostname oder IP-Adresse der Wallbox. Erforderlich, solange das direkte Lesen aktiv ist",
                 "port": "Modbus-TCP-Port, 1 bis 65535",
                 "unit_id": "Modbus-Unit-ID, 0 bis 255"
               },
-              "description": "Direktes Lesen: Die Wallbox wird über Modbus TCP ausschließlich lesend und einmalig beim Beginn eines Ladevorgangs gelesen. Modbus TCP ist bei der KEBA P40 im Auslieferungszustand abgeschaltet und in der KEBA-eMobility-App freizugeben; das Auslesen von Kartenkennungen ist dort zusätzlich einzeln freizugeben. Die Verbindung ist nicht verschlüsselt und gehört in ein vertrauenswürdiges Netzsegment. Die Wallbox nimmt möglicherweise nur einen Modbus-Client gleichzeitig an, und ob ein zweiter Client neben einem Energiemanagement angenommen wird, ist nicht zugesichert. Ist die Wallbox nicht erreichbar, entsteht eine Repair Issue. Softwarestände vor 1.2.1 melden die Energieregister im zehnfachen Maßstab"
+              "description": "Direktes Lesen: Die Wallbox wird über Modbus TCP ausschließlich lesend und in höchstens zwei Folgen je Ladevorgang gelesen: ab zehn Sekunden nach dessen Beginn und mit der ersten Ladephase, je Folge höchstens zehnmal im Abstand von 5 Sekunden. Modbus TCP ist bei der KEBA P40 im Auslieferungszustand abgeschaltet und in der KEBA-eMobility-App freizugeben; das Auslesen von Kartenkennungen ist dort zusätzlich einzeln freizugeben. Die Verbindung ist nicht verschlüsselt und gehört in ein vertrauenswürdiges Netzsegment. Die Wallbox nimmt möglicherweise nur einen Modbus-Client gleichzeitig an, und ob ein zweiter Client neben einem Energiemanagement angenommen wird, ist nicht zugesichert. Ist die Wallbox nicht erreichbar, entsteht eine Repair Issue. Softwarestände vor 1.2.1 melden die Energieregister im zehnfachen Maßstab"
             }
           }
         },
@@ -202,7 +202,7 @@
                 "plug_state": "Erforderlich. Entität mit Zustandswerten der Kabelverbindung an der Wallbox",
                 "identification": "Von der Wallbox gemeldete RFID- oder eMAID-Kennung, falls vorhanden",
                 "error": "Entität, die einen Fehlerzustand der Wallbox anzeigt",
-                "identification_from_register": "Liest die Kennung beim Beginn eines Ladevorgangs einmalig unmittelbar aus der Wallbox, statt aus einer Entität. Erfordert das direkte Lesen in den Expertenoptionen und ein Gerät, das dafür ein Register bereitstellt. Die Kennungs-Entität leer lassen"
+                "identification_from_register": "Liest die Kennung statt aus einer Entität unmittelbar aus der Wallbox, in höchstens zwei Folgen je Ladevorgang: kurz nach dessen Beginn und, falls dabei nichts gefunden wird, mit dem ersten Laden. Erfordert das direkte Lesen in den Expertenoptionen und ein Gerät, das dafür ein Register bereitstellt. Die Kennungs-Entität leer lassen"
               }
             },
             "expert": {
@@ -217,15 +217,15 @@
                 "unit_id": "Unit-ID"
               },
               "data_description": {
-                "power_threshold_kw": "Leistung, oberhalb der ein Sessionkandidat beginnt",
-                "start_debounce_s": "Wie lange die Leistungsschwelle überschritten bleiben muss, bevor die Session bestätigt wird",
+                "power_threshold_kw": "Leistung, oberhalb der eine Ladephase beginnt. Ohne verwertbaren Steckerzustand beginnt auch eine Session",
+                "start_debounce_s": "Wie lange der Steckerzustand, ersatzweise die Leistung, anhalten muss, bevor die Session bestätigt wird",
                 "identification_window_s": "Wartezeit nach Sessionbeginn, bevor anhand der Fahrzeugentitäten das ladende Fahrzeug identifiziert wird. Relevant, wenn keine Erkennung über RFID oder eMAID möglich ist und die Aktualisierung der Entitäten verzögert stattfindet",
                 "direct_read_enabled": "Standardmäßig aus. Solange aus, wird keine Verbindung aufgebaut, und Adresse, Port und Unit-ID unten werden nicht verwendet",
                 "host": "Hostname oder IP-Adresse der Wallbox. Erforderlich, solange das direkte Lesen aktiv ist",
                 "port": "Modbus-TCP-Port, 1 bis 65535",
                 "unit_id": "Modbus-Unit-ID, 0 bis 255"
               },
-              "description": "Direktes Lesen: Die Wallbox wird über Modbus TCP ausschließlich lesend und einmalig beim Beginn eines Ladevorgangs gelesen. Modbus TCP ist bei der KEBA P40 im Auslieferungszustand abgeschaltet und in der KEBA-eMobility-App freizugeben; das Auslesen von Kartenkennungen ist dort zusätzlich einzeln freizugeben. Die Verbindung ist nicht verschlüsselt und gehört in ein vertrauenswürdiges Netzsegment. Die Wallbox nimmt möglicherweise nur einen Modbus-Client gleichzeitig an, und ob ein zweiter Client neben einem Energiemanagement angenommen wird, ist nicht zugesichert. Ist die Wallbox nicht erreichbar, entsteht eine Repair Issue. Softwarestände vor 1.2.1 melden die Energieregister im zehnfachen Maßstab"
+              "description": "Direktes Lesen: Die Wallbox wird über Modbus TCP ausschließlich lesend und in höchstens zwei Folgen je Ladevorgang gelesen: ab zehn Sekunden nach dessen Beginn und mit der ersten Ladephase, je Folge höchstens zehnmal im Abstand von 5 Sekunden. Modbus TCP ist bei der KEBA P40 im Auslieferungszustand abgeschaltet und in der KEBA-eMobility-App freizugeben; das Auslesen von Kartenkennungen ist dort zusätzlich einzeln freizugeben. Die Verbindung ist nicht verschlüsselt und gehört in ein vertrauenswürdiges Netzsegment. Die Wallbox nimmt möglicherweise nur einen Modbus-Client gleichzeitig an, und ob ein zweiter Client neben einem Energiemanagement angenommen wird, ist nicht zugesichert. Ist die Wallbox nicht erreichbar, entsteht eine Repair Issue. Softwarestände vor 1.2.1 melden die Energieregister im zehnfachen Maßstab"
             }
           }
         }
@@ -515,6 +515,7 @@
         "detail_identification": "Zuordnung über",
         "detail_phases": "Ladephasen",
         "detail_phases_not_recorded": "Für diesen Ladevorgang wurden keine Ladephasen erfasst.",
+        "detail_no_phases": "Dieser Ladevorgang enthält keine Ladephase.",
         "identification_rfid": "RFID-Karte",
         "identification_emaid": "eMAID",
         "identification_vehicle_api": "Fahrzeugintegration",
@@ -552,6 +553,34 @@
         "live_charge_time": "Ladezeit",
         "live_plug_time": "Angesteckt",
         "live_charge_end": "Voraussichtliches Ende",
+        "live_idle_not_connected": "Kein Fahrzeug verbunden",
+        "live_idle_plug_unavailable": "Steckerzustand nicht verfügbar",
+        "live_status_candidate": "Ladevorgang wird erkannt",
+        "live_status_waiting_for_power": "Wartet auf Ladeleistung",
+        "live_status_charging": "Lädt seit {time}",
+        "live_status_paused": "Pause",
+        "live_status_paused_since": "Pause seit {time}",
+        "live_status_error": "Ladefehler seit {time}",
+        "live_status_awaiting_final": "Abgesteckt, Endwerte werden gelesen",
+        "live_phase_one": "Bisher 1 Ladephase",
+        "live_phase_other": "Bisher {count} Ladephasen",
+        "live_plug_connected": "Fahrzeug verbunden",
+        "live_plug_not_connected": "Kein Fahrzeug verbunden",
+        "live_plug_unavailable": "Steckerzustand nicht verfügbar",
+        "live_plug_unavailable_timeout": "Steckerzustand nicht verfügbar seit {since}. Der Ladevorgang wird am {timeout} geschlossen, wenn er nicht verfügbar bleibt.",
+        "live_assign_detecting": "Fahrzeug wird erkannt",
+        "live_assign_via": "Zuordnung über {source}",
+        "live_read_reading": "Kennung wird gelesen: Folge {sequence}, Versuch {attempt} von {max}",
+        "live_read_waiting": "Kennung noch nicht gelesen, der nächste Versuch folgt mit dem Ladebeginn",
+        "live_read_done": "Kennung gelesen",
+        "live_read_unreadable": "Kennung nicht lesbar",
+        "live_counter": "Energiezähler: {counter}",
+        "live_counter_switched": "Energiezähler: {counter}, automatisch gewechselt",
+        "live_counter_total": "Gesamtzähler",
+        "live_counter_session": "Sitzungszähler",
+        "live_unallocated": "Energie nicht aufgeteilt: {energy}",
+        "live_missing_split": "Keine Aufteilung in Netz- und Sonnenanteil ohne Netzsaldo",
+        "live_missing_cost": "Keine Kosten ohne Netzpreis",
         "month_solar_share": "Sonnenanteil",
         "field_vehicle_id": "Fahrzeug"
       }

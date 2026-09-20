@@ -4,16 +4,27 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.4.1] - 2026-09-20
+
 ### Hinzugefügt
 
 - Optionales, ausschließlich lesendes Lesen der Wallbox über Modbus TCP mit Funktionscode 3. Erstes unterstütztes Gerät ist die KEBA P40, deren Kennung der RFID-Karte aus Register 1500 gelesen wird
 - Expertenoptionen `direct_read_enabled`, `host`, `port` und `unit_id` am Wallbox-Subentry und die Rollenoption „Kennung aus dem Register der Wallbox lesen“
-- Die Kennung wird einmal beim Beginn eines Ladevorgangs gelesen. Bei fehlender Antwort oder dem Wert 0 folgen bis zu drei Wiederholungen im Abstand von 2 Sekunden, die Fahrzeugzuordnung wartet auf das Ergebnis
+- Die Kennung wird in höchstens zwei Folgen je Ladevorgang gelesen: die erste 10 Sekunden nach dem Beginn des Ladevorgangs, die zweite mit dem Beginn der ersten Ladephase und nur ohne gültige Kennung aus der ersten. Eine Folge liest im Abstand von 5 Sekunden höchstens zehnmal und endet mit der ersten gültigen Kennung. Die Fahrzeugzuordnung wartet nicht auf das Lesen
+- Nachträgliche Zuordnung durch eine Kennung, die nach der Entscheidung der Fahrzeugzuordnung gelesen wird: Ein unzugeordneter Ladevorgang wird dem Fahrzeug der Karte zugeordnet, bei einer Fahrzeugmeldung für ein anderes Fahrzeug gilt die Kennung und der Ladevorgang ist markiert. Ladestand und Kilometerstand bei Beginn bleiben bei einer neuen Zuordnung offen
+- Ein Ladevorgang beginnt, sobald der Steckerzustand ein verbundenes Fahrzeug meldet, und steht ohne Leistung im Zustand `paused`. Ersatzweise beginnt er bei Leistung über der Schwelle, solange der Steckerzustand nicht meldet, dass kein Fahrzeug verbunden ist. Steckt bei der Einrichtung oder nach einem Neustart ein Fahrzeug und ist kein Ladevorgang gespeichert, beginnt er zu diesem Zeitpunkt. Nach dem Speichern oder Verwerfen eines Ladevorgangs beginnt bei noch verbundenem Fahrzeug sofort der nächste
+- Ein Ladevorgang, der durch das Abstecken endet, ohne dass Energie geflossen ist und ohne dass je eine Phase begann, wird nicht gespeichert, wenn der Energiezähler lesbar war und nicht gestiegen ist und der Ladevorgang weder einen Ladefehler noch eine Markierung trägt
+- Ein Ladevorgang kann keine Ladephase haben. Steigt ein Energiezähler ohne offene Phase, wird die Energie dem Ladevorgang zugerechnet. Die Detailansicht weist einen Ladevorgang ohne Ladephase aus
+- Die Live-Karte zeigt Zustand mit Grund und Beginn, Zahl der bisherigen Phasen, Steckerzustand auch ohne Ladevorgang, Herkunft der Zuordnung, Widerspruch zwischen Kennung und Fahrzeugmeldung, Stand des Lesens der Kennung, maßgeblichen Energiezähler, nicht zugeordnete Energie und den Grund fehlender Angaben ohne Netzsaldo oder Netzpreis
+- Die Antwort von `ev_charging/live/subscribe` enthält `state_since`, `phase_count`, `waiting_for_power`, `plug`, `identification_conflict`, `identification_read`, `energy_unallocated_kwh`, `counter` und `sources`
 - Repair Issues `direct_read_unreachable` und `direct_read_invalid_value`
 - Abhängigkeit `pymodbus` 3.13.1
 
 ### Geändert
 
+- Die Leistungsschwelle der Wallbox öffnet und schließt nur noch Ladephasen. Die Beschreibungen von `power_threshold_kw`, `start_debounce_s` und des direkten Lesens im Wallbox-Dialog sind angepasst
+- `flagged` in der Antwort von `ev_charging/live/subscribe` ist unabhängig von `identification_conflict`
+- Die Live-Karte zeigt „Fahrzeug wird erkannt“ bis zur Entscheidung der Fahrzeugzuordnung statt „Nicht zugeordnet“ und zählt die Ladezeit im Kandidatenzustand nicht
 - Schemaversion des Config Entrys auf 5, Wallbox-Subentrys erhalten die Felder des direkten Lesens mit ausgeschaltetem direkten Lesen
 - Register-Einträge in Mapping-Dateien werden beim Laden geprüft: nur Funktionscode 3, nur die Rolle `identification`, bekannte Dekodierung und bekanntes Format. Eine Datei mit einem anderen Eintrag wird übersprungen
 

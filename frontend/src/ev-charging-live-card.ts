@@ -11,9 +11,20 @@ import {
 } from "./format";
 import { loadTranslate, makeTranslate, type TextKey, type Translate } from "./i18n";
 import {
+  assignmentText,
+  counterText,
+  dataGaps,
+  idleText,
   netDurationMinutes,
+  phasesText,
   plugDurationMinutes,
+  plugText,
+  readingText,
   solarSharePercent,
+  stateText,
+  unallocatedText,
+  vehicleText,
+  type LiveFormat,
   type LivePayload,
 } from "./live";
 import { sharedStyles } from "./styles";
@@ -149,13 +160,48 @@ export class EvChargingLiveCard extends LitElement {
   }
 
   private _vehicle(live: LivePayload, t: Translate): TemplateResult {
-    if (live.vehicle_guest) {
-      return html`<div class="vehicle">${t("live_vehicle_guest")}</div>`;
-    }
-    if (live.vehicle === null) {
-      return html`<div class="vehicle unassigned">${t("unassigned")}</div>`;
-    }
-    return html`<div class="vehicle">${live.vehicle.name}</div>`;
+    const unassigned = !live.vehicle_guest && live.vehicle === null;
+    return html`<div class="vehicle ${unassigned ? "unassigned" : ""}">${vehicleText(live, t)}</div>`;
+  }
+
+  private _format(hass: HomeAssistant): LiveFormat {
+    return {
+      locale: hass.locale?.language ?? hass.language,
+      timeZone: hass.config.time_zone,
+      now: this._now,
+    };
+  }
+
+  // The state of the session and where it came from: what it is doing, the plug,
+  // the assignment and the reading of the identification.
+  private _status(live: LivePayload, t: Translate, format: LiveFormat): TemplateResult {
+    const phases = phasesText(live, t);
+    const lines = [
+      assignmentText(live, t),
+      plugText(live, t, format),
+      readingText(live, t),
+    ].filter((line): line is string => line !== null);
+    return html`<div class="status">
+      <div class="state">
+        ${stateText(live, t, format)}${phases === null ? nothing : html` · ${phases}`}
+      </div>
+      ${lines.map((line) => html`<div class="line">${line}</div>`)}
+    </div>`;
+  }
+
+  // The data situation: which counter carries the energy, and energy that could
+  // not be assigned.
+  private _situation(
+    live: LivePayload,
+    t: Translate,
+    locale: string,
+  ): TemplateResult | typeof nothing {
+    const lines = [counterText(live, t), unallocatedText(live, t, locale)].filter(
+      (line): line is string => line !== null,
+    );
+    return lines.length === 0
+      ? nothing
+      : html`<div class="situation">${lines.map((line) => html`<div>${line}</div>`)}</div>`;
   }
 
   private _soc(live: LivePayload, t: Translate, locale: string): TemplateResult | typeof nothing {
@@ -179,6 +225,9 @@ export class EvChargingLiveCard extends LitElement {
     if (live.location_conflict) {
       flags.push(html`<span class="chip warn">${t("flag_location_conflict")}</span>`);
     }
+    if (live.identification_conflict) {
+      flags.push(html`<span class="chip warn">${t("flag_identification_conflict")}</span>`);
+    }
     if (live.flagged) {
       flags.push(html`<span class="chip warn">${t("status_flagged")}</span>`);
     }
@@ -189,9 +238,12 @@ export class EvChargingLiveCard extends LitElement {
     const locale = hass.locale?.language ?? hass.language;
     const currency = live.currency || hass.config.currency;
     const solar = solarSharePercent(live);
+    const gaps = dataGaps(live, t);
     const split =
       live.energy_grid_kwh === null || live.energy_solar_kwh === null
-        ? nothing
+        ? gaps.split === null
+          ? nothing
+          : this._row(`${t("detail_energy_grid")} / ${t("detail_energy_solar")}`, gaps.split)
         : this._row(
             `${t("detail_energy_grid")} / ${t("detail_energy_solar")}`,
             `${formatEnergy(live.energy_grid_kwh, locale)} / ${formatEnergy(
@@ -214,7 +266,7 @@ export class EvChargingLiveCard extends LitElement {
       ${this._soc(live, t, locale)}
       ${this._row(t("live_power"), formatPower(live.charge_power_kw, locale))}
       ${this._row(t("live_energy"), formatEnergy(live.energy_kwh, locale))} ${split}
-      ${this._row(t("live_cost"), formatCost(live.cost, locale, currency))} ${price}
+      ${this._row(t("live_cost"), gaps.cost ?? formatCost(live.cost, locale, currency))} ${price}
       ${this._row(
         t("live_charge_time"),
         formatDuration(netDurationMinutes(live, this._received, this._now)),
@@ -249,7 +301,7 @@ export class EvChargingLiveCard extends LitElement {
     }
     if (!live.active) {
       return html`<h2>${title}</h2>
-        <div class="message">${t("live_idle")}</div>`;
+        <div class="message">${idleText(live, t)}</div>`;
     }
     const stateKey = `live_state_${live.state}` as TextKey;
     return html`
@@ -259,7 +311,9 @@ export class EvChargingLiveCard extends LitElement {
           >${t(stateKey)}</span
         >
       </h2>
-      ${this._vehicle(live, t)} ${this._details(live, t, hass)} ${this._flags(live, t)}
+      ${this._vehicle(live, t)} ${this._status(live, t, this._format(hass))}
+      ${this._details(live, t, hass)}
+      ${this._situation(live, t, hass.locale?.language ?? hass.language)} ${this._flags(live, t)}
     `;
   }
 
@@ -290,6 +344,24 @@ export class EvChargingLiveCard extends LitElement {
         margin-bottom: 8px;
         font-size: 1.3em;
         font-weight: 500;
+      }
+
+      .status {
+        margin-bottom: 12px;
+      }
+
+      .status .state {
+        font-weight: 500;
+      }
+
+      .status .line,
+      .situation {
+        color: var(--ev-muted);
+        font-size: 0.9em;
+      }
+
+      .situation {
+        margin-top: 12px;
       }
 
       dl {

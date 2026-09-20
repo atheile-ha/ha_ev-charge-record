@@ -246,6 +246,34 @@ def test_session_from_dict_applies_defaults_for_missing_optional_fields() -> Non
     assert session.phases == ()
 
 
+def test_session_without_any_phase_round_trips_through_dict() -> None:
+    """A session that never charged has no phase, no charging time and no average power."""
+    session = Session(
+        id="2026-09-05T18:12:04_v002",
+        location="home",
+        plug_start="2026-09-05T18:12:04+02:00",
+        identification_source="rfid",
+        plug_end="2026-09-05T20:12:04+02:00",
+        plug_duration_min=120.0,
+        charge_duration_min=0.0,
+        pause_duration_min=120.0,
+        phase_count=0,
+        phases_recorded=True,
+        energy_measured_kwh=0.1,
+        power_avg_kw=None,
+        phases=(),
+    )
+
+    loaded = Session.from_dict(session.to_dict())
+
+    assert loaded == session
+    assert loaded.phase_count == 0
+    assert loaded.phases == ()
+    assert loaded.charge_duration_min == 0.0
+    assert loaded.power_avg_kw is None
+    assert loaded.phases_recorded is True
+
+
 def test_session_is_frozen() -> None:
     """A session cannot be mutated after creation."""
     session = Session(

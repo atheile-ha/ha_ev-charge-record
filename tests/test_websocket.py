@@ -206,6 +206,53 @@ async def test_unassigned_sessions_are_listed_and_counted(
     assert may["charge_duration_min"] == 180.0
 
 
+async def test_a_session_without_a_phase_is_listed_and_adds_no_charging_time(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    """A session that never charged has no phase, no charging time and no average power."""
+    await _store(
+        hass,
+        2026,
+        [
+            _session(
+                "waiting",
+                "2026-05-03T08:00:00+02:00",
+                identification_source="unresolved",
+                plug_end="2026-05-03T10:00:00+02:00",
+                plug_duration_min=120.0,
+                charge_duration_min=0.0,
+                pause_duration_min=120.0,
+                phase_count=0,
+                phases_recorded=True,
+                energy_kwh=0.1,
+                energy_measured_kwh=0.1,
+            ),
+            _session(
+                "charged",
+                "2026-05-04T08:00:00+02:00",
+                energy_kwh=10.0,
+                charge_duration_min=60.0,
+            ),
+        ],
+    )
+    client = await hass_ws_client(hass)
+
+    listing = await _call(client, "sessions/list", year=2026, month=5)
+    stats = await _call(client, "sessions/stats", year=2026)
+
+    by_id = {s["id"]: s for s in listing["result"]["sessions"]}
+    waiting = by_id["waiting"]
+    assert waiting["phases"] == []
+    assert waiting["phase_count"] == 0
+    assert waiting["phases_recorded"] is True
+    assert waiting["charge_duration_min"] == 0.0
+    assert waiting["power_avg_kw"] is None
+    may = stats["result"]["months"][4]
+    assert may["count"] == 2
+    assert may["energy_kwh"] == 10.1
+    assert may["charge_duration_min"] == 60.0
+
+
 async def test_stats_sums_present_values_and_flags_estimates(
     hass: HomeAssistant, hass_ws_client: WebSocketGenerator
 ) -> None:

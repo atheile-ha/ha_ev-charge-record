@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import StrEnum
 
 from awesomeversion import AwesomeVersion
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -17,12 +20,14 @@ from homeassistant.helpers.event import (
     async_track_entity_registry_updated_event,
 )
 from homeassistant.loader import IntegrationNotFound, async_get_integration
+from homeassistant.util import dt as dt_util
 
 from . import direct_read, mappings
 from .const import (
     CHARGE_STATE_DEFAULT,
-    DIRECT_READ_RETRIES,
-    DIRECT_READ_RETRY_INTERVAL_S,
+    DIRECT_READ_FIRST_DELAY_S,
+    DIRECT_READ_INTERVAL_S,
+    DIRECT_READ_MAX_READS,
     DISTANCE_UNIT_FACTORS_TO_KM,
     DOMAIN,
     ENERGY_UNIT_FACTORS_TO_KWH,
@@ -34,6 +39,10 @@ from .const import (
     POWER_UNIT_FACTORS_TO_KW,
     READ_FAILURE_INVALID_VALUE,
     READ_FAILURE_UNREACHABLE,
+    READ_STATE_READ,
+    READ_STATE_READING,
+    READ_STATE_UNREADABLE,
+    READ_STATE_WAITING,
     ROLE_IDENTIFICATION,
 )
 from .models import EntityRole, Wallbox, normalize_card_uid
@@ -320,13 +329,35 @@ def _register_request(
     )
 
 
+class ReadEvent(StrEnum):
+    """What the reader reports to its owner."""
+
+    PROGRESS = "progress"
+    VALUE = "value"
+    EXHAUSTED = "exhausted"
+
+
+@dataclass(frozen=True, slots=True)
+class ReadProgress:
+    """Where the reading of the identification stands."""
+
+    state: str
+    sequence: int
+    attempt: int
+    max_attempts: int
+
+
 class IdentificationReader:
     """Supplies the identification value a session is matched on.
 
     The value comes from an entity or, when the wallbox is set up for it,
-    from a register of the device that is read when the session starts. A
-    read that fails is repeated a few times, spaced apart. The caller only
-    sees the value, and whether it is still being retrieved.
+    from a register of the device. The register is read in at most two
+    sequences per session: the first starts a fixed time after the session
+    began, the second with the first charging phase and only if the first
+    delivered nothing. A sequence reads at a fixed interval, at most a fixed
+    number of times, and stops with the first valid value. The caller never
+    waits for a read: it asks for the value when it needs it and is told
+    through a callback when a value arrives later.
     """
 
     def __init__(
@@ -340,10 +371,13 @@ class IdentificationReader:
         self._wallbox = wallbox
         self._request = _register_request(wallbox, device_mapping)
         self._unsub: Callable[[], None] | None = None
-        self._on_done: Callable[[], None] | None = None
+        self._task: asyncio.Task[None] | None = None
+        self._on_event: Callable[[ReadEvent], None] | None = None
         self._generation = 0
-        self._failed_reads = 0
-        self._pending = False
+        self._active = False
+        self._reading = False
+        self._sequence = 0
+        self._attempts = 0
         self._value: str | None = None
         self._failure: str | None = None
 
@@ -358,37 +392,67 @@ class IdentificationReader:
             self._request = None
 
     @property
-    def pending(self) -> bool:
-        """Whether the value is still being retrieved."""
-        return self._pending
-
-    @property
     def failure(self) -> str | None:
-        """How the last completed retrieval failed, or None if it did not."""
+        """How the last read failed once both sequences ended without a value, else None."""
         return self._failure
 
-    def begin(self, on_done: Callable[[], None]) -> None:
-        """Start retrieving the value, for a session that just started.
+    @property
+    def progress(self) -> ReadProgress | None:
+        """Where the reading stands; None for an entity or while no session is being read."""
+        if self._request is None or not self._active:
+            return None
+        if self._value is not None:
+            state = READ_STATE_READ
+        elif self._reading:
+            return ReadProgress(
+                READ_STATE_READING, self._sequence, self._attempts + 1, DIRECT_READ_MAX_READS
+            )
+        elif self._failure is not None:
+            state = READ_STATE_UNREADABLE
+        else:
+            state = READ_STATE_WAITING
+        return ReadProgress(state, self._sequence, self._attempts, DIRECT_READ_MAX_READS)
 
-        on_done is called once, when the retrieval is complete. There is
-        nothing to retrieve for an entity, which is read when asked for.
+    def begin(self, on_event: Callable[[ReadEvent], None], *, since: datetime) -> None:
+        """Start the first sequence for a session that began at since.
+
+        There is nothing to retrieve for an entity, which is read when asked for.
         """
         self.cancel()
         if self._request is None:
             return
-        self._pending = True
-        self._on_done = on_done
-        self._schedule(0)
+        self._on_event = on_event
+        self._active = True
+        elapsed = (dt_util.utcnow() - since).total_seconds()
+        self._start_sequence(1, max(DIRECT_READ_FIRST_DELAY_S - elapsed, 0))
+
+    def begin_charging(self) -> None:
+        """Start the second sequence with the first charging phase.
+
+        It replaces a first sequence that is still under way, and does not
+        run at all once a value was read or the second sequence already ran.
+        """
+        if (
+            self._request is None
+            or not self._active
+            or self._value is not None
+            or self._sequence != 1
+        ):
+            return
+        self._halt()
+        self._start_sequence(2, 0)
+
+    def stop(self) -> None:
+        """Stop reading and keep what was read."""
+        self._halt()
+        self._active = False
 
     def cancel(self) -> None:
-        """Stop retrieving and forget what was retrieved."""
-        self._generation += 1
-        if self._unsub is not None:
-            self._unsub()
-            self._unsub = None
-        self._pending = False
-        self._on_done = None
-        self._failed_reads = 0
+        """Stop reading and forget what was read."""
+        self.stop()
+        self._on_event = None
+        self._sequence = 0
+        self._attempts = 0
         self._value = None
         self._failure = None
 
@@ -413,14 +477,49 @@ class IdentificationReader:
             return None
         return normalized
 
-    def _schedule(self, delay_s: float) -> None:
-        """Run the next read after delay_s."""
-        self._unsub = async_call_later(self._hass, delay_s, self._async_read)
+    def _start_sequence(self, sequence: int, delay_s: float) -> None:
+        """Begin a sequence whose first read comes after delay_s."""
+        self._sequence = sequence
+        self._attempts = 0
+        self._reading = True
+        self._schedule(delay_s)
 
-    async def _async_read(self, _now: datetime) -> None:
-        """Read the register once and either finish or schedule a further read."""
-        assert self._request is not None
+    def _halt(self) -> None:
+        """Cancel the pending read and one that is under way."""
+        self._generation += 1
+        if self._unsub is not None:
+            self._unsub()
+            self._unsub = None
+        if self._task is not None and self._task is not asyncio.current_task():
+            self._task.cancel()
+        self._task = None
+        self._reading = False
+
+    def _schedule(self, delay_s: float) -> None:
+        """Run the next read after delay_s; a read that is due now starts at the next turn."""
+        if delay_s <= 0:
+            self._start_read()
+        else:
+            self._unsub = async_call_later(self._hass, delay_s, self._on_timer)
+
+    @callback
+    def _on_timer(self, _now: datetime) -> None:
+        """Start the read that is due."""
         self._unsub = None
+        self._start_read()
+
+    def _start_read(self) -> None:
+        """Start one read as a task of its own, never inside the caller."""
+        self._task = self._hass.async_create_task(self._async_read(), eager_start=False)
+
+    def _emit(self, event: ReadEvent) -> None:
+        """Tell the owner what happened."""
+        if self._on_event is not None:
+            self._on_event(event)
+
+    async def _async_read(self) -> None:
+        """Read the register once and either finish, schedule a further read or give up."""
+        assert self._request is not None
         generation = self._generation
         endpoint, spec = self._request
         try:
@@ -431,26 +530,29 @@ class IdentificationReader:
         if generation != self._generation:
             return
 
+        self._attempts += 1
         value: str | None = None
-        failure: str | None = None
-        if raw is None:
-            failure = READ_FAILURE_UNREACHABLE
-        elif raw == 0:
+        failure = READ_FAILURE_UNREACHABLE
+        if raw == 0:
             failure = READ_FAILURE_INVALID_VALUE
-        else:
+        elif raw is not None:
             text = direct_read.format_value(raw, spec.output)
             value = normalize_card_uid(text) if text else None
             if not value or value in INVALID_CARD_UIDS:
                 value, failure = None, READ_FAILURE_INVALID_VALUE
 
-        if failure is not None:
-            self._failed_reads += 1
-            if self._failed_reads <= DIRECT_READ_RETRIES:
-                self._schedule(DIRECT_READ_RETRY_INTERVAL_S)
-                return
-        self._pending = False
-        self._value = value
-        self._failure = failure
-        on_done, self._on_done = self._on_done, None
-        if on_done is not None:
-            on_done()
+        if value is not None:
+            self._value = value
+            self._failure = None
+            self._reading = False
+            self._emit(ReadEvent.VALUE)
+        elif self._attempts < DIRECT_READ_MAX_READS:
+            self._schedule(DIRECT_READ_INTERVAL_S)
+            self._emit(ReadEvent.PROGRESS)
+        else:
+            self._reading = False
+            if self._sequence == 2:
+                self._failure = failure
+                self._emit(ReadEvent.EXHAUSTED)
+            else:
+                self._emit(ReadEvent.PROGRESS)

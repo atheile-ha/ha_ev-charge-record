@@ -55,6 +55,33 @@ async def test_sessions_round_trip_through_save_and_load(hass: HomeAssistant) ->
     assert await store.async_load() == sessions
 
 
+async def test_a_session_without_a_phase_round_trips_through_the_store(
+    hass: HomeAssistant,
+) -> None:
+    """A session that never charged is stored and loaded with no phase."""
+    store = SessionYearStore(hass, 2026)
+    session = Session(
+        id="2026-09-05T18:12:04_unresolved",
+        location="home",
+        plug_start="2026-09-05T18:12:04+02:00",
+        identification_source="unresolved",
+        plug_end="2026-09-05T19:12:04+02:00",
+        plug_duration_min=60.0,
+        charge_duration_min=0.0,
+        pause_duration_min=60.0,
+        phase_count=0,
+        phases_recorded=True,
+        energy_measured_kwh=0.1,
+    )
+
+    await store.async_save([session])
+    loaded = (await SessionYearStore(hass, 2026).async_load())[0]
+
+    assert loaded == session
+    assert loaded.phases == ()
+    assert loaded.phase_count == 0
+
+
 async def test_save_replaces_the_full_year(hass: HomeAssistant) -> None:
     """A second save replaces the previous content rather than appending to it."""
     store = SessionYearStore(hass, 2026)

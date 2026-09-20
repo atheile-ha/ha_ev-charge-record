@@ -235,3 +235,14 @@ export function cardOptions(
 export function yearOptions(available: number[], current: number, selected: number): number[] {
   return [...new Set([...available, current, selected])].sort((a, b) => b - a);
 }
+
+// What to say where the phases would be listed and there are none to list: that
+// they were not recorded, or that the session had none.
+export function phasesNotice(
+  session: Session,
+): "detail_phases_not_recorded" | "detail_no_phases" | null {
+  if (!session.phases_recorded) {
+    return "detail_phases_not_recorded";
+  }
+  return session.phases.length === 0 ? "detail_no_phases" : null;
+}

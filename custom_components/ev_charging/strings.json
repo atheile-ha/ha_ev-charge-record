@@ -142,7 +142,7 @@
                 "plug_state": "Required. Entity with status values of the wallbox's cable connection",
                 "identification": "RFID or eMAID reported by the wallbox, if available",
                 "error": "Entity indicating an error state of the wallbox",
-                "identification_from_register": "Reads the identification directly from the wallbox once when a charging session starts, instead of from an entity. Needs the direct read in the expert options and a device that provides a register for it. Leave the identification entity empty"
+                "identification_from_register": "Reads the identification directly from the wallbox instead of from an entity, in up to two sequences per charging session: shortly after the session begins and, if that finds nothing, with the first charging. Needs the direct read in the expert options and a device that provides a register for it. Leave the identification entity empty"
               }
             },
             "expert": {
@@ -157,15 +157,15 @@
                 "unit_id": "Unit ID"
               },
               "data_description": {
-                "power_threshold_kw": "Power above which a session candidate starts",
-                "start_debounce_s": "How long the power threshold must hold before the session is confirmed",
+                "power_threshold_kw": "Power above which a charging phase begins. Without a usable plug state, power above it also begins a session",
+                "start_debounce_s": "How long the plug state, or the power where the plug state does not report, must hold before the session is confirmed",
                 "identification_window_s": "How long to wait after session start before the charging vehicle is identified from the vehicle entities. Relevant when identification via RFID or eMAID is not possible and entity updates arrive with a delay",
                 "direct_read_enabled": "Off by default. While off, no connection is made and the address, port and unit ID below are not used",
                 "host": "Host name or IP address of the wallbox. Required while the direct read is on",
                 "port": "Modbus TCP port, 1 to 65535",
                 "unit_id": "Modbus unit ID, 0 to 255"
               },
-              "description": "Direct read: the wallbox is read over Modbus TCP, read-only, once when a charging session starts. Modbus TCP is switched off on delivery of the KEBA P40 and has to be enabled in the KEBA eMobility app; reading card identifiers has to be enabled there separately. The connection is not encrypted, use it in a trusted network segment. The wallbox may accept only one Modbus client at a time, and whether a second client is accepted next to an energy management system is not guaranteed. If the wallbox cannot be reached, a repair issue is created. Firmware versions before 1.2.1 report the energy registers at ten times the scale"
+              "description": "Direct read: the wallbox is read over Modbus TCP, read-only, in up to two sequences per charging session: from ten seconds after it begins and with its first charging phase, at most ten reads each, five seconds apart. Modbus TCP is switched off on delivery of the KEBA P40 and has to be enabled in the KEBA eMobility app; reading card identifiers has to be enabled there separately. The connection is not encrypted, use it in a trusted network segment. The wallbox may accept only one Modbus client at a time, and whether a second client is accepted next to an energy management system is not guaranteed. If the wallbox cannot be reached, a repair issue is created. Firmware versions before 1.2.1 report the energy registers at ten times the scale"
             }
           }
         },
@@ -202,7 +202,7 @@
                 "plug_state": "Required. Entity with status values of the wallbox's cable connection",
                 "identification": "RFID or eMAID reported by the wallbox, if available",
                 "error": "Entity indicating an error state of the wallbox",
-                "identification_from_register": "Reads the identification directly from the wallbox once when a charging session starts, instead of from an entity. Needs the direct read in the expert options and a device that provides a register for it. Leave the identification entity empty"
+                "identification_from_register": "Reads the identification directly from the wallbox instead of from an entity, in up to two sequences per charging session: shortly after the session begins and, if that finds nothing, with the first charging. Needs the direct read in the expert options and a device that provides a register for it. Leave the identification entity empty"
               }
             },
             "expert": {
@@ -217,15 +217,15 @@
                 "unit_id": "Unit ID"
               },
               "data_description": {
-                "power_threshold_kw": "Power above which a session candidate starts",
-                "start_debounce_s": "How long the power threshold must hold before the session is confirmed",
+                "power_threshold_kw": "Power above which a charging phase begins. Without a usable plug state, power above it also begins a session",
+                "start_debounce_s": "How long the plug state, or the power where the plug state does not report, must hold before the session is confirmed",
                 "identification_window_s": "How long to wait after session start before the charging vehicle is identified from the vehicle entities. Relevant when identification via RFID or eMAID is not possible and entity updates arrive with a delay",
                 "direct_read_enabled": "Off by default. While off, no connection is made and the address, port and unit ID below are not used",
                 "host": "Host name or IP address of the wallbox. Required while the direct read is on",
                 "port": "Modbus TCP port, 1 to 65535",
                 "unit_id": "Modbus unit ID, 0 to 255"
               },
-              "description": "Direct read: the wallbox is read over Modbus TCP, read-only, once when a charging session starts. Modbus TCP is switched off on delivery of the KEBA P40 and has to be enabled in the KEBA eMobility app; reading card identifiers has to be enabled there separately. The connection is not encrypted, use it in a trusted network segment. The wallbox may accept only one Modbus client at a time, and whether a second client is accepted next to an energy management system is not guaranteed. If the wallbox cannot be reached, a repair issue is created. Firmware versions before 1.2.1 report the energy registers at ten times the scale"
+              "description": "Direct read: the wallbox is read over Modbus TCP, read-only, in up to two sequences per charging session: from ten seconds after it begins and with its first charging phase, at most ten reads each, five seconds apart. Modbus TCP is switched off on delivery of the KEBA P40 and has to be enabled in the KEBA eMobility app; reading card identifiers has to be enabled there separately. The connection is not encrypted, use it in a trusted network segment. The wallbox may accept only one Modbus client at a time, and whether a second client is accepted next to an energy management system is not guaranteed. If the wallbox cannot be reached, a repair issue is created. Firmware versions before 1.2.1 report the energy registers at ten times the scale"
             }
           }
         }
@@ -515,6 +515,7 @@
         "detail_identification": "Assigned by",
         "detail_phases": "Phases",
         "detail_phases_not_recorded": "Phases were not recorded for this session.",
+        "detail_no_phases": "This session has no charging phase.",
         "identification_rfid": "RFID card",
         "identification_emaid": "eMAID",
         "identification_vehicle_api": "Vehicle integration",
@@ -552,6 +553,34 @@
         "live_charge_time": "Charging time",
         "live_plug_time": "Plugged in",
         "live_charge_end": "Expected end",
+        "live_idle_not_connected": "No vehicle connected",
+        "live_idle_plug_unavailable": "Plug state not available",
+        "live_status_candidate": "Charging session is being detected",
+        "live_status_waiting_for_power": "Waiting for charging power",
+        "live_status_charging": "Charging since {time}",
+        "live_status_paused": "Paused",
+        "live_status_paused_since": "Paused since {time}",
+        "live_status_error": "Charging error since {time}",
+        "live_status_awaiting_final": "Unplugged, final values are being read",
+        "live_phase_one": "1 phase so far",
+        "live_phase_other": "{count} phases so far",
+        "live_plug_connected": "Vehicle connected",
+        "live_plug_not_connected": "No vehicle connected",
+        "live_plug_unavailable": "Plug state not available",
+        "live_plug_unavailable_timeout": "Plug state not available since {since}. The session is closed on {timeout} if it stays unavailable.",
+        "live_assign_detecting": "Vehicle is being identified",
+        "live_assign_via": "Assigned by {source}",
+        "live_read_reading": "Reading the card: sequence {sequence}, attempt {attempt} of {max}",
+        "live_read_waiting": "Card not read yet, the next attempt follows with the first charging",
+        "live_read_done": "Card read",
+        "live_read_unreadable": "Card not readable",
+        "live_counter": "Energy counter: {counter}",
+        "live_counter_switched": "Energy counter: {counter}, switched automatically",
+        "live_counter_total": "total counter",
+        "live_counter_session": "session counter",
+        "live_unallocated": "Energy not allocated: {energy}",
+        "live_missing_split": "No split into grid and solar share without a grid balance",
+        "live_missing_cost": "No cost without a grid price",
         "month_solar_share": "Solar share",
         "field_vehicle_id": "Vehicle"
       }

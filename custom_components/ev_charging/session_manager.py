@@ -31,6 +31,8 @@ from .const import (
     ACTIVE_VEHICLE_GUEST,
     ACTIVE_VEHICLE_NONE,
     ACTIVE_VEHICLE_UNRESOLVED,
+    CANDIDATE_TRIGGER_PLUG,
+    CANDIDATE_TRIGGER_POWER,
     CHARGE_STATE_CHARGING,
     CHARGE_STATE_DEFAULT,
     CHARGE_TYPE_SOURCE_WALLBOX_CONFIG,
@@ -53,6 +55,7 @@ from .const import (
     MIN_PAUSE_MIN,
     MIN_PLAUSIBILITY_INTERVAL_S,
     PERSIST_INTERVAL_S,
+    PLUG_REPORT_UNAVAILABLE,
     PLUG_STATE_CONNECTED,
     PLUG_STATE_NOT_CONNECTED,
     POWER_TOLERANCE_FACTOR,
@@ -88,6 +91,7 @@ from .const import (
 )
 from .mappings import DeviceMapping
 from .models import (
+    Card,
     EntityRole,
     HubSettings,
     Phase,
@@ -161,6 +165,17 @@ class Identification:
     unknown_card: bool = False
 
 
+def _matching_cards(reported_card: str, vehicles: Sequence[Vehicle]) -> list[tuple[Vehicle, Card]]:
+    """Return the active cards of active vehicles that end with the reported value."""
+    return [
+        (vehicle, card)
+        for vehicle in vehicles
+        if vehicle.active
+        for card in vehicle.cards
+        if card.active and card.uid.endswith(reported_card)
+    ]
+
+
 def identify(
     reported_card: str | None,
     vehicles: Sequence[Vehicle],
@@ -179,13 +194,7 @@ def identify(
     """
     card_uid: str | None = None
     if reported_card is not None:
-        matches = [
-            (vehicle, card)
-            for vehicle in vehicles
-            if vehicle.active
-            for card in vehicle.cards
-            if card.active and card.uid.endswith(reported_card)
-        ]
+        matches = _matching_cards(reported_card, vehicles)
         if len(matches) == 1:
             vehicle, card = matches[0]
             conflict = len(home_vehicle_ids) == 1 and vehicle.id not in home_vehicle_ids
@@ -208,6 +217,85 @@ def identify(
             IDENTIFICATION_SOURCE_VEHICLE_API, vehicle_id=vehicle_id, card_uid=card_uid
         )
     return Identification(IDENTIFICATION_SOURCE_UNRESOLVED, card_uid=card_uid)
+
+
+@dataclass(frozen=True, slots=True)
+class LateIdentification:
+    """The outcome of matching a card that was read after the cascade had decided.
+
+    vehicle_id and source are those the session has afterwards: the ones it
+    had if the card changes nothing.
+    """
+
+    vehicle_id: str | None
+    source: str
+    card_uid: str
+    card_label: str | None = None
+    conflict: bool = False
+    unknown_card: bool = False
+
+
+def identify_late(
+    reported_card: str,
+    vehicles: Sequence[Vehicle],
+    *,
+    vehicle_id: str | None,
+    source: str,
+) -> LateIdentification:
+    """Apply a card read after the cascade had decided to the session it belongs to.
+
+    vehicle_id and source are what the session has by then. A card that
+    matches exactly one stored card assigns an unassigned session to that
+    card's vehicle, and takes over a session the vehicle report assigned to
+    another vehicle, which is a conflict. A card that matches no stored card
+    leaves an unassigned session unassigned and is a conflict for an assigned
+    one. A value that matches several cards is no match and changes nothing.
+    """
+    matches = _matching_cards(reported_card, vehicles)
+    if len(matches) == 1:
+        vehicle, card = matches[0]
+        return LateIdentification(
+            vehicle_id=vehicle.id,
+            source=card.type,
+            card_uid=card.uid,
+            card_label=card.label,
+            conflict=vehicle_id is not None and vehicle_id != vehicle.id,
+        )
+    if not matches:
+        return LateIdentification(
+            vehicle_id=vehicle_id,
+            source=source,
+            card_uid=reported_card,
+            conflict=vehicle_id is not None,
+            unknown_card=True,
+        )
+    return LateIdentification(vehicle_id=vehicle_id, source=source, card_uid=reported_card)
+
+
+def should_discard(
+    *,
+    ended_by_unplug: bool,
+    counter_readable: bool,
+    counter_increased: bool,
+    phase_begun: bool,
+    charge_error: bool,
+    flagged: bool,
+    identification_conflict: bool,
+) -> bool:
+    """Return whether a finished session holds nothing and is not stored.
+
+    Only certainty discards. The session must have ended by the vehicle being
+    unplugged, the counter that carries the energy must have been readable
+    and not have risen, and there must have been no phase, no reported
+    charging error and no marking. Anything else keeps the session.
+    """
+    return (
+        ended_by_unplug
+        and counter_readable
+        and not (
+            counter_increased or phase_begun or charge_error or flagged or identification_conflict
+        )
+    )
 
 
 def energy_raw_kwh(
@@ -237,6 +325,9 @@ class _Counter:
     timestamp: datetime | None = None
     start_value: float | None = None
     accumulated: float = 0.0
+    # The counter could not be read when the session began; its start value is
+    # the first reading after that.
+    started_late: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for the runtime store."""
@@ -245,6 +336,7 @@ class _Counter:
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
             "start_value": self.start_value,
             "accumulated": self.accumulated,
+            "started_late": self.started_late,
         }
 
     @classmethod
@@ -255,6 +347,7 @@ class _Counter:
             timestamp=_parse(data.get("timestamp")),
             start_value=data.get("start_value"),
             accumulated=data.get("accumulated", 0.0),
+            started_late=data.get("started_late", False),
         )
 
 
@@ -264,6 +357,9 @@ class RunningSession:
 
     start: datetime
     state: str = SESSION_STATE_CANDIDATE
+    state_since: datetime | None = None
+    trigger: str = CANDIDATE_TRIGGER_PLUG
+    power_since: datetime | None = None
     phases: list[Phase] = field(default_factory=list)
     pause_since: datetime | None = None
     plug_end: datetime | None = None
@@ -305,6 +401,9 @@ class RunningSession:
         return {
             "start": self.start.isoformat(),
             "state": self.state,
+            "state_since": self.state_since.isoformat() if self.state_since else None,
+            "trigger": self.trigger,
+            "power_since": self.power_since.isoformat() if self.power_since else None,
             "phases": [phase.to_dict() for phase in self.phases],
             "pause_since": self.pause_since.isoformat() if self.pause_since else None,
             "plug_end": self.plug_end.isoformat() if self.plug_end else None,
@@ -347,6 +446,9 @@ class RunningSession:
         return cls(
             start=start,
             state=data.get("state", SESSION_STATE_CANDIDATE),
+            state_since=_parse(data.get("state_since")) or start,
+            trigger=data.get("trigger", CANDIDATE_TRIGGER_POWER),
+            power_since=_parse(data.get("power_since")),
             phases=[Phase.from_dict(phase) for phase in data.get("phases", [])],
             pause_since=_parse(data.get("pause_since")),
             plug_end=_parse(data.get("plug_end")),
@@ -456,7 +558,6 @@ class SessionManager:
         self._open_followups = 0
         self._finalizing = False
         self._card_reader: resolver.IdentificationReader | None = None
-        self._identification_waiting = False
         self._direct_read_failure: str | None = None
         self.snapshot = self._build_snapshot()
 
@@ -690,17 +791,34 @@ class SessionManager:
         if phase is not None and (phase.power_max_kw is None or power_kw > phase.power_max_kw):
             session.phases[-1] = replace(phase, power_max_kw=power_kw)
 
+    def _maybe_start_candidate(self, now: datetime) -> None:
+        """Start a candidate if none exists and something calls for one.
+
+        The connector reporting a vehicle does, whatever the power. Without a
+        usable connector report, power above the threshold does too, as long
+        as the connector does not say that nothing is plugged in.
+        """
+        if self._session is not None:
+            return
+        if self._plug_usable and self._plug_class == PLUG_STATE_CONNECTED:
+            self._start_candidate(now, CANDIDATE_TRIGGER_PLUG)
+        elif self._power_active() and self._plug_class != PLUG_STATE_NOT_CONNECTED:
+            self._start_candidate(now, CANDIDATE_TRIGGER_POWER)
+
     def _evaluate_power(self, now: datetime) -> None:
         """Move the state machine according to the charging power."""
         session = self._session
         active = self._power_active()
         if session is None:
-            if active and self._plug_class != PLUG_STATE_NOT_CONNECTED:
-                self._start_candidate(now)
+            self._maybe_start_candidate(now)
             return
         if session.state == SESSION_STATE_CANDIDATE:
-            if not active:
-                self._discard_candidate()
+            if active:
+                session.power_since = session.power_since or now
+            else:
+                session.power_since = None
+                if session.trigger == CANDIDATE_TRIGGER_POWER:
+                    self._discard_candidate()
         elif session.state == SESSION_STATE_CHARGING:
             if not active:
                 self._pause(now)
@@ -734,6 +852,7 @@ class SessionManager:
             self._plug_class = klass
         if klass == PLUG_STATE_NOT_CONNECTED and session is not None:
             self._unplug(now)
+        self._maybe_start_candidate(now)
         self._touch_live()
 
     def _raise_unknown_value(
@@ -814,6 +933,7 @@ class SessionManager:
         counter = session.counters.setdefault(kind, _Counter())
         if counter.value is None or counter.timestamp is None:
             counter.value, counter.timestamp, counter.start_value = value, now, value
+            counter.started_late = True
             return
         step = counter_step(
             counter.value,
@@ -933,10 +1053,20 @@ class SessionManager:
 
     # ----------------------------------------------------- state transitions
 
-    def _start_candidate(self, now: datetime) -> None:
-        """Create the candidate at the moment the power first exceeds the threshold."""
+    def _start_candidate(self, now: datetime, trigger: str) -> None:
+        """Create the candidate at the moment the plug reports a vehicle or the power rises.
+
+        The candidate holds no phase. Its time and counter readings become
+        those of the session if it is confirmed.
+        """
         assert self.wallbox is not None
-        session = RunningSession(start=now, state=SESSION_STATE_CANDIDATE)
+        session = RunningSession(
+            start=now,
+            state=SESSION_STATE_CANDIDATE,
+            state_since=now,
+            trigger=trigger,
+            power_since=now if self._power_active() else None,
+        )
         session.authoritative = self._default_authoritative()
         session.last_share = self._last_share
         for kind, role in (
@@ -955,19 +1085,18 @@ class SessionManager:
             if value is not None:
                 counter.value, counter.timestamp, counter.start_value = value, now, value
             session.counters[kind] = counter
-        session.phases.append(Phase(start=_iso(now), power_max_kw=self._power_kw))
         session.plug_last_valid = now
         self._session = session
         if not self._plug_usable:
             self._plug_unavailable(session, now)
         self._start_counter_check()
+        self._begin_identification(session)
         self._enter(SESSION_STATE_CANDIDATE)
 
         if self.wallbox.start_debounce_s == 0:
             self._confirm_candidate(now)
         else:
             self._set_timer("debounce", self.wallbox.start_debounce_s, self._on_debounce_timer)
-        self._begin_identification()
         self._schedule_identification()
 
     def _start_counter_check(self) -> None:
@@ -991,7 +1120,6 @@ class SessionManager:
             self._cancel_timer(name)
         if self._card_reader is not None:
             self._card_reader.cancel()
-        self._identification_waiting = False
 
     def _default_authoritative(self) -> str:
         """Return the counter that carries the energy, from the stored detection or the setup."""
@@ -1013,7 +1141,10 @@ class SessionManager:
     def _enter(self, state: str) -> None:
         """Record a new state, persist it and publish it at once."""
         assert self._session is not None
-        self._session.state = state
+        session = self._session
+        if session.state != state or session.state_since is None:
+            session.state_since = self._now()
+        session.state = state
         self._persist()
         self._publish()
 
@@ -1024,14 +1155,25 @@ class SessionManager:
         self._confirm_candidate(self._now())
 
     def _confirm_candidate(self, now: datetime) -> None:
-        """Turn the candidate into a running session if the power still holds."""
+        """Turn the candidate into a running session.
+
+        A candidate that the power created is dropped if the power did not
+        hold. One that the plug created stays: it charges if the power is
+        above the threshold and waits otherwise.
+        """
         session = self._session
         if session is None or session.state != SESSION_STATE_CANDIDATE:
             return
-        if not self._power_active():
+        active = self._power_active()
+        if session.trigger == CANDIDATE_TRIGGER_POWER and not active:
             self._discard_candidate()
             return
-        self._enter(SESSION_STATE_CHARGING)
+        if active:
+            if not session.phases:
+                self._open_phase(session, session.power_since or now)
+            self._enter(SESSION_STATE_CHARGING)
+        else:
+            self._enter(SESSION_STATE_PAUSED)
         if self._error_class == ERROR_CLASS_ERROR:
             self._set_timer("error", ERROR_DEBOUNCE_S, self._on_error_timer)
 
@@ -1070,11 +1212,18 @@ class SessionManager:
         self._enter(SESSION_STATE_CHARGING)
 
     def _open_phase(self, session: RunningSession, now: datetime) -> None:
-        """Start a new phase, joining the shortest pauses first when the limit is reached."""
+        """Start a new phase, joining the shortest pauses first when the limit is reached.
+
+        The first phase of a session also starts the second sequence of reads
+        of the identification.
+        """
+        first = not session.phases
         if len(session.phases) >= MAX_PHASES:
             session.phases = list(merge_shortest_pauses(tuple(session.phases), MAX_PHASES - 1))
             session.flagged = True
         session.phases.append(Phase(start=_iso(now), power_max_kw=self._power_kw))
+        if first and self._card_reader is not None:
+            self._card_reader.begin_charging()
 
     def _close_phase(self, session: RunningSession, end: datetime) -> None:
         """Close the open phase at the given moment."""
@@ -1132,6 +1281,8 @@ class SessionManager:
             return
         for name in ("debounce", "pause", "error", "stale"):
             self._cancel_timer(name)
+        if self._card_reader is not None:
+            self._card_reader.stop()
         end = (
             session.pause_since
             if session.state == SESSION_STATE_PAUSED and session.pause_since
@@ -1151,11 +1302,14 @@ class SessionManager:
             return
         for name in ("debounce", "pause", "error", "final"):
             self._cancel_timer(name)
+        if self._card_reader is not None:
+            self._card_reader.stop()
         end = session.plug_last_valid or session.start
         self._close_phase(session, end)
         session.plug_end = end
         session.flagged = True
         session.state = SESSION_STATE_AWAITING_FINAL
+        session.state_since = self._now()
         self._persist()
         self._publish()
         self._hass.async_create_task(self._async_finalize(stale=True))
@@ -1306,23 +1460,24 @@ class SessionManager:
         self._timers.pop("identification", None)
         self._decide_identification()
 
-    def _begin_identification(self) -> None:
-        """Start retrieving the reported identification for the session that just began."""
+    def _begin_identification(self, session: RunningSession) -> None:
+        """Start reading the identification for the session, if it comes from the device."""
         assert self._card_reader is not None
-        self._identification_waiting = False
-        self._card_reader.begin(self._on_identification_read_done)
+        self._card_reader.begin(self._on_reader_event, since=session.start)
 
     @callback
-    def _on_identification_read_done(self) -> None:
-        """Note that the identification is retrieved, and decide if that was waited for."""
+    def _on_reader_event(self, event: resolver.ReadEvent) -> None:
+        """Handle a step of reading the identification from the device."""
         assert self._card_reader is not None
-        self._report_read_failure(self._card_reader.failure)
-        if self._identification_waiting:
-            self._identification_waiting = False
-            self._decide_identification()
+        if event is resolver.ReadEvent.VALUE:
+            self._report_read_failure(None)
+            self._assign_late_card()
+        elif event is resolver.ReadEvent.EXHAUSTED:
+            self._report_read_failure(self._card_reader.failure)
+        self._touch_live()
 
     def _report_read_failure(self, failure: str | None) -> None:
-        """Raise or clear the repair issue for a failed retrieval, and log a change once."""
+        """Raise or clear the repair issue for a failed reading, and log a change once."""
         subentry = self._wallbox_subentry
         assert subentry is not None
         problems.check_direct_read(
@@ -1351,9 +1506,6 @@ class SessionManager:
         if session is None or session.identification_decided:
             return
         assert self._card_reader is not None
-        if self._card_reader.pending:
-            self._identification_waiting = True
-            return
         vehicles = [context.vehicle for context in self._vehicles.values()]
         home_ids = {
             context.vehicle.id
@@ -1376,6 +1528,48 @@ class SessionManager:
         self._update_unknown_card_issue(result.unknown_card)
         self._evaluate_location_conflict()
         self._resolve_late()
+        self._persist()
+        self._publish()
+
+    def _assign_late_card(self) -> None:
+        """Apply a card that was read after the cascade had decided.
+
+        Only the assignment changes: energy, cost and phases stay as they are.
+        A vehicle that is newly assigned or replaced loses the start values
+        that were taken for another vehicle, and they stay open.
+        """
+        assert self._card_reader is not None
+        session = self._session
+        if (
+            session is None
+            or not session.identification_decided
+            or session.card_uid is not None
+            or session.state == SESSION_STATE_AWAITING_FINAL
+        ):
+            return
+        reported = self._card_reader.value(session.start)
+        if reported is None:
+            return
+        result = identify_late(
+            reported,
+            [context.vehicle for context in self._vehicles.values()],
+            vehicle_id=session.vehicle_id,
+            source=session.identification_source,
+        )
+        session.card_uid = result.card_uid
+        session.card_label = result.card_label
+        session.unknown_card = result.unknown_card
+        session.identification_source = result.source
+        if result.vehicle_id != session.vehicle_id and result.vehicle_id is not None:
+            self._assign_vehicle(session, self._vehicles[result.vehicle_id], capture_start=False)
+            session.soc_start = None
+            session.odometer_km = None
+            session.location_conflict = False
+        if result.conflict:
+            session.identification_conflict = True
+            session.flagged = True
+        self._update_unknown_card_issue(result.unknown_card)
+        self._evaluate_location_conflict()
         self._persist()
         self._publish()
 
@@ -1453,26 +1647,55 @@ class SessionManager:
 
     # ------------------------------------------------------------ finishing
 
+    def _counter_readable(self, session: RunningSession) -> bool:
+        """Whether the energy counter was read from the start and can be read now."""
+        assert self.wallbox is not None
+        counter = session.counters.get(session.authoritative)
+        if counter is None or counter.start_value is None or counter.started_late:
+            return False
+        role = (
+            self.wallbox.energy_total
+            if session.authoritative == COUNTER_TOTAL
+            else self.wallbox.energy_session
+        )
+        entity_id = resolver.resolve_entity_id(self._hass, role)
+        state = self._hass.states.get(entity_id) if entity_id else None
+        return resolver.read_number(state, role, ENERGY_UNIT_FACTORS_TO_KWH) is not None
+
+    def _is_empty(self, session: RunningSession, *, ended_by_unplug: bool) -> bool:
+        """Whether the ended session holds nothing and is dropped instead of stored."""
+        return should_discard(
+            ended_by_unplug=ended_by_unplug,
+            counter_readable=self._counter_readable(session),
+            counter_increased=any(counter.accumulated > 0 for counter in session.counters.values()),
+            phase_begun=bool(session.phases),
+            charge_error=session.charge_error,
+            flagged=session.flagged,
+            identification_conflict=session.identification_conflict,
+        )
+
     async def _async_finalize(self, *, stale: bool) -> None:
-        """Turn the running session into a stored session."""
+        """Turn the running session into a stored session, or drop it if it holds nothing."""
         session = self._session
         if session is None or self._finalizing:
             return
         self._finalizing = True
+        empty = self._is_empty(session, ended_by_unplug=not stale)
         try:
-            stored = self._build_session(session, stale=stale)
-            year = dt_util.as_local(session.start).year
+            if not empty:
+                stored = self._build_session(session, stale=stale)
+                year = dt_util.as_local(session.start).year
 
-            def _add(sessions: list[Session]) -> list[Session]:
-                taken = {existing.id for existing in sessions}
-                unique = stored
-                counter = 2
-                while unique.id in taken:
-                    unique = replace(stored, id=f"{stored.id}_{counter}")
-                    counter += 1
-                return [*sessions, unique]
+                def _add(sessions: list[Session]) -> list[Session]:
+                    taken = {existing.id for existing in sessions}
+                    unique = stored
+                    counter = 2
+                    while unique.id in taken:
+                        unique = replace(stored, id=f"{stored.id}_{counter}")
+                        counter += 1
+                    return [*sessions, unique]
 
-            await SessionYearStore(self._hass, year).async_update(_add)
+                await SessionYearStore(self._hass, year).async_update(_add)
         except Exception:
             _LOGGER.exception("The finished session could not be stored; it is kept and retried")
             self._set_timer("final", 60, self._async_on_final_timer)
@@ -1481,10 +1704,11 @@ class SessionManager:
             self._finalizing = False
         self._clear_session_timers()
         self._session = None
-        self._open_followups = await self._async_count_followups()
+        if not empty:
+            self._open_followups = await self._async_count_followups()
         await self._async_persist()
         self._publish()
-        self._evaluate_power(self._now())
+        self._maybe_start_candidate(self._now())
 
     def _build_session(self, session: RunningSession, *, stale: bool) -> Session:
         """Assemble the stored session from the running one,."""
@@ -1677,9 +1901,14 @@ class SessionManager:
         if session.state in _RUNNING_STATES and session.plug_unavailable_since:
             elapsed = (now - session.plug_unavailable_since).total_seconds()
             self._set_timer("stale", SESSION_TIMEOUT_H * 3600 - elapsed, self._on_stale_timer)
-        if not session.identification_decided:
-            self._begin_identification()
-            self._schedule_identification()
+        if session.state != SESSION_STATE_AWAITING_FINAL:
+            assert self._card_reader is not None
+            if session.card_uid is None:
+                self._begin_identification(session)
+                if session.phases:
+                    self._card_reader.begin_charging()
+            if not session.identification_decided:
+                self._schedule_identification()
         self._start_counter_check()
 
     # ------------------------------------------------------------- publishing
@@ -1822,12 +2051,29 @@ class SessionManager:
             open_followups=self._open_followups,
         )
 
+    def _plug_report(self, session: RunningSession | None) -> dict[str, Any]:
+        """Describe the plug state of the wallbox for the live card."""
+        unusable = not self._plug_usable or self._plug_class is None
+        since = session.plug_unavailable_since if session is not None else None
+        timeout_at = since + timedelta(hours=SESSION_TIMEOUT_H) if since is not None else None
+        return {
+            "state": PLUG_REPORT_UNAVAILABLE if unusable else self._plug_class,
+            "unavailable_since": _iso(since) if since is not None and unusable else None,
+            "timeout_at": _iso(timeout_at) if timeout_at is not None and unusable else None,
+        }
+
+    def _configured_counter(self) -> str:
+        """Return the counter that carries the energy according to the setup."""
+        assert self.wallbox is not None
+        return COUNTER_TOTAL if self.wallbox.energy_total is not None else COUNTER_SESSION
+
     def live_payload(self) -> dict[str, Any]:
         """Return the live values for the dashboard card.
 
         Card identifiers, VIN, address and coordinates are never included.
         """
         assert self.wallbox is not None
+        assert self._card_reader is not None
         session = self._session
         now = self._now()
         context = self._vehicle_context()
@@ -1837,9 +2083,16 @@ class SessionManager:
             counter = session.counters.get(session.authoritative)
             if counter is not None and counter.start_value is not None:
                 energy = round(counter.accumulated, 3)
+        progress = self._card_reader.progress if session is not None else None
         return {
             "state": snapshot.state,
+            "state_since": _iso(session.state_since) if session and session.state_since else None,
             "active": session is not None,
+            "phase_count": len(session.phases) if session else 0,
+            "waiting_for_power": bool(
+                session and session.state == SESSION_STATE_PAUSED and not session.phases
+            ),
+            "plug": self._plug_report(session),
             "wallbox": {"name": self.wallbox.name, "max_power_kw": self.wallbox.max_power_kw},
             "currency": self._hass.config.currency,
             "session_start": _iso(session.start) if session else None,
@@ -1851,6 +2104,17 @@ class SessionManager:
             "vehicle_guest": bool(context and context.vehicle.is_guest),
             "identification_source": session.identification_source if session else None,
             "identification_decided": bool(session and session.identification_decided),
+            "identification_conflict": bool(session and session.identification_conflict),
+            "identification_read": (
+                {
+                    "state": progress.state,
+                    "sequence": progress.sequence,
+                    "attempt": progress.attempt,
+                    "max_attempts": progress.max_attempts,
+                }
+                if progress is not None
+                else None
+            ),
             "location": LOCATION_HOME if session else None,
             "soc_start": snapshot.soc_start,
             "soc": snapshot.vehicle_soc,
@@ -1869,7 +2133,16 @@ class SessionManager:
             "plug_duration_min": (
                 round((now - session.start).total_seconds() / 60, 1) if session else None
             ),
-            "flagged": bool(session and (session.flagged or session.identification_conflict)),
+            "energy_unallocated_kwh": round(session.unallocated_kwh, 3) if session else None,
+            "counter": {
+                "authoritative": session.authoritative if session else None,
+                "switched": bool(session and session.authoritative != self._configured_counter()),
+            },
+            "sources": {
+                "grid_balance": self._grid_configured(),
+                "grid_price": self._prices_configured(),
+            },
+            "flagged": bool(session and session.flagged),
             "charge_error": bool(session and session.charge_error),
             "location_conflict": bool(session and session.location_conflict),
         }

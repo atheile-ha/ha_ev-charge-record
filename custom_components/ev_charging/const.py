@@ -217,16 +217,33 @@ REGISTER_FORMATS = (REGISTER_FORMAT_HEX_UPPER_8,)
 # Roles a mapping file may feed from a register instead of an entity.
 REGISTER_ROLES = ("identification",)
 
-# Reading a role from the device: one read when the session starts, and only
-# if that fails up to this many further reads, spaced apart.
-DIRECT_READ_RETRIES = 3
-DIRECT_READ_RETRY_INTERVAL_S = 2
+# Reading a role from the device happens in at most two sequences per session.
+# The first starts this long after the session began, the second with the
+# first charging phase. A sequence reads at the given interval, at most the
+# given number of times, and stops with the first valid value.
+DIRECT_READ_FIRST_DELAY_S = 10
+DIRECT_READ_INTERVAL_S = 5
+DIRECT_READ_MAX_READS = 10
 # Bound for connecting and for the reply of one read.
 DIRECT_READ_TIMEOUT_S = 3
 
 # How a completed read of the identification failed.
 READ_FAILURE_UNREACHABLE = "unreachable"
 READ_FAILURE_INVALID_VALUE = "invalid_value"
+
+# Where the reading of the identification stands, as shown on the live card.
+READ_STATE_READING = "reading"
+READ_STATE_WAITING = "waiting"
+READ_STATE_READ = "read"
+READ_STATE_UNREADABLE = "unreadable"
+
+# What created the candidate of a session: the connector reporting a vehicle,
+# or, without a connector report, the power passing the threshold.
+CANDIDATE_TRIGGER_PLUG = "plug"
+CANDIDATE_TRIGGER_POWER = "power"
+
+# How the plug state of the wallbox is reported on the live card.
+PLUG_REPORT_UNAVAILABLE = "unavailable"
 
 # Selectable in the vehicle device-choice step in place of a mapping id, for a
 # vehicle with no connected online integration (5.2). Never stored: resolves
