@@ -2,15 +2,19 @@ import { LitElement, css, html, nothing, type PropertyValues, type TemplateResul
 import { property, state } from "lit/decorators.js";
 import {
   formatCost,
+  formatDistance,
   formatDuration,
   formatEnergy,
   formatPower,
   formatPricePerKwh,
 } from "./format";
+import { onConnectionReady } from "./connection";
 import { loadTranslate, makeTranslate, type TextKey, type Translate } from "./i18n";
 import {
   assignmentText,
+  blockTitleText,
   chargeEndText,
+  chargeTypeText,
   counterText,
   dataGaps,
   idleText,
@@ -19,12 +23,14 @@ import {
   plugDurationMinutes,
   plugText,
   readingText,
+  remainingMinutes,
   solarSharePercent,
   stateText,
   titleText,
   unallocatedText,
   vehicleDetailsText,
   vehicleText,
+  type LiveBlock,
   type LiveFormat,
   type LivePayload,
 } from "./live";
@@ -58,6 +64,7 @@ export class EvChargingLiveCard extends LitElement {
   private _started = false;
   private _unsubscribe?: Promise<() => Promise<void>>;
   private _timer?: number;
+  private _connectionUnsub?: () => void;
 
   public setConfig(config: LiveCardConfig): void {
     this._config = config;
@@ -74,18 +81,23 @@ export class EvChargingLiveCard extends LitElement {
   public override connectedCallback(): void {
     super.connectedCallback();
     this._timer = window.setInterval(() => {
-      if (this._live?.active) {
+      if (this._live?.some((block) => block.active)) {
         this._now = Date.now();
       }
     }, TICK_MS);
     if (this.hass && this._started) {
       void this._subscribe(this.hass);
     }
+    if (this.hass) {
+      this._watchConnection(this.hass);
+    }
   }
 
   public override disconnectedCallback(): void {
     window.clearInterval(this._timer);
     this._release();
+    this._connectionUnsub?.();
+    this._connectionUnsub = undefined;
     super.disconnectedCallback();
   }
 
@@ -99,7 +111,21 @@ export class EvChargingLiveCard extends LitElement {
     if (changed.has("hass") && this.hass && !this._started) {
       this._started = true;
       void this._start(this.hass);
+      this._watchConnection(this.hass);
     }
+  }
+
+  // A load that raced a reconnect leaves the card failed; retry once the
+  // connection is back instead of waiting only for a manual click.
+  private _watchConnection(hass: HomeAssistant): void {
+    if (this._connectionUnsub) {
+      return;
+    }
+    this._connectionUnsub = onConnectionReady(hass, () => {
+      if ((this._failed || this._noWallbox) && this.hass) {
+        void this._subscribe(this.hass);
+      }
+    });
   }
 
   private async _start(hass: HomeAssistant): Promise<void> {
@@ -161,7 +187,7 @@ export class EvChargingLiveCard extends LitElement {
   }
 
   // The vehicle with its odometer and state of charge in a muted line below.
-  private _vehicle(live: LivePayload, t: Translate, locale: string): TemplateResult {
+  private _vehicle(live: LiveBlock, t: Translate, locale: string): TemplateResult {
     const unassigned = !live.vehicle_guest && live.vehicle === null;
     const details = vehicleDetailsText(live, t, locale);
     return html`<div class="vehicle ${unassigned ? "unassigned" : ""}">${vehicleText(live, t)}</div>
@@ -177,14 +203,15 @@ export class EvChargingLiveCard extends LitElement {
   }
 
   // The state of the session and where it came from: what it is doing, the plug,
-  // the assignment and the reading of the identification.
-  private _status(live: LivePayload, t: Translate, format: LiveFormat): TemplateResult {
+  // the assignment and the reading of the identification. The plug only applies
+  // to the wallbox block; an external block never carries one.
+  private _status(live: LiveBlock, t: Translate, format: LiveFormat): TemplateResult {
     const phases = phasesText(live, t);
     const lines = [
       assignmentText(live, t),
-      plugText(live, t, format),
+      live.kind === "wallbox" ? plugText(live, t, format) : null,
       readingText(live, t),
-    ].filter((line): line is string => line !== null);
+    ].filter((line): line is string => line !== null && line !== "");
     return html`<div class="status">
       <div class="state">
         ${stateText(live, t, format)}${phases === null ? nothing : html` · ${phases}`}
@@ -194,9 +221,9 @@ export class EvChargingLiveCard extends LitElement {
   }
 
   // The data situation: which counter carries the energy, and energy that could
-  // not be assigned.
+  // not be assigned. Wallbox blocks only; an external block has neither.
   private _situation(
-    live: LivePayload,
+    live: LiveBlock,
     t: Translate,
     locale: string,
   ): TemplateResult | typeof nothing {
@@ -208,7 +235,7 @@ export class EvChargingLiveCard extends LitElement {
       : html`<div class="situation">${lines.map((line) => html`<div>${line}</div>`)}</div>`;
   }
 
-  private _flags(live: LivePayload, t: Translate): TemplateResult | typeof nothing {
+  private _flags(live: LiveBlock, t: Translate): TemplateResult | typeof nothing {
     const flags: TemplateResult[] = [];
     if (live.charge_error) {
       flags.push(html`<span class="chip alert">${t("flag_charge_error")}</span>`);
@@ -225,47 +252,90 @@ export class EvChargingLiveCard extends LitElement {
     return flags.length === 0 ? nothing : html`<div class="flags">${flags}</div>`;
   }
 
-  private _details(live: LivePayload, t: Translate, hass: HomeAssistant): TemplateResult {
+  // Wallbox blocks show the grid/solar split, the cost and the price; external
+  // blocks never have those and show the address, charge type and range instead.
+  private _details(live: LiveBlock, t: Translate, hass: HomeAssistant): TemplateResult {
     const locale = hass.locale?.language ?? hass.language;
     const currency = live.currency || hass.config.currency;
-    const solar = solarSharePercent(live);
-    const gaps = dataGaps(live, t);
-    const split =
-      live.energy_grid_kwh === null || live.energy_solar_kwh === null
-        ? gaps.split === null
-          ? nothing
-          : this._row(`${t("detail_energy_grid")} / ${t("detail_energy_solar")}`, gaps.split)
-        : this._row(
-            `${t("detail_energy_grid")} / ${t("detail_energy_solar")}`,
-            `${formatEnergy(live.energy_grid_kwh, locale)} / ${formatEnergy(
-              live.energy_solar_kwh,
-              locale,
-            )}${solar === null ? "" : ` (${t("live_solar_share", { percent: Math.round(solar) })})`}`,
-          );
-    const price =
-      live.effective_price === null
-        ? nothing
-        : this._row(
-            t("live_price"),
-            formatPricePerKwh(live.effective_price, locale, currency),
-          );
     const endText = chargeEndText(live, t, {
       locale,
       timeZone: hass.config.time_zone,
       now: this._now,
     });
     const end = endText === null ? nothing : this._row(t("live_charge_end"), endText);
+
+    let middle: TemplateResult | typeof nothing = nothing;
+    let tail: TemplateResult | typeof nothing = nothing;
+    if (live.kind === "wallbox") {
+      const solar = solarSharePercent(live);
+      const gaps = dataGaps(live, t);
+      const split =
+        live.energy_grid_kwh === null || live.energy_solar_kwh === null
+          ? gaps.split === null
+            ? nothing
+            : this._row(`${t("detail_energy_grid")} / ${t("detail_energy_solar")}`, gaps.split)
+          : this._row(
+              `${t("detail_energy_grid")} / ${t("detail_energy_solar")}`,
+              `${formatEnergy(live.energy_grid_kwh, locale)} / ${formatEnergy(
+                live.energy_solar_kwh,
+                locale,
+              )}${
+                solar === null ? "" : ` (${t("live_solar_share", { percent: Math.round(solar) })})`
+              }`,
+            );
+      const price =
+        live.effective_price === null
+          ? nothing
+          : this._row(t("live_price"), formatPricePerKwh(live.effective_price, locale, currency));
+      middle = html`${split}
+        ${this._row(t("live_cost"), gaps.cost ?? formatCost(live.cost, locale, currency))}
+        ${price}`;
+    } else {
+      const chargeType = chargeTypeText(live, t);
+      const remaining = remainingMinutes(live, this._now);
+      middle = html`
+        ${live.address === null ? nothing : this._row(t("live_address"), live.address)}
+        ${chargeType === null ? nothing : this._row(t("live_charge_type"), chargeType)}
+        ${live.range_km === null ? nothing : this._row(t("live_range"), formatDistance(live.range_km, locale))}
+      `;
+      tail =
+        remaining === null ? nothing : this._row(t("live_remaining_time"), formatDuration(remaining));
+    }
+
     return html`<dl>
       ${this._row(t("live_power"), formatPower(live.charge_power_kw, locale))}
-      ${this._row(t("live_energy"), formatEnergy(live.energy_kwh, locale))} ${split}
-      ${this._row(t("live_cost"), gaps.cost ?? formatCost(live.cost, locale, currency))} ${price}
+      ${this._row(t("live_energy"), formatEnergy(live.energy_kwh, locale, live.energy_is_estimate))}
+      ${middle}
       ${this._row(
         t("live_charge_time"),
         formatDuration(netDurationMinutes(live, this._received, this._now)),
       )}
       ${this._row(t("live_plug_time"), formatDuration(plugDurationMinutes(live, this._now)))}
-      ${end}
+      ${end} ${tail}
     </dl>`;
+  }
+
+  // One block: the wallbox's own session, or one vehicle's own external session.
+  private _block(live: LiveBlock, t: Translate, hass: HomeAssistant): TemplateResult {
+    const heading = blockTitleText(live, t);
+    if (!live.active) {
+      return html`<div class="block">
+        <h3><span>${heading}</span></h3>
+        <div class="message">${idleText(live, t)}</div>
+      </div>`;
+    }
+    const stateKey = `live_state_${live.state}` as TextKey;
+    return html`<div class="block">
+      <h3>
+        <span>${heading}</span>
+        <span class="chip ${live.state === "error" ? "alert" : ""}">${t(stateKey)}</span>
+      </h3>
+      ${this._vehicle(live, t, hass.locale?.language ?? hass.language)}
+      ${this._status(live, t, this._format(hass))}
+      ${this._details(live, t, hass)}
+      ${this._situation(live, t, hass.locale?.language ?? hass.language)}
+      ${this._flags(live, t)}
+    </div>`;
   }
 
   protected override render(): TemplateResult {
@@ -274,7 +344,7 @@ export class EvChargingLiveCard extends LitElement {
     if (!t || !hass) {
       return html`<div class="spinner" role="progressbar"></div>`;
     }
-    const title = this._config.title ?? titleText(this._live, t);
+    const title = this._config.title ?? titleText(t);
     if (this._noWallbox) {
       return html`<h2>${title}</h2>
         <div class="message">${t("live_no_wallbox")}</div>`;
@@ -286,28 +356,13 @@ export class EvChargingLiveCard extends LitElement {
           <button class="text" @click=${() => this._retry()}>${t("retry")}</button>
         </div>`;
     }
-    const live = this._live;
-    if (live === undefined) {
+    const blocks = this._live;
+    if (blocks === undefined) {
       return html`<h2>${title}</h2>
         <div class="spinner" role="progressbar"></div>`;
     }
-    if (!live.active) {
-      return html`<h2>${title}</h2>
-        <div class="message">${idleText(live, t)}</div>`;
-    }
-    const stateKey = `live_state_${live.state}` as TextKey;
-    return html`
-      <h2>
-        <span>${title}</span>
-        <span class="chip ${live.state === "error" ? "alert" : ""}"
-          >${t(stateKey)}</span
-        >
-      </h2>
-      ${this._vehicle(live, t, hass.locale?.language ?? hass.language)}
-      ${this._status(live, t, this._format(hass))}
-      ${this._details(live, t, hass)}
-      ${this._situation(live, t, hass.locale?.language ?? hass.language)} ${this._flags(live, t)}
-    `;
+    return html`<h2>${title}</h2>
+      ${blocks.map((block) => this._block(block, t, hass))}`;
   }
 
   public static override styles = [
@@ -330,6 +385,22 @@ export class EvChargingLiveCard extends LitElement {
         gap: 8px;
         margin: 0 0 8px;
         font-size: 1.1em;
+        font-weight: 500;
+      }
+
+      .block + .block {
+        margin-top: 20px;
+        padding-top: 16px;
+        border-top: 1px solid var(--divider-color, rgba(0, 0, 0, 0.12));
+      }
+
+      h3 {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin: 0 0 8px;
+        font-size: 1em;
         font-weight: 500;
       }
 

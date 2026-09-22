@@ -8,8 +8,8 @@ from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .sensor import EvChargingEntity
-from .session_manager import SessionManager
+from .sensor import EvChargingEntity, EvChargingVehicleEntity
+from .session_manager import SessionManager, VehicleContext
 
 if TYPE_CHECKING:
     from . import EvChargingConfigEntry
@@ -30,6 +30,22 @@ class EvChargingSessionBinarySensor(EvChargingEntity, BinarySensorEntity):
         return self._manager.snapshot.session_active
 
 
+class EvChargingVehicleSessionBinarySensor(EvChargingVehicleEntity, BinarySensorEntity):
+    """On while a vehicle's own charging session is running, independent of the wallbox."""
+
+    _attr_translation_key = "vehicle_session_active"
+
+    def __init__(self, manager: SessionManager, context: VehicleContext) -> None:
+        """Create the binary sensor."""
+        super().__init__(manager, context, "session_active")
+
+    @property
+    def is_on(self) -> bool:
+        """Return whether this vehicle's own session is active."""
+        snapshot = self._snapshot
+        return snapshot is not None and snapshot.session_active
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: EvChargingConfigEntry,
@@ -43,3 +59,10 @@ async def async_setup_entry(
         [EvChargingSessionBinarySensor(manager, entry.entry_id)],
         config_subentry_id=manager.wallbox_subentry_id,
     )
+    for context in manager.vehicle_contexts:
+        if not context.vehicle.active:
+            continue
+        async_add_entities(
+            [EvChargingVehicleSessionBinarySensor(manager, context)],
+            config_subentry_id=context.subentry_id,
+        )

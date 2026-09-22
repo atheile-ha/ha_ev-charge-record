@@ -529,7 +529,6 @@
         "recent_title": "Letzte Ladevorgänge",
         "card_count": "Anzahl Ladevorgänge",
         "live_title": "Ladevorgang",
-        "live_title_wallbox": "Ladevorgang {name}",
         "live_idle": "Kein Ladevorgang aktiv",
         "live_no_wallbox": "Keine Wallbox eingerichtet",
         "live_state_candidate": "Erkennung",
@@ -548,7 +547,7 @@
         "live_plug_time": "Angesteckt",
         "live_charge_end": "Voraussichtliches Ende",
         "live_charge_end_no_power": "Ohne Ladeleistung nicht verfügbar",
-        "live_idle_not_connected": "Kein Fahrzeug verbunden",
+        "live_idle_not_connected": "Kein Fahrzeug an Wallbox verbunden",
         "live_idle_plug_unavailable": "Steckerzustand nicht verfügbar",
         "live_status_candidate": "Ladevorgang wird erkannt",
         "live_status_waiting_for_power": "Wartet auf Ladeleistung",
@@ -577,7 +576,13 @@
         "live_missing_split": "Keine Aufteilung in Netz- und Sonnenanteil ohne Netzsaldo",
         "live_missing_cost": "Keine Kosten ohne Netzpreis",
         "month_solar_share": "Sonnenanteil",
-        "field_vehicle_id": "Fahrzeug"
+        "field_vehicle_id": "Fahrzeug",
+        "live_block_external": "Extern",
+        "live_range": "Reichweite",
+        "live_charge_type": "Ladeart",
+        "live_odometer": "Kilometerstand",
+        "live_address": "Adresse",
+        "live_remaining_time": "Restliche Ladezeit"
       }
     }
   },
@@ -589,6 +594,16 @@
         "confirm": {
           "name": "Bestätigen",
           "description": "Muss auf true gesetzt werden. Die Löschung kann nicht rückgängig gemacht werden."
+        }
+      }
+    },
+    "retry_address": {
+      "name": "Adresse erneut ermitteln",
+      "description": "Ermittelt die Adresse eines gespeicherten Ladevorgangs erneut aus seinen Koordinaten.",
+      "fields": {
+        "id": {
+          "name": "Session-ID",
+          "description": "Die ID des Ladevorgangs, für den die Adresse ermittelt werden soll."
         }
       }
     }
@@ -687,11 +702,48 @@
       },
       "grid_share": {
         "name": "{wallbox} Netzanteil"
+      },
+      "vehicle_session_state": {
+        "name": "{vehicle} Sessionzustand",
+        "state": {
+          "idle": "Leerlauf",
+          "candidate": "Erkennung",
+          "charging": "Lädt",
+          "paused": "Pausiert",
+          "error": "Fehler",
+          "awaiting_final": "Abschluss"
+        }
+      },
+      "vehicle_session_location": {
+        "name": "{vehicle} Ladeort",
+        "state": {
+          "home": "Zuhause (Wallbox)",
+          "home_no_wallbox": "Zuhause (ohne Wallbox)",
+          "external": "Extern"
+        }
+      },
+      "vehicle_session_soc_start": {
+        "name": "{vehicle} Ladestand bei Start"
+      },
+      "vehicle_session_odometer_start": {
+        "name": "{vehicle} Kilometerstand bei Start"
+      },
+      "vehicle_session_duration_net": {
+        "name": "{vehicle} Netto-Ladedauer"
+      },
+      "vehicle_session_energy": {
+        "name": "{vehicle} Ladeenergie"
+      },
+      "vehicle_charge_end": {
+        "name": "{vehicle} Ladeende"
       }
     },
     "binary_sensor": {
       "wallbox_session": {
         "name": "{wallbox} Wallbox-Ladevorgang"
+      },
+      "vehicle_session_active": {
+        "name": "{vehicle} Ladevorgang aktiv"
       }
     }
   }

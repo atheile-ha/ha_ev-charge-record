@@ -15,7 +15,7 @@ function fakeHass(callWS: HomeAssistant["callWS"], language = "de"): HomeAssista
     locale: { language },
     config: { currency: "EUR", time_zone: "UTC" },
     callWS,
-    connection: { subscribeMessage: vi.fn() },
+    connection: { subscribeMessage: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn() },
   };
 }
 

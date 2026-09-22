@@ -19,8 +19,8 @@ from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from .const import CHARGE_STATE_CLASSES, SESSION_STATES
-from .session_manager import SessionManager, WallboxSnapshot
+from .const import CHARGE_STATE_CLASSES, LOCATIONS, SESSION_STATES
+from .session_manager import SessionManager, VehicleContext, VehicleSnapshot, WallboxSnapshot
 
 if TYPE_CHECKING:
     from . import EvChargingConfigEntry
@@ -166,6 +166,81 @@ SENSORS: tuple[EvChargingSensorDescription, ...] = (
 )
 
 
+@dataclass(frozen=True, kw_only=True)
+class EvChargingVehicleSensorDescription(SensorEntityDescription):
+    """A sensor and the way its value is taken from a vehicle's own published snapshot."""
+
+    value_fn: Callable[[VehicleSnapshot], StateType | datetime]
+
+
+VEHICLE_SENSORS: tuple[EvChargingVehicleSensorDescription, ...] = (
+    EvChargingVehicleSensorDescription(
+        key="session_state",
+        translation_key="vehicle_session_state",
+        device_class=SensorDeviceClass.ENUM,
+        options=list(SESSION_STATES),
+        entity_registry_enabled_default=False,
+        value_fn=lambda snapshot: snapshot.session_state,
+    ),
+    EvChargingVehicleSensorDescription(
+        key="session_location",
+        translation_key="vehicle_session_location",
+        device_class=SensorDeviceClass.ENUM,
+        options=list(LOCATIONS),
+        entity_registry_enabled_default=False,
+        value_fn=lambda snapshot: snapshot.session_location,
+    ),
+    EvChargingVehicleSensorDescription(
+        key="session_soc_start",
+        translation_key="vehicle_session_soc_start",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=PERCENTAGE,
+        suggested_display_precision=0,
+        entity_registry_enabled_default=False,
+        value_fn=lambda snapshot: snapshot.session_soc_start,
+    ),
+    EvChargingVehicleSensorDescription(
+        key="session_odometer_start",
+        translation_key="vehicle_session_odometer_start",
+        device_class=SensorDeviceClass.DISTANCE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfLength.KILOMETERS,
+        suggested_display_precision=0,
+        entity_registry_enabled_default=False,
+        value_fn=lambda snapshot: snapshot.session_odometer_start,
+    ),
+    EvChargingVehicleSensorDescription(
+        key="session_duration_net",
+        translation_key="vehicle_session_duration_net",
+        device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        suggested_display_precision=0,
+        entity_registry_enabled_default=False,
+        value_fn=lambda snapshot: snapshot.session_duration_net_min,
+    ),
+    EvChargingVehicleSensorDescription(
+        key="charge_end",
+        translation_key="vehicle_charge_end",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_registry_enabled_default=False,
+        value_fn=lambda snapshot: snapshot.charge_end,
+    ),
+)
+
+# Only offered when the vehicle has a soc or energy_session role, per 11.5.
+VEHICLE_SESSION_ENERGY = EvChargingVehicleSensorDescription(
+    key="session_energy",
+    translation_key="vehicle_session_energy",
+    device_class=SensorDeviceClass.ENERGY,
+    state_class=SensorStateClass.MEASUREMENT,
+    native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+    suggested_display_precision=3,
+    entity_registry_enabled_default=False,
+    value_fn=lambda snapshot: snapshot.session_energy_kwh,
+)
+
+
 class EvChargingEntity(Entity):
     """Shared behavior of the entities: read the snapshot and follow the manager.
 
@@ -225,6 +300,60 @@ class EvChargingSensor(EvChargingEntity, SensorEntity):
         return None
 
 
+class EvChargingVehicleEntity(Entity):
+    """Shared behavior of a vehicle's own entities: read its snapshot, follow the manager.
+
+    The entities belong to the vehicle's own subentry and have no device.
+    Their names start with the name of the vehicle.
+    """
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+
+    def __init__(self, manager: SessionManager, context: VehicleContext, key: str) -> None:
+        """Bind the entity to the manager and the vehicle it reports on."""
+        self._manager = manager
+        self._vehicle_id = context.vehicle.id
+        self._attr_unique_id = f"{context.subentry_id}_{key}"
+        self._attr_translation_placeholders = {"vehicle": context.vehicle.name}
+
+    async def async_added_to_hass(self) -> None:
+        """Follow published snapshots for as long as the entity exists."""
+        self.async_on_remove(self._manager.async_add_listener(self._handle_update))
+
+    @callback
+    def _handle_update(self) -> None:
+        """Write the new state."""
+        self.async_write_ha_state()
+
+    @property
+    def _snapshot(self) -> VehicleSnapshot | None:
+        """Return this vehicle's current snapshot, if the manager published one yet."""
+        return self._manager.vehicle_snapshots.get(self._vehicle_id)
+
+
+class EvChargingVehicleSensor(EvChargingVehicleEntity, SensorEntity):
+    """A sensor that shows a value of a vehicle's own published snapshot."""
+
+    entity_description: EvChargingVehicleSensorDescription
+
+    def __init__(
+        self,
+        manager: SessionManager,
+        context: VehicleContext,
+        description: EvChargingVehicleSensorDescription,
+    ) -> None:
+        """Create the sensor."""
+        super().__init__(manager, context, description.key)
+        self.entity_description = description
+
+    @property
+    def native_value(self) -> StateType | datetime:
+        """Return the value from the vehicle's current snapshot."""
+        snapshot = self._snapshot
+        return self.entity_description.value_fn(snapshot) if snapshot is not None else None
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: EvChargingConfigEntry,
@@ -241,3 +370,16 @@ async def async_setup_entry(
         ),
         config_subentry_id=manager.wallbox_subentry_id,
     )
+    for context in manager.vehicle_contexts:
+        if not context.vehicle.active:
+            continue
+        descriptions = list(VEHICLE_SENSORS)
+        if context.vehicle.soc is not None or context.vehicle.energy_session is not None:
+            descriptions.append(VEHICLE_SESSION_ENERGY)
+        async_add_entities(
+            (
+                EvChargingVehicleSensor(manager, context, description)
+                for description in descriptions
+            ),
+            config_subentry_id=context.subentry_id,
+        )

@@ -4,7 +4,9 @@ import en from "../../custom_components/ev_charging/translations/en.json";
 import { makeTranslate } from "../src/i18n";
 import {
   assignmentText,
+  blockTitleText,
   chargeEndText,
+  chargeTypeText,
   counterText,
   dataGaps,
   formatMoment,
@@ -15,6 +17,7 @@ import {
   plugDurationMinutes,
   plugText,
   readingText,
+  remainingMinutes,
   socText,
   solarSharePercent,
   stateText,
@@ -22,8 +25,8 @@ import {
   unallocatedText,
   vehicleDetailsText,
   vehicleText,
+  type LiveBlock,
   type LiveFormat,
-  type LivePayload,
 } from "../src/live";
 import { session } from "./fixtures";
 
@@ -41,8 +44,9 @@ const NOW = new Date("2026-09-05T20:30:00+02:00").getTime();
 const FORMAT_DE: LiveFormat = { locale: "de", timeZone: "Europe/Berlin", now: NOW };
 const FORMAT_EN: LiveFormat = { locale: "en-GB", timeZone: "Europe/Berlin", now: NOW };
 
-function live(overrides: Partial<LivePayload> = {}): LivePayload {
+function live(overrides: Partial<LiveBlock> = {}): LiveBlock {
   return {
+    kind: "wallbox",
     state: "charging",
     state_since: "2026-09-05T18:12:00+02:00",
     active: true,
@@ -59,14 +63,18 @@ function live(overrides: Partial<LivePayload> = {}): LivePayload {
     identification_conflict: false,
     identification_read: null,
     location: "home",
+    address: null,
     soc_start: null,
     soc: null,
     soc_target: null,
     odometer_km: null,
+    range_km: null,
+    charge_type: null,
     charge_end: null,
     charge_end_missing: null,
     charge_power_kw: 7,
     energy_kwh: 1,
+    energy_is_estimate: false,
     energy_grid_kwh: null,
     energy_solar_kwh: null,
     grid_share_pct: null,
@@ -82,6 +90,19 @@ function live(overrides: Partial<LivePayload> = {}): LivePayload {
     location_conflict: false,
     ...overrides,
   };
+}
+
+function external(overrides: Partial<LiveBlock> = {}): LiveBlock {
+  return live({
+    kind: "external",
+    wallbox: null,
+    plug: null,
+    counter: null,
+    sources: null,
+    location: "external",
+    identification_source: "vehicle_api",
+    ...overrides,
+  });
 }
 
 describe("netDurationMinutes", () => {
@@ -161,14 +182,26 @@ describe("formatMoment", () => {
 });
 
 describe("titleText", () => {
-  it("names the charging session by the wallbox", () => {
-    expect(titleText(live(), tDe)).toBe("Ladevorgang Carport");
-    expect(titleText(live(), tEn)).toBe("Charging session Carport");
+  it("is the generic title of the card as a whole", () => {
+    expect(titleText(tDe)).toBe("Ladevorgang");
+    expect(titleText(tEn)).toBe("Charging session");
+  });
+});
+
+describe("blockTitleText", () => {
+  it("names the wallbox block by the wallbox", () => {
+    expect(blockTitleText(live(), tDe)).toBe("Carport");
   });
 
-  it("has no name before the first values arrive", () => {
-    expect(titleText(undefined, tDe)).toBe("Ladevorgang");
-    expect(titleText(live({ wallbox: { name: " ", max_power_kw: 11 } }), tDe)).toBe("Ladevorgang");
+  it("falls back to the generic title without a wallbox name", () => {
+    expect(blockTitleText(live({ wallbox: { name: " ", max_power_kw: 11 } }), tDe)).toBe(
+      "Ladevorgang",
+    );
+  });
+
+  it("names an external block 'external'", () => {
+    expect(blockTitleText(external(), tDe)).toBe("Extern");
+    expect(blockTitleText(external(), tEn)).toBe("External");
   });
 });
 
@@ -222,13 +255,40 @@ describe("chargeEndText", () => {
   });
 });
 
+describe("remainingMinutes", () => {
+  it("counts down to the expected end", () => {
+    const charging = external({ charge_end: "2026-09-05T21:00:00+02:00" });
+    expect(remainingMinutes(charging, NOW)).toBeCloseTo(30);
+  });
+
+  it("is null once the expected end has passed", () => {
+    const charging = external({ charge_end: "2026-09-05T20:00:00+02:00" });
+    expect(remainingMinutes(charging, NOW)).toBeNull();
+  });
+
+  it("is null without a charge end", () => {
+    expect(remainingMinutes(external(), NOW)).toBeNull();
+  });
+});
+
+describe("chargeTypeText", () => {
+  it("names the charge type once known", () => {
+    expect(chargeTypeText(external({ charge_type: "ac" }), tDe)).toBe("AC");
+    expect(chargeTypeText(external({ charge_type: "dc" }), tEn)).toBe("DC");
+  });
+
+  it("says nothing while the charge type is not known", () => {
+    expect(chargeTypeText(external(), tDe)).toBeNull();
+  });
+});
+
 describe("idleText", () => {
-  it("says that no vehicle is connected", () => {
+  it("says that no vehicle is connected to the wallbox", () => {
     const text = idleText(
       live({ active: false, plug: { state: "not_connected", unavailable_since: null, timeout_at: null } }),
       tDe,
     );
-    expect(text).toBe("Kein Fahrzeug verbunden");
+    expect(text).toBe("Kein Fahrzeug an Wallbox verbunden");
   });
 
   it("says that the plug state is not available", () => {
@@ -328,6 +388,10 @@ describe("plugText", () => {
       plug: { state: "unavailable", unavailable_since: null, timeout_at: null },
     });
     expect(plugText(lost, tDe, FORMAT_DE)).toBe("Steckerzustand nicht verfügbar");
+  });
+
+  it("says nothing for an external block, which has no plug", () => {
+    expect(plugText(external(), tDe, FORMAT_DE)).toBe("");
   });
 });
 
@@ -432,6 +496,10 @@ describe("counterText", () => {
   it("says nothing without a session", () => {
     expect(counterText(live({ counter: { authoritative: null, switched: false } }), tDe)).toBeNull();
   });
+
+  it("says nothing for an external block, which has no counter", () => {
+    expect(counterText(external(), tDe)).toBeNull();
+  });
 });
 
 describe("unallocatedText", () => {
@@ -467,6 +535,10 @@ describe("dataGaps", () => {
       sources: { grid_balance: false, grid_price: false },
     });
     expect(dataGaps(values, tDe)).toEqual({ split: null, cost: null });
+  });
+
+  it("gives no gap for an external block, which has no sources to begin with", () => {
+    expect(dataGaps(external(), tDe)).toEqual({ split: null, cost: null });
   });
 });
 

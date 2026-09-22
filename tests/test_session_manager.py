@@ -11,6 +11,11 @@ import pytest
 from custom_components.ev_charging import problems
 from custom_components.ev_charging.const import (
     DOMAIN,
+    LOCATION_EXTERNAL,
+    LOCATION_HOME_NO_WALLBOX,
+    SESSION_STATE_CHARGING,
+    SESSION_STATE_ERROR,
+    SESSION_STATUS_FLAGGED,
     SUBENTRY_TYPE_VEHICLE,
     SUBENTRY_TYPE_WALLBOX,
     TITLE,
@@ -34,6 +39,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
+from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
 from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 
 from tests.fake_modbus import NO_CONNECTION, OK, FakeDevice, install, registers_for
@@ -2385,17 +2391,17 @@ async def test_live_subscription_sends_the_state_now_and_after_a_change(
     await client.send_json_auto_id({"type": "ev_charging/live/subscribe"})
     assert (await client.receive_json())["success"]
     first = await client.receive_json()
-    assert first["event"]["state"] == "idle"
-    assert first["event"]["active"] is False
+    assert first["event"][0]["state"] == "idle"
+    assert first["event"][0]["active"] is False
 
     await _start_charging(hass, freezer, power_kw=6.0)
     await _advance(hass, freezer, 2)
 
     candidate = await client.receive_json()
     charging = await client.receive_json()
-    assert candidate["event"]["state"] == "candidate"
-    assert charging["event"]["state"] == "charging"
-    assert charging["event"]["charge_power_kw"] == 6.0
+    assert candidate["event"][0]["state"] == "candidate"
+    assert charging["event"][0]["state"] == "charging"
+    assert charging["event"][0]["charge_power_kw"] == 6.0
 
 
 async def test_live_subscription_needs_no_administrator(
@@ -3380,3 +3386,333 @@ async def test_the_debug_log_says_why_a_session_is_not_stored(
 
     text = "\n".join(record.getMessage() for record in caplog.records)
     assert "The session ends: 0 phases, it holds nothing and is not stored" in text
+
+
+# ----------------------------------------------------- external sessions (7.4, 7.5, 4.7)
+
+CHARGING_DC = "14"  # Mercedes: DC charging active
+CHARGING_AC = "13"  # Mercedes: AC charging active
+CONNECTED_IDLE = "8"  # Mercedes: connected, not charging
+DISCONNECTED = "3"  # Mercedes: not connected
+ERROR_CODE = "4"  # Mercedes: charging error
+NEUTRAL_MISSING = "error"  # Mercedes: attribute absent, neutral for both roles
+UNMAPPED = "99"  # not present in the mbapi2020 mapping at all
+
+
+def _glb_ext(**overrides: Any) -> dict[str, Any]:
+    """A GLB whose charge_type role is fed by the same entity as charge_state (4.7)."""
+    return _glb(charge_type=_role(GLB_CHARGE), **overrides)
+
+
+def _external_block(manager: SessionManager, vehicle_id: str) -> dict[str, Any] | None:
+    return next(
+        (
+            block
+            for block in manager.live_blocks()
+            if block["kind"] == "external"
+            and block["vehicle"] is not None
+            and block["vehicle"]["id"] == vehicle_id
+        ),
+        None,
+    )
+
+
+async def test_external_session_begins_only_from_charging(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """connected_idle alone, without a prior charging report, starts no session (I17)."""
+    _entry, manager = await _setup(hass, vehicles=(_glb_ext(),))
+
+    await _set(hass, GLB_CHARGE, CONNECTED_IDLE)
+    await _advance(hass, freezer, 1)
+    assert _external_block(manager, "v001") is None
+
+    await _set(hass, GLB_CHARGE, CHARGING_DC)
+    await _advance(hass, freezer, 1)
+    block = _external_block(manager, "v001")
+    assert block is not None
+    assert block["state"] == SESSION_STATE_CHARGING
+
+
+async def test_external_session_location_is_home_no_wallbox_in_the_home_zone(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """A vehicle charging while its tracker reports the home zone is home_no_wallbox (7.4)."""
+    _entry, manager = await _setup(hass, vehicles=(_glb_ext(),))
+
+    await _set(hass, GLB_TRACKER, "home")
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 1)
+
+    block = _external_block(manager, "v001")
+    assert block is not None
+    assert block["location"] == LOCATION_HOME_NO_WALLBOX
+
+
+@pytest.mark.parametrize("tracker_state", ["not_home", "unknown", "unavailable"])
+async def test_external_session_location_is_external_outside_the_home_zone(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, tracker_state: str
+) -> None:
+    """Anything but the home zone, including an unusable tracker, is external (7.4)."""
+    _entry, manager = await _setup(hass, vehicles=(_glb_ext(),))
+
+    await _set(hass, GLB_TRACKER, tracker_state)
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 1)
+
+    block = _external_block(manager, "v001")
+    assert block is not None
+    assert block["location"] == LOCATION_EXTERNAL
+
+
+async def test_the_wallbox_already_charging_this_vehicle_suppresses_its_external_session(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """A vehicle the wallbox already claims never gets a second, external block (7.4)."""
+    _entry, manager = await _setup(hass, vehicles=(_glb_ext(),))
+    await _set(hass, GLB_TRACKER, "home")
+    await _start_charging(hass, freezer)
+    await _advance(hass, freezer, 15)
+    assert manager.live_payload()["vehicle"]["id"] == "v001"
+
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 1)
+
+    assert _external_block(manager, "v001") is None
+    assert len(manager.live_blocks()) == 1
+
+
+async def test_an_unmapped_value_during_an_external_session_stays_open_and_flags_an_issue(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """A raw value outside the mapping never ends an external session (I15)."""
+    entry, manager = await _setup(hass, vehicles=(_glb_ext(),))
+    vehicle_subentry_id = next(
+        s.subentry_id for s in entry.subentries.values() if s.subentry_type == SUBENTRY_TYPE_VEHICLE
+    )
+    await _set(hass, GLB_CHARGE, CHARGING_DC)
+    await _advance(hass, freezer, 1)
+
+    await _set(hass, GLB_CHARGE, UNMAPPED)
+    await _advance(hass, freezer, 1)
+
+    block = _external_block(manager, "v001")
+    assert block is not None
+    assert block["state"] != SESSION_STATE_ERROR
+    issue = _issue(hass, f"unknown_mapping_value_{vehicle_subentry_id}_charge_state")
+    assert issue is not None
+
+    await _set(hass, GLB_CHARGE, ERROR_CODE)
+    await _advance(hass, freezer, 1)
+    block = _external_block(manager, "v001")
+    assert block is not None
+    assert block["state"] == SESSION_STATE_ERROR
+    assert block["charge_error"] is True
+
+
+async def test_charge_type_of_an_external_session_locks_on_the_first_report_and_warns_after(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The first ac/dc report wins for good; a later, differing one only warns (E32, I21)."""
+    _entry, manager = await _setup(hass, vehicles=(_glb_ext(),))
+    caplog.set_level(logging.WARNING, logger="custom_components.ev_charging")
+
+    await _set(hass, GLB_CHARGE, CHARGING_DC)
+    await _advance(hass, freezer, 1)
+    assert _external_block(manager, "v001")["charge_type"] == "dc"
+
+    await _set(hass, GLB_CHARGE, "9")  # neutral charge_type, charging
+    await _advance(hass, freezer, 1)
+    assert _external_block(manager, "v001")["charge_type"] == "dc"
+
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 1)
+    block = _external_block(manager, "v001")
+    assert block["charge_type"] == "dc"
+    assert block["state"] == SESSION_STATE_CHARGING
+    assert block["flagged"] is False
+    assert any("differs from the established" in record.getMessage() for record in caplog.records)
+
+    caplog.clear()
+    await _set(hass, GLB_CHARGE, NEUTRAL_MISSING)
+    await _advance(hass, freezer, 1)
+    block = _external_block(manager, "v001")
+    assert block["state"] == SESSION_STATE_CHARGING
+    assert not any(
+        record.levelno >= logging.WARNING and record.name.startswith("custom_components")
+        for record in caplog.records
+    )
+
+
+async def test_an_external_session_ends_only_on_disconnected_and_is_stored(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """The finished external session is written with the fields 7.4/8.5 call for."""
+    _entry, manager = await _setup(hass, vehicles=(_glb_ext(),))
+    await _set(hass, GLB_TRACKER, "not_home")
+    await _set(hass, GLB_SOC, "40", "%")
+    await _set(hass, GLB_CHARGE, CHARGING_DC)
+    await _advance(hass, freezer, 1)
+    await _set(hass, GLB_SOC, "55", "%")
+    await _advance(hass, freezer, 60)
+
+    await _set(hass, GLB_CHARGE, DISCONNECTED)
+    await _advance(hass, freezer, 1)
+
+    assert _external_block(manager, "v001") is None
+    (stored,) = await _stored(hass)
+    assert stored.location == LOCATION_EXTERNAL
+    assert stored.vehicle_id == "v001"
+    assert stored.wallbox_id is None
+    assert stored.identification_source == "vehicle_api"
+    assert stored.charge_type == "dc"
+    assert stored.soc_start == 40
+    assert stored.soc_end == 55
+    assert stored.energy_raw_kwh == pytest.approx(85.0 * 0.15)
+    assert stored.energy_kwh == pytest.approx(85.0 * 0.15)
+    assert stored.cost is None
+    assert "cost" in stored.open_fields
+    assert stored.phase_count == 1
+
+
+async def test_an_external_session_never_stays_disconnected_forever_empty(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """A charging report always opens a phase, so the empty-session discard never applies."""
+    _entry, _manager = await _setup(hass, vehicles=(_glb_ext(),))
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 1)
+
+    await _set(hass, GLB_CHARGE, DISCONNECTED)
+    await _advance(hass, freezer, 1)
+
+    assert len(await _stored(hass)) == 1
+
+
+async def test_an_external_session_reports_the_vehicles_own_session_energy_when_present(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """energy_session from the vehicle is authoritative and never marked as an estimate."""
+    _entry, manager = await _setup(
+        hass, vehicles=(_glb_ext(energy_session=_role("sensor.glb_energy", "kWh")),)
+    )
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 1)
+    await _set(hass, "sensor.glb_energy", "4.2", "kWh")
+    await _advance(hass, freezer, 1)
+
+    block = _external_block(manager, "v001")
+    assert block["energy_kwh"] == pytest.approx(4.2)
+    assert block["energy_is_estimate"] is False
+
+
+async def test_an_external_session_estimates_energy_from_soc_without_a_reported_value(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """Without energy_session, energy is estimated from the state of charge and marked so."""
+    _entry, manager = await _setup(hass, vehicles=(_glb_ext(),))
+    await _set(hass, GLB_SOC, "40", "%")
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 1)
+    await _set(hass, GLB_SOC, "50", "%")
+    await _advance(hass, freezer, 1)
+
+    block = _external_block(manager, "v001")
+    assert block["energy_kwh"] == pytest.approx(8.5)
+    assert block["energy_is_estimate"] is True
+
+
+async def test_two_vehicles_can_charge_externally_at_once_in_start_order(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """Several running external sessions coexist, ordered by when they began (11.1)."""
+    _entry, manager = await _setup(hass, vehicles=(_glb_ext(), _eqb(charge_type=_role(EQB_CHARGE))))
+
+    await _set(hass, EQB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 5)
+    await _set(hass, GLB_CHARGE, CHARGING_DC)
+    await _advance(hass, freezer, 1)
+
+    blocks = manager.live_blocks()
+    assert blocks[0]["kind"] == "wallbox"
+    assert [block["vehicle"]["id"] for block in blocks[1:]] == ["v002", "v001"]
+
+
+async def test_an_external_sessions_source_going_unavailable_times_out_after_the_session_timeout(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """A charge_state that stays unusable for the full timeout closes the session, flagged (7.5)."""
+    _entry, manager = await _setup(hass, vehicles=(_glb_ext(),))
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 1)
+
+    hass.states.async_set(GLB_CHARGE, "unavailable")
+    await hass.async_block_till_done()
+    await _advance(hass, freezer, 12 * 3600 + 5)
+
+    assert _external_block(manager, "v001") is None
+    (stored,) = await _stored(hass)
+    assert stored.status == SESSION_STATUS_FLAGGED
+
+
+async def test_an_external_session_looks_up_and_shows_its_address(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """A newly started external session resolves its address from the tracker's coordinates."""
+    aioclient_mock.get(
+        "https://nominatim.openstreetmap.org/reverse", json={"display_name": "Marienplatz, München"}
+    )
+    _entry, manager = await _setup(
+        hass,
+        vehicles=(_glb_ext(),),
+        hub=_hub(geocoding_enabled=True, geocoding_contact="test@example.invalid"),
+    )
+    hass.states.async_set(GLB_TRACKER, "not_home", {"latitude": 48.1, "longitude": 11.6})
+    await hass.async_block_till_done()
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await hass.async_block_till_done()
+    await _advance(hass, freezer, 1)
+
+    block = _external_block(manager, "v001")
+    assert block is not None
+    assert block["address"] == "Marienplatz, München"
+
+
+async def test_vehicle_session_active_binary_sensor_follows_the_external_session(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """The vehicle-level snapshot reflects its own session, independent of the wallbox."""
+    _entry, manager = await _setup(hass, vehicles=(_glb_ext(),))
+    assert manager.vehicle_snapshots["v001"].session_active is False
+
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 1)
+    assert manager.vehicle_snapshots["v001"].session_active is True
+    assert manager.vehicle_snapshots["v001"].session_state == SESSION_STATE_CHARGING
+
+    await _set(hass, GLB_CHARGE, DISCONNECTED)
+    await _advance(hass, freezer, 1)
+    assert manager.vehicle_snapshots["v001"].session_active is False
+
+
+async def test_a_restarted_external_session_keeps_running_across_reload(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """An external session in progress survives an unload and setup of the entry."""
+    entry, manager = await _setup(hass, vehicles=(_glb_ext(),))
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 1)
+    assert _external_block(manager, "v001") is not None
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    restarted_manager = entry.runtime_data.manager
+    assert restarted_manager is not None
+    block = _external_block(restarted_manager, "v001")
+    assert block is not None
+    assert block["state"] == SESSION_STATE_CHARGING

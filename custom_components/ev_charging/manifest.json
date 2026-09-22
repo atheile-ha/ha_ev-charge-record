@@ -11,5 +11,5 @@
   "loggers": ["custom_components.ev_charging"],
   "requirements": ["pymodbus==3.13.1"],
   "single_config_entry": true,
-  "version": "0.4.4"
+  "version": "0.5.0"
 }

@@ -2,6 +2,7 @@ import { LitElement, css, html, nothing, type PropertyValues, type TemplateResul
 import { property, state } from "lit/decorators.js";
 import { classMap } from "lit/directives/class-map.js";
 import { listSessions, listVehicles, listYear } from "./api";
+import { onConnectionReady } from "./connection";
 import "./ev-charging-session-list";
 import {
   EMPTY,
@@ -99,14 +100,20 @@ export class EvChargingPanelView extends LitElement {
   private _yearKey?: number;
   private _recentRequested = false;
   private _timer?: number;
+  private _connectionUnsub?: () => void;
 
   public override connectedCallback(): void {
     super.connectedCallback();
     this._timer = window.setInterval(() => this._refresh(), REFRESH_INTERVAL_MS);
+    if (this.hass) {
+      this._watchConnection(this.hass);
+    }
   }
 
   public override disconnectedCallback(): void {
     window.clearInterval(this._timer);
+    this._connectionUnsub?.();
+    this._connectionUnsub = undefined;
     super.disconnectedCallback();
   }
 
@@ -133,6 +140,7 @@ export class EvChargingPanelView extends LitElement {
     if (!hass || !state) {
       return;
     }
+    this._watchConnection(hass);
     if (!this._started) {
       this._started = true;
       void this._loadShared(hass, false);
@@ -176,6 +184,19 @@ export class EvChargingPanelView extends LitElement {
     this._yearKey = undefined;
     this._recentRequested = false;
     this.requestUpdate();
+  }
+
+  // A load that raced a reconnect leaves the view failed; retry once the
+  // connection is back instead of waiting only for a manual click.
+  private _watchConnection(hass: HomeAssistant): void {
+    if (this._connectionUnsub) {
+      return;
+    }
+    this._connectionUnsub = onConnectionReady(hass, () => {
+      if (this._failed) {
+        this._retry();
+      }
+    });
   }
 
   private async _loadShared(hass: HomeAssistant, silent: boolean): Promise<void> {

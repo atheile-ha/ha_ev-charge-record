@@ -81,6 +81,11 @@ FINAL_VALUES_GRACE_S = 2
 ERROR_DEBOUNCE_S = 5
 SESSION_TIMEOUT_H = 12
 
+# Geocoding (7.7). At most one request per this many seconds, serialized
+# through one queue shared by every lookup.
+GEOCODING_MIN_INTERVAL_S = 1.0
+GEOCODING_TIMEOUT_S = 10
+
 # Runtime behavior of the session capture.
 POWER_TOLERANCE_FACTOR = 1.15
 # A counter step is judged against at least this much elapsed time, so the
@@ -286,7 +291,14 @@ ENERGY_UNIT_FACTORS_TO_KWH = {"kWh": 1.0, "Wh": 0.001, "MWh": 1000.0}
 DISTANCE_UNIT_FACTORS_TO_KM = {"km": 1.0, "m": 0.001, "mi": 1.609344}
 
 SERVICE_DELETE_ALL_DATA = "delete_all_data"
+SERVICE_RETRY_ADDRESS = "retry_address"
 ATTR_CONFIRM = "confirm"
+ATTR_SESSION_ID = "id"
+
+# Live subscription block kinds (11.1, E37). The wallbox block is always
+# first, the vehicle-driven blocks of running external sessions follow.
+LIVE_BLOCK_WALLBOX = "wallbox"
+LIVE_BLOCK_EXTERNAL = "external"
 
 # Frontend. The bundle holds the panel and all dashboard cards; it is served
 # from a path of its own so it never collides with the panel's route.

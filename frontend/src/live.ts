@@ -6,8 +6,11 @@ export type LiveState = "idle" | "candidate" | "charging" | "paused" | "error" |
 
 export type PlugReport = "connected" | "not_connected" | "unavailable";
 
+export type LiveBlockKind = "wallbox" | "external";
+
 // The plug state of the wallbox. While it is not usable during a session, the
 // server says since when and when the session is closed for lack of it.
+// Wallbox-only; null on an external block.
 export interface LivePlug {
   state: PlugReport;
   unavailable_since: string | null;
@@ -16,7 +19,7 @@ export interface LivePlug {
 
 // Where the reading of the identification stands. The card is never told
 // whether the identification comes from an entity or from a register: for an
-// entity there is nothing to read and this is null.
+// entity there is nothing to read and this is null. Wallbox-only.
 export interface LiveIdentificationRead {
   state: "reading" | "waiting" | "read" | "unreadable";
   sequence: number;
@@ -24,26 +27,31 @@ export interface LiveIdentificationRead {
   max_attempts: number;
 }
 
+// Wallbox-only; null on an external block.
 export interface LiveCounter {
   authoritative: "total" | "session" | null;
   switched: boolean;
 }
 
 // Whether the sources are set up that the split and the cost need.
+// Wallbox-only; null on an external block, which never has a split or a cost.
 export interface LiveSources {
   grid_balance: boolean;
   grid_price: boolean;
 }
 
-// The live values of the running session, as the server resolves them.
-export interface LivePayload {
+// One running session as the server resolves it: the wallbox's own session,
+// always first and present even without a session there, or one vehicle's
+// own externally detected session (11.1, E34, E37).
+export interface LiveBlock {
+  kind: LiveBlockKind;
   state: LiveState;
   state_since: string | null;
   active: boolean;
   phase_count: number;
   waiting_for_power: boolean;
-  plug: LivePlug;
-  wallbox: { name: string; max_power_kw: number };
+  plug: LivePlug | null;
+  wallbox: { name: string; max_power_kw: number } | null;
   currency: string;
   session_start: string | null;
   vehicle: { id: string; name: string } | null;
@@ -53,15 +61,22 @@ export interface LivePayload {
   identification_conflict: boolean;
   identification_read: LiveIdentificationRead | null;
   location: string | null;
+  // The resolved address of an external session; always null on the wallbox block.
+  address: string | null;
   soc_start: number | null;
   soc: number | null;
   soc_target: number | null;
   odometer_km: number | null;
+  // Remaining range as reported by the vehicle; always null on the wallbox block.
+  range_km: number | null;
+  // The charge type of an external session, once known; always null on the wallbox block.
+  charge_type: "ac" | "dc" | null;
   charge_end: string | null;
   // Why there is no charge end although the vehicle reports one.
   charge_end_missing: "no_power" | null;
   charge_power_kw: number | null;
   energy_kwh: number | null;
+  energy_is_estimate: boolean;
   energy_grid_kwh: number | null;
   energy_solar_kwh: number | null;
   grid_share_pct: number | null;
@@ -70,39 +85,52 @@ export interface LivePayload {
   net_duration_min: number | null;
   plug_duration_min: number | null;
   energy_unallocated_kwh: number | null;
-  counter: LiveCounter;
-  sources: LiveSources;
+  counter: LiveCounter | null;
+  sources: LiveSources | null;
   flagged: boolean;
   charge_error: boolean;
   location_conflict: boolean;
 }
 
+// The wallbox block first, then the running external sessions in the order
+// they began.
+export type LivePayload = LiveBlock[];
+
 const MS_PER_MINUTE = 60_000;
 
 // The charging time keeps running between two pushes while a phase is open.
 export function netDurationMinutes(
-  payload: LivePayload,
+  block: LiveBlock,
   receivedAt: number,
   now: number,
 ): number | null {
-  if (payload.net_duration_min === null) {
+  if (block.net_duration_min === null) {
     return null;
   }
-  const running = payload.state === "charging";
-  return payload.net_duration_min + (running ? (now - receivedAt) / MS_PER_MINUTE : 0);
+  const running = block.state === "charging";
+  return block.net_duration_min + (running ? (now - receivedAt) / MS_PER_MINUTE : 0);
 }
 
-export function plugDurationMinutes(payload: LivePayload, now: number): number | null {
-  if (payload.session_start === null) {
+export function plugDurationMinutes(block: LiveBlock, now: number): number | null {
+  if (block.session_start === null) {
     return null;
   }
-  return Math.max((now - new Date(payload.session_start).getTime()) / MS_PER_MINUTE, 0);
+  return Math.max((now - new Date(block.session_start).getTime()) / MS_PER_MINUTE, 0);
+}
+
+// The remaining time until the expected charge end; null without one, or once it has passed.
+export function remainingMinutes(block: LiveBlock, now: number): number | null {
+  if (block.charge_end === null) {
+    return null;
+  }
+  const minutes = (new Date(block.charge_end).getTime() - now) / MS_PER_MINUTE;
+  return minutes > 0 ? minutes : null;
 }
 
 // The share of solar energy in what the session has taken up so far.
-export function solarSharePercent(payload: LivePayload): number | null {
-  const grid = payload.energy_grid_kwh;
-  const solar = payload.energy_solar_kwh;
+export function solarSharePercent(block: LiveBlock): number | null {
+  const grid = block.energy_grid_kwh;
+  const solar = block.energy_solar_kwh;
   if (grid === null || solar === null || grid + solar <= 0) {
     return null;
   }
@@ -146,14 +174,22 @@ export function formatMoment(iso: string, format: LiveFormat): string {
     : formatDateTime(iso, format.locale, format.timeZone);
 }
 
-// The title of the card: the charging session of the wallbox, named by the wallbox.
-export function titleText(live: LivePayload | undefined, t: Translate): string {
-  const name = live?.wallbox.name.trim();
-  return name ? t("live_title_wallbox", { name }) : t("live_title");
+// The title of the card as a whole; a custom card title takes its place.
+export function titleText(t: Translate): string {
+  return t("live_title");
+}
+
+// The heading of one block: the name of the wallbox, or "External".
+export function blockTitleText(block: LiveBlock, t: Translate): string {
+  if (block.kind === "external") {
+    return t("live_block_external");
+  }
+  const name = block.wallbox?.name.trim();
+  return name ? name : t("live_title");
 }
 
 // The state of charge from the start to now, with the target where the vehicle has one.
-export function socText(live: LivePayload, t: Translate, locale: string): string | null {
+export function socText(live: LiveBlock, t: Translate, locale: string): string | null {
   if (live.soc_start === null && live.soc === null) {
     return null;
   }
@@ -167,7 +203,7 @@ export function socText(live: LivePayload, t: Translate, locale: string): string
 }
 
 // The odometer and the state of charge in one line below the vehicle; null when neither is known.
-export function vehicleDetailsText(live: LivePayload, t: Translate, locale: string): string | null {
+export function vehicleDetailsText(live: LiveBlock, t: Translate, locale: string): string | null {
   const parts = [
     live.odometer_km === null ? null : formatDistance(live.odometer_km, locale),
     socText(live, t, locale),
@@ -176,16 +212,26 @@ export function vehicleDetailsText(live: LivePayload, t: Translate, locale: stri
 }
 
 // The expected end of the charging, or why there is none; null where the vehicle has no such value.
-export function chargeEndText(live: LivePayload, t: Translate, format: LiveFormat): string | null {
+export function chargeEndText(live: LiveBlock, t: Translate, format: LiveFormat): string | null {
   if (live.charge_end !== null) {
     return formatTime(live.charge_end, format.locale, format.timeZone);
   }
   return live.charge_end_missing === "no_power" ? t("live_charge_end_no_power") : null;
 }
 
-// What the card shows without a session: why there is none.
-export function idleText(live: LivePayload, t: Translate): string {
-  switch (live.plug.state) {
+const CHARGE_TYPE_KEYS = {
+  ac: "charge_type_ac",
+  dc: "charge_type_dc",
+} as const satisfies Record<string, TextKey>;
+
+// The charge type of an external session, once known.
+export function chargeTypeText(live: LiveBlock, t: Translate): string | null {
+  return live.charge_type === null ? null : t(CHARGE_TYPE_KEYS[live.charge_type]);
+}
+
+// What the wallbox block shows without a session there: why there is none.
+export function idleText(live: LiveBlock, t: Translate): string {
+  switch (live.plug?.state) {
     case "not_connected":
       return t("live_idle_not_connected");
     case "unavailable":
@@ -196,7 +242,7 @@ export function idleText(live: LivePayload, t: Translate): string {
 }
 
 // The state of the session, with the reason and since when it holds.
-export function stateText(live: LivePayload, t: Translate, format: LiveFormat): string {
+export function stateText(live: LiveBlock, t: Translate, format: LiveFormat): string {
   const time = live.state_since === null ? null : formatMoment(live.state_since, format);
   switch (live.state) {
     case "candidate":
@@ -218,7 +264,7 @@ export function stateText(live: LivePayload, t: Translate, format: LiveFormat): 
 }
 
 // How many phases the session has had; nothing before the first.
-export function phasesText(live: LivePayload, t: Translate): string | null {
+export function phasesText(live: LiveBlock, t: Translate): string | null {
   if (live.phase_count === 0) {
     return null;
   }
@@ -228,9 +274,12 @@ export function phasesText(live: LivePayload, t: Translate): string | null {
 }
 
 // The plug state of the wallbox. While it is not usable during a session, since
-// when, and when the session is closed for lack of it.
-export function plugText(live: LivePayload, t: Translate, format: LiveFormat): string {
-  const { plug } = live;
+// when, and when the session is closed for lack of it. Wallbox blocks only.
+export function plugText(live: LiveBlock, t: Translate, format: LiveFormat): string {
+  const plug = live.plug;
+  if (plug === null) {
+    return "";
+  }
   switch (plug.state) {
     case "connected":
       return t("live_plug_connected");
@@ -249,7 +298,7 @@ export function plugText(live: LivePayload, t: Translate, format: LiveFormat): s
 
 // The name shown for the vehicle: while the cascade has not decided, that it is
 // being identified, and only afterwards that it is not assigned.
-export function vehicleText(live: LivePayload, t: Translate): string {
+export function vehicleText(live: LiveBlock, t: Translate): string {
   if (live.vehicle_guest) {
     return t("live_vehicle_guest");
   }
@@ -267,7 +316,7 @@ const IDENTIFICATION_SOURCE_KEYS = {
 } as const satisfies Record<string, TextKey>;
 
 // What the assignment rests on, once the cascade has decided and a vehicle is assigned.
-export function assignmentText(live: LivePayload, t: Translate): string | null {
+export function assignmentText(live: LiveBlock, t: Translate): string | null {
   const source = live.identification_source;
   if (!live.identification_decided || live.vehicle === null || source === null) {
     return null;
@@ -278,7 +327,7 @@ export function assignmentText(live: LivePayload, t: Translate): string | null {
 
 // Where the reading of the identification stands; null when nothing is read, and
 // when the card was read and the assignment already says what it led to.
-export function readingText(live: LivePayload, t: Translate): string | null {
+export function readingText(live: LiveBlock, t: Translate): string | null {
   const read = live.identification_read;
   if (read === null || (read.state === "read" && assignmentText(live, t) !== null)) {
     return null;
@@ -299,18 +348,18 @@ export function readingText(live: LivePayload, t: Translate): string | null {
   }
 }
 
-// The energy counter that carries the energy, and that it was switched.
-export function counterText(live: LivePayload, t: Translate): string | null {
-  const { authoritative, switched } = live.counter;
-  if (authoritative === null) {
+// The energy counter that carries the energy, and that it was switched. Wallbox blocks only.
+export function counterText(live: LiveBlock, t: Translate): string | null {
+  if (live.counter === null || live.counter.authoritative === null) {
     return null;
   }
+  const { authoritative, switched } = live.counter;
   const counter = t(authoritative === "total" ? "live_counter_total" : "live_counter_session");
   return switched ? t("live_counter_switched", { counter }) : t("live_counter", { counter });
 }
 
 // The energy the server measured but could not assign to grid or solar.
-export function unallocatedText(live: LivePayload, t: Translate, locale: string): string | null {
+export function unallocatedText(live: LiveBlock, t: Translate, locale: string): string | null {
   const energy = live.energy_unallocated_kwh;
   if (energy === null || energy <= 0) {
     return null;
@@ -324,7 +373,11 @@ export interface LiveGaps {
   cost: string | null;
 }
 
-export function dataGaps(live: LivePayload, t: Translate): LiveGaps {
+// Wallbox blocks only: an external block never has a split or a cost to begin with.
+export function dataGaps(live: LiveBlock, t: Translate): LiveGaps {
+  if (live.sources === null) {
+    return { split: null, cost: null };
+  }
   return {
     split:
       live.energy_grid_kwh === null && !live.sources.grid_balance ? t("live_missing_split") : null,

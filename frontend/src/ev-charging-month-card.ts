@@ -1,6 +1,7 @@
 import { LitElement, css, html, type PropertyValues, type TemplateResult } from "lit";
 import { property, state } from "lit/decorators.js";
 import { listSessions } from "./api";
+import { onConnectionReady } from "./connection";
 import { formatCost, formatEnergy, formatPercent } from "./format";
 import { loadTranslate, makeTranslate, type Translate } from "./i18n";
 import { monthSolarSharePercent, type LivePayload } from "./live";
@@ -27,8 +28,9 @@ export class EvChargingMonthCard extends LitElement {
 
   private _started = false;
   private _timer?: number;
-  private _wasActive = false;
+  private _activeCount = 0;
   private _unsubscribe?: Promise<() => Promise<void>>;
+  private _connectionUnsub?: () => void;
 
   public setConfig(config: MonthCardConfig): void {
     this._config = config;
@@ -52,11 +54,16 @@ export class EvChargingMonthCard extends LitElement {
     if (this.hass && this._started) {
       this._watchSessions(this.hass);
     }
+    if (this.hass) {
+      this._watchConnection(this.hass);
+    }
   }
 
   public override disconnectedCallback(): void {
     window.clearInterval(this._timer);
     this._release();
+    this._connectionUnsub?.();
+    this._connectionUnsub = undefined;
     super.disconnectedCallback();
   }
 
@@ -70,7 +77,21 @@ export class EvChargingMonthCard extends LitElement {
     if (changed.has("hass") && this.hass && !this._started) {
       this._started = true;
       void this._start(this.hass);
+      this._watchConnection(this.hass);
     }
+  }
+
+  // A load that raced a reconnect leaves the card failed; retry once the
+  // connection is back instead of waiting only for a manual click.
+  private _watchConnection(hass: HomeAssistant): void {
+    if (this._connectionUnsub) {
+      return;
+    }
+    this._connectionUnsub = onConnectionReady(hass, () => {
+      if (this._failed) {
+        this._retry();
+      }
+    });
   }
 
   private async _start(hass: HomeAssistant): Promise<void> {
@@ -86,15 +107,16 @@ export class EvChargingMonthCard extends LitElement {
     await this._load(hass, false);
   }
 
-  // A running session ending changes the month, so it is worth a reload.
+  // Any running session ending changes the month, so it is worth a reload.
   private _watchSessions(hass: HomeAssistant): void {
     this._release();
     this._unsubscribe = hass.connection.subscribeMessage<LivePayload>(
-      (payload) => {
-        if (this._wasActive && !payload.active && this.hass) {
+      (blocks) => {
+        const activeCount = blocks.filter((block) => block.active).length;
+        if (activeCount < this._activeCount && this.hass) {
           void this._load(this.hass, true);
         }
-        this._wasActive = payload.active;
+        this._activeCount = activeCount;
       },
       { type: LIVE_COMMAND },
     );

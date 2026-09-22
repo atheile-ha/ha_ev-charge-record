@@ -4,3 +4,9 @@ delete_all_data:
       required: true
       selector:
         boolean:
+retry_address:
+  fields:
+    id:
+      required: true
+      selector:
+        text:

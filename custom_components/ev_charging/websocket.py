@@ -255,7 +255,7 @@ def ws_live_subscribe(
 
     @callback
     def _push() -> None:
-        connection.send_message(websocket_api.event_message(msg["id"], manager.live_payload()))
+        connection.send_message(websocket_api.event_message(msg["id"], manager.live_blocks()))
 
     connection.subscriptions[msg["id"]] = manager.async_add_live_listener(_push)
     connection.send_result(msg["id"])

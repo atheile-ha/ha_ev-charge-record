@@ -54,6 +54,22 @@ Standardmäßig deaktiviert, in der Entitätsverwaltung aktivierbar: `sensor.<wa
 
 Ohne laufenden Ladevorgang haben die Sensoren des Ladevorgangs keinen Wert. `vin`, Kennungen, Adressen und Koordinaten erscheinen in keiner Entität.
 
+### Entitäten je Fahrzeug
+
+Für jedes aktive Fahrzeug, hier als `<fahrzeug>` geschrieben:
+
+| Entität | Inhalt |
+|---|---|
+| `binary_sensor.<fahrzeug>_session_active` | an, solange ein eigener, von der Wallbox unabhängiger Ladevorgang dieses Fahrzeugs läuft |
+
+Standardmäßig deaktiviert: `sensor.<fahrzeug>_session_state`, `_session_location`, `_session_soc_start`, `_session_odometer_start`, `_session_energy` und `_session_duration_net` sowie `sensor.<fahrzeug>_charge_end`.
+
+## Erfassung über die Fahrzeugschnittstelle
+
+Unabhängig von der Wallbox erfasst die Integration einen Ladevorgang für jedes aktive Fahrzeug mit zugeordneter Rolle `charge_state`. Er beginnt, sobald das Fahrzeug erstmals `charging` meldet, und endet, sobald es `disconnected` meldet. Solange die Wallbox dasselbe Fahrzeug bereits lädt und identifiziert hat, entsteht dafür kein zweiter Ladevorgang. Mehrere Fahrzeuge können gleichzeitig laden.
+
+Der Ladeort ist `home_no_wallbox`, wenn der Standort-Tracker des Fahrzeugs beim Beginn die Heimzone meldet, sonst `external`. Bei `external` werden Koordinaten und Zeitpunkt der letzten Standortmeldung übernommen und eine Adresse ermittelt, erneut beim Ende, sofern die erste Ermittlung fehlschlug, und beim Start der Integration für jeden noch offenen Fall; manuell über `ev_charging.retry_address`. Die Ladeart übernimmt die erste eindeutige Meldung der Rolle `charge_type` und ändert sich danach nicht mehr; ohne eine solche Meldung wird sie am Ende aus der mittleren Ladeleistung geschätzt (Schwelle 25 kW für Gleichstrom). Die geladene Energie ist die von der Rolle `energy_session` gemeldete Menge, sonst eine aus der Ladestandsänderung geschätzte und entsprechend gekennzeichnete Menge. Kosten werden für diese Ladevorgänge nicht ermittelt und bleiben zur Nacherfassung offen.
+
 ## Panel und Karten
 
 Nach dem Einrichten erscheint in der Seitenleiste das Panel „EV Charging“. Es zeigt die erfassten Ladevorgänge und ist für alle angemeldeten Benutzer lesbar.
@@ -70,7 +86,7 @@ In der Kartenauswahl eines Dashboards stehen vier Karten zur Verfügung, sie ers
 |---|---|
 | `ev-charging-panel-card` | dieselben Ansichten wie das Panel, für eine Dashboard-Ansicht vom Typ Panel |
 | `ev-charging-recent-card` | die letzten Ladevorgänge, aufklappbar. Die Anzahl `count` (1 bis 20, Standard 3) lässt sich im Kartendialog oder in YAML einstellen |
-| `ev-charging-live-card` | der laufende Ladevorgang unter der Überschrift „Ladevorgang“ mit dem Namen der Wallbox: Fahrzeug mit Kilometerstand bei Beginn sowie Ladestand von, bis und Ziel in einer Zeile darunter, Zustand mit Grund und Beginn und Zahl der bisherigen Phasen, Herkunft der Zuordnung, Steckerzustand, Stand des Lesens der Kennung, Leistung, Energie, Netz- und Sonnenanteil, Kosten, Preis je kWh, Ladezeit, Dauer des Ansteckens und voraussichtliches Ende, das ohne Ladeleistung als nicht verfügbar erscheint, der maßgebliche Energiezähler und nicht zugeordnete Energie. Ohne Ladevorgang steht der Grund da, etwa dass kein Fahrzeug verbunden oder der Steckerzustand nicht verfügbar ist. Fehlt eine Angabe, weil kein Netzsaldo oder kein Netzpreis eingerichtet ist, steht der Grund da. Sie folgt den Quellentitäten und ist nicht an `update_interval_s` gebunden |
+| `ev-charging-live-card` | ein Block je laufendem Ladevorgang: der der Wallbox immer zuerst, auch ohne Fahrzeug, danach die externen Ladevorgänge in der Reihenfolge ihres Beginns. Die Überschrift eines Blocks nennt den Namen der Wallbox oder „Extern“. Jeder Block zeigt Fahrzeug mit Kilometerstand bei Beginn sowie Ladestand von, bis und Ziel in einer Zeile darunter, Zustand mit Grund und Beginn und Zahl der bisherigen Phasen, Herkunft der Zuordnung, Leistung, Energie und Ladezeit. Der Block der Wallbox zeigt zusätzlich Steckerzustand, Stand des Lesens der Kennung, Netz- und Sonnenanteil, Kosten, Preis je kWh, voraussichtliches Ende, das ohne Ladeleistung als nicht verfügbar erscheint, den maßgeblichen Energiezähler und nicht zugeordnete Energie. Ein externer Block zeigt zusätzlich Adresse, Ladeart, Reichweite und restliche Ladezeit. Ohne Ladevorgang an der Wallbox steht dort der Grund, etwa dass kein Fahrzeug verbunden oder der Steckerzustand nicht verfügbar ist. Fehlt eine Angabe, weil kein Netzsaldo oder kein Netzpreis eingerichtet ist, steht der Grund da. Sie folgt den Quellentitäten und ist nicht an `update_interval_s` gebunden |
 | `ev-charging-month-card` | Energie, Kosten und Sonnenanteil des aktuellen Monats. Der Sonnenanteil zählt die Ladevorgänge, für die Netz- und Sonnenanteil erfasst sind |
 
 ## Kennungen (RFID/eMAID)

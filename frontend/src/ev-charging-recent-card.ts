@@ -1,6 +1,7 @@
 import { LitElement, css, html, type PropertyValues, type TemplateResult } from "lit";
 import { property, state } from "lit/decorators.js";
 import { listSessions } from "./api";
+import { onConnectionReady } from "./connection";
 import "./ev-charging-session-list";
 import { loadTranslate, makeTranslate, type Translate } from "./i18n";
 import { sharedStyles } from "./styles";
@@ -29,6 +30,7 @@ export class EvChargingRecentCard extends LitElement {
 
   private _started = false;
   private _timer?: number;
+  private _connectionUnsub?: () => void;
 
   public setConfig(config: RecentCardConfig): void {
     if (!isValidCount(config.count ?? DEFAULT_COUNT)) {
@@ -59,10 +61,15 @@ export class EvChargingRecentCard extends LitElement {
         void this._load(this.hass, true);
       }
     }, REFRESH_INTERVAL_MS);
+    if (this.hass) {
+      this._watchConnection(this.hass);
+    }
   }
 
   public override disconnectedCallback(): void {
     window.clearInterval(this._timer);
+    this._connectionUnsub?.();
+    this._connectionUnsub = undefined;
     super.disconnectedCallback();
   }
 
@@ -76,7 +83,21 @@ export class EvChargingRecentCard extends LitElement {
     if (changed.has("hass") && this.hass && !this._started) {
       this._started = true;
       void this._start(this.hass);
+      this._watchConnection(this.hass);
     }
+  }
+
+  // A load that raced a reconnect leaves the card failed; retry once the
+  // connection is back instead of waiting only for a manual click.
+  private _watchConnection(hass: HomeAssistant): void {
+    if (this._connectionUnsub) {
+      return;
+    }
+    this._connectionUnsub = onConnectionReady(hass, () => {
+      if (this._failed) {
+        this._retry();
+      }
+    });
   }
 
   private async _start(hass: HomeAssistant): Promise<void> {

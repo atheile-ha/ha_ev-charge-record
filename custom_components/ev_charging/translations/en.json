@@ -529,7 +529,6 @@
         "recent_title": "Recent sessions",
         "card_count": "Number of sessions",
         "live_title": "Charging session",
-        "live_title_wallbox": "Charging session {name}",
         "live_idle": "No charging session running",
         "live_no_wallbox": "No wallbox is configured",
         "live_state_candidate": "Detecting",
@@ -548,7 +547,7 @@
         "live_plug_time": "Plugged in",
         "live_charge_end": "Expected end",
         "live_charge_end_no_power": "Not available without charging power",
-        "live_idle_not_connected": "No vehicle connected",
+        "live_idle_not_connected": "No vehicle connected to wallbox",
         "live_idle_plug_unavailable": "Plug state not available",
         "live_status_candidate": "Charging session is being detected",
         "live_status_waiting_for_power": "Waiting for charging power",
@@ -577,7 +576,13 @@
         "live_missing_split": "No split into grid and solar share without a grid balance",
         "live_missing_cost": "No cost without a grid price",
         "month_solar_share": "Solar share",
-        "field_vehicle_id": "Vehicle"
+        "field_vehicle_id": "Vehicle",
+        "live_block_external": "External",
+        "live_range": "Range",
+        "live_charge_type": "Charge type",
+        "live_odometer": "Odometer",
+        "live_address": "Address",
+        "live_remaining_time": "Remaining time"
       }
     }
   },
@@ -589,6 +594,16 @@
         "confirm": {
           "name": "Confirm",
           "description": "Must be set to true. The deletion cannot be undone."
+        }
+      }
+    },
+    "retry_address": {
+      "name": "Retry address",
+      "description": "Looks up the address of one stored session again from its coordinates.",
+      "fields": {
+        "id": {
+          "name": "Session ID",
+          "description": "The id of the session to look up the address for."
         }
       }
     }
@@ -687,11 +702,48 @@
       },
       "grid_share": {
         "name": "{wallbox} Grid share"
+      },
+      "vehicle_session_state": {
+        "name": "{vehicle} Session state",
+        "state": {
+          "idle": "Idle",
+          "candidate": "Detecting",
+          "charging": "Charging",
+          "paused": "Paused",
+          "error": "Error",
+          "awaiting_final": "Finishing"
+        }
+      },
+      "vehicle_session_location": {
+        "name": "{vehicle} Session location",
+        "state": {
+          "home": "Home (wallbox)",
+          "home_no_wallbox": "Home (no wallbox)",
+          "external": "External"
+        }
+      },
+      "vehicle_session_soc_start": {
+        "name": "{vehicle} Session SoC start"
+      },
+      "vehicle_session_odometer_start": {
+        "name": "{vehicle} Session odometer start"
+      },
+      "vehicle_session_duration_net": {
+        "name": "{vehicle} Session duration net"
+      },
+      "vehicle_session_energy": {
+        "name": "{vehicle} Session energy"
+      },
+      "vehicle_charge_end": {
+        "name": "{vehicle} Charge end"
       }
     },
     "binary_sensor": {
       "wallbox_session": {
         "name": "{wallbox} Wallbox session"
+      },
+      "vehicle_session_active": {
+        "name": "{vehicle} Session active"
       }
     }
   }

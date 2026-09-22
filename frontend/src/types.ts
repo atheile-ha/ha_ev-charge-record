@@ -8,6 +8,8 @@ export interface HomeAssistant {
       callback: (message: T) => void,
       subscribeMessage: Record<string, unknown>,
     ): Promise<() => Promise<void>>;
+    addEventListener(type: "ready" | "disconnected", listener: () => void): void;
+    removeEventListener(type: "ready" | "disconnected", listener: () => void): void;
   };
 }
 

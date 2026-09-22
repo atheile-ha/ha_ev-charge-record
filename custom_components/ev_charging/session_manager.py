@@ -26,7 +26,7 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.util import dt as dt_util
 
-from . import allocation, problems, resolver
+from . import allocation, geocoding, problems, resolver
 from .const import (
     ACTIVE_VEHICLE_GUEST,
     ACTIVE_VEHICLE_NONE,
@@ -35,12 +35,22 @@ from .const import (
     CANDIDATE_TRIGGER_POWER,
     CHARGE_END_MISSING_NO_POWER,
     CHARGE_STATE_CHARGING,
+    CHARGE_STATE_CONNECTED_IDLE,
     CHARGE_STATE_DEFAULT,
+    CHARGE_STATE_DISCONNECTED,
+    CHARGE_STATE_ERROR,
+    CHARGE_TYPE_SOURCE_ENTITY,
+    CHARGE_TYPE_SOURCE_HEURISTIC,
     CHARGE_TYPE_SOURCE_WALLBOX_CONFIG,
+    CHARGE_TYPE_UNKNOWN,
     COUNTER_CHECK_INTERVAL_S,
     COUNTER_DEVIATION_TOLERANCE,
     COUNTER_SESSION,
     COUNTER_TOTAL,
+    CURRENT_TYPE_AC,
+    CURRENT_TYPE_DC,
+    CURRENT_TYPES,
+    DC_POWER_THRESHOLD_KW,
     DISTANCE_UNIT_FACTORS_TO_KM,
     ENERGY_UNIT_FACTORS_TO_KWH,
     ERROR_CLASS_ERROR,
@@ -50,8 +60,12 @@ from .const import (
     GRID_POWER_WINDOW_S,
     IDENTIFICATION_SOURCE_UNRESOLVED,
     IDENTIFICATION_SOURCE_VEHICLE_API,
+    LIVE_BLOCK_EXTERNAL,
+    LIVE_BLOCK_WALLBOX,
     LIVE_PUSH_INTERVAL_S,
+    LOCATION_EXTERNAL,
     LOCATION_HOME,
+    LOCATION_HOME_NO_WALLBOX,
     MAX_PHASES,
     MIN_PAUSE_MIN,
     MIN_PLAUSIBILITY_INTERVAL_S,
@@ -63,6 +77,7 @@ from .const import (
     POWER_UNIT_FACTORS_TO_KW,
     ROLE_CHARGE_POWER,
     ROLE_CHARGE_STATE,
+    ROLE_CHARGE_TYPE,
     ROLE_ENERGY_SESSION,
     ROLE_ENERGY_TOTAL,
     ROLE_ERROR,
@@ -73,6 +88,7 @@ from .const import (
     ROLE_PLUG_STATE,
     ROLE_PRICE_FEED_IN,
     ROLE_PRICE_GRID,
+    ROLE_RANGE,
     ROLE_SOC,
     ROLE_SOC_TARGET,
     SESSION_STATE_AWAITING_FINAL,
@@ -492,6 +508,108 @@ class RunningSession:
         )
 
 
+@dataclass
+class RunningVehicleSession:
+    """A charging session detected from a vehicle's own charge_state alone (4.7, 7.4, 7.5).
+
+    Independent of the wallbox: begins the moment the vehicle first reports
+    charging and ends when it reports disconnected. location is decided once,
+    when the session begins, and never changes afterwards. Serialized to the
+    runtime store at every transition, alongside the wallbox session.
+    """
+
+    vehicle_id: str
+    start: datetime
+    location: str
+    state: str = SESSION_STATE_CHARGING
+    state_since: datetime | None = None
+    last_valid: datetime | None = None
+    unavailable_since: datetime | None = None
+    plug_end: datetime | None = None
+    phases: list[Phase] = field(default_factory=list)
+    pause_since: datetime | None = None
+    soc_start: float | None = None
+    odometer_km: float | None = None
+    energy_session_kwh: float | None = None
+    charge_type: str = CHARGE_TYPE_UNKNOWN
+    charge_type_source: str | None = None
+    charge_error: bool = False
+    flagged: bool = False
+    address: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    location_reported_at: datetime | None = None
+    address_retry_pending: bool = False
+
+    def open_phase(self) -> Phase | None:
+        """Return the phase that is still open, if any."""
+        if self.phases and self.phases[-1].end is None:
+            return self.phases[-1]
+        return None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize for the runtime store."""
+        return {
+            "vehicle_id": self.vehicle_id,
+            "start": self.start.isoformat(),
+            "location": self.location,
+            "state": self.state,
+            "state_since": self.state_since.isoformat() if self.state_since else None,
+            "last_valid": self.last_valid.isoformat() if self.last_valid else None,
+            "unavailable_since": (
+                self.unavailable_since.isoformat() if self.unavailable_since else None
+            ),
+            "plug_end": self.plug_end.isoformat() if self.plug_end else None,
+            "phases": [phase.to_dict() for phase in self.phases],
+            "pause_since": self.pause_since.isoformat() if self.pause_since else None,
+            "soc_start": self.soc_start,
+            "odometer_km": self.odometer_km,
+            "energy_session_kwh": self.energy_session_kwh,
+            "charge_type": self.charge_type,
+            "charge_type_source": self.charge_type_source,
+            "charge_error": self.charge_error,
+            "flagged": self.flagged,
+            "address": self.address,
+            "latitude": self.latitude,
+            "longitude": self.longitude,
+            "location_reported_at": (
+                self.location_reported_at.isoformat() if self.location_reported_at else None
+            ),
+            "address_retry_pending": self.address_retry_pending,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> RunningVehicleSession:
+        """Deserialize from the runtime store."""
+        start = _parse(data["start"])
+        if start is None:
+            raise ValueError("stored vehicle session has an unreadable start")
+        return cls(
+            vehicle_id=data["vehicle_id"],
+            start=start,
+            location=data["location"],
+            state=data.get("state", SESSION_STATE_CHARGING),
+            state_since=_parse(data.get("state_since")) or start,
+            last_valid=_parse(data.get("last_valid")),
+            unavailable_since=_parse(data.get("unavailable_since")),
+            plug_end=_parse(data.get("plug_end")),
+            phases=[Phase.from_dict(phase) for phase in data.get("phases", [])],
+            pause_since=_parse(data.get("pause_since")),
+            soc_start=data.get("soc_start"),
+            odometer_km=data.get("odometer_km"),
+            energy_session_kwh=data.get("energy_session_kwh"),
+            charge_type=data.get("charge_type", CHARGE_TYPE_UNKNOWN),
+            charge_type_source=data.get("charge_type_source"),
+            charge_error=data.get("charge_error", False),
+            flagged=data.get("flagged", False),
+            address=data.get("address"),
+            latitude=data.get("latitude"),
+            longitude=data.get("longitude"),
+            location_reported_at=_parse(data.get("location_reported_at")),
+            address_retry_pending=data.get("address_retry_pending", False),
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class VehicleContext:
     """A vehicle together with what is needed to read and classify its entities."""
@@ -525,6 +643,20 @@ class WallboxSnapshot:
     open_followups: int
 
 
+@dataclass(frozen=True, slots=True)
+class VehicleSnapshot:
+    """What a vehicle's own entities publish (11.4, 11.5), independent of the wallbox."""
+
+    session_active: bool
+    session_state: str | None
+    session_location: str | None
+    session_soc_start: float | None
+    session_odometer_start: float | None
+    session_energy_kwh: float | None
+    session_duration_net_min: float | None
+    charge_end: datetime | None
+
+
 class SessionManager:
     """Captures charging sessions at the one wallbox.
 
@@ -543,6 +675,7 @@ class SessionManager:
         self._vehicles: dict[str, VehicleContext] = {}
 
         self._session: RunningSession | None = None
+        self._vehicle_sessions: dict[str, RunningVehicleSession] = {}
         self._timers: dict[str, CALLBACK_TYPE] = {}
         self._listeners: list[CALLBACK_TYPE] = []
         self._live_listeners: list[CALLBACK_TYPE] = []
@@ -566,6 +699,7 @@ class SessionManager:
         self._card_reader: resolver.IdentificationReader | None = None
         self._direct_read_failure: str | None = None
         self.snapshot = self._build_snapshot()
+        self.vehicle_snapshots: dict[str, VehicleSnapshot] = {}
 
     # ------------------------------------------------------------------ setup
 
@@ -578,6 +712,11 @@ class SessionManager:
     def wallbox_subentry_id(self) -> str | None:
         """Return the id of the wallbox subentry."""
         return self._wallbox_subentry.subentry_id if self._wallbox_subentry else None
+
+    @property
+    def vehicle_contexts(self) -> list[VehicleContext]:
+        """Return every configured vehicle, active or not."""
+        return list(self._vehicles.values())
 
     async def async_setup(self) -> bool:
         """Load the configuration and the stored state and start observing.
@@ -621,6 +760,13 @@ class SessionManager:
                 self._session = RunningSession.from_dict(stored["session"])
             except KeyError, ValueError:
                 _LOGGER.exception("The stored session could not be restored and is dropped")
+        for vehicle_id, data in stored.get("vehicle_sessions", {}).items():
+            try:
+                self._vehicle_sessions[vehicle_id] = RunningVehicleSession.from_dict(data)
+            except KeyError, ValueError:
+                _LOGGER.exception(
+                    "The stored external session of a vehicle could not be restored and is dropped"
+                )
         self._open_followups = await self._async_count_followups()
 
         self._subscribe_sources()
@@ -638,8 +784,10 @@ class SessionManager:
         )
 
         self._restore_session_timers()
+        self._restore_vehicle_session_timers()
         self._apply_current_states()
         self._publish()
+        self._hass.async_create_task(self._async_retry_pending_addresses(), eager_start=False)
         return True
 
     async def async_unload(self) -> None:
@@ -654,7 +802,7 @@ class SessionManager:
             self._card_reader.cancel()
         self._listeners.clear()
         self._live_listeners.clear()
-        if self._session is not None:
+        if self._session is not None or self._vehicle_sessions:
             await self._async_persist()
 
     def _watch_role(self, role: EntityRole | None, handler: Callable[[State | None], None]) -> None:
@@ -694,7 +842,21 @@ class SessionManager:
                 vehicle.charge_state, lambda s, c=context: self._on_vehicle_charge_state(c, s)
             )
             self._watch_role(vehicle.location, lambda _s: self._on_vehicle_location())
-            for role in (vehicle.soc, vehicle.soc_target, vehicle.odometer, vehicle.charge_end):
+            self._watch_role(
+                vehicle.charge_type, lambda s, c=context: self._on_vehicle_charge_type_role(c, s)
+            )
+            self._watch_role(
+                vehicle.energy_session,
+                lambda s, c=context: self._on_vehicle_energy_session_role(c, s),
+            )
+            for role in (
+                vehicle.soc,
+                vehicle.soc_target,
+                vehicle.odometer,
+                vehicle.charge_end,
+                vehicle.charge_power,
+                vehicle.range,
+            ):
                 self._watch_role(role, lambda _s: self._touch_live())
         self._watch_role(wallbox.energy_total, lambda s: self._on_counter(COUNTER_TOTAL, s))
         self._watch_role(wallbox.energy_session, lambda s: self._on_counter(COUNTER_SESSION, s))
@@ -1030,9 +1192,11 @@ class SessionManager:
 
     @callback
     def _on_vehicle_charge_state(self, context: VehicleContext, state: State | None) -> None:
-        """Classify a vehicle's charge state and try to resolve an unassigned session."""
+        """Classify a vehicle's charge state, drive its own session, and resolve the wallbox's."""
+        now = self._now()
         raw = resolver.usable_state(state)
         if raw is None:
+            self._vehicle_source_unavailable(context, now)
             return
         mapping = context.mapping.role_values(ROLE_CHARGE_STATE) if context.mapping else {}
         klass, found = resolver.classify_with_neutral(
@@ -1050,6 +1214,9 @@ class SessionManager:
             raw_value=raw,
         )
         self._vehicle_charge_class[context.vehicle.id] = klass
+        self._vehicle_source_available(context.vehicle.id, now)
+        if klass is not None:
+            self._drive_vehicle_session(context, klass, now)
         self._resolve_late()
         self._touch_live()
 
@@ -1058,6 +1225,47 @@ class SessionManager:
         """Re-check the location of the assigned vehicle."""
         self._evaluate_location_conflict()
         self._touch_live()
+
+    @callback
+    def _on_vehicle_charge_type_role(self, context: VehicleContext, state: State | None) -> None:
+        """Lock a vehicle's own session to the first unambiguous reported charge type (E32, I21)."""
+        session = self._vehicle_sessions.get(context.vehicle.id)
+        if session is None:
+            return
+        raw = resolver.usable_state(state)
+        if raw is None:
+            return
+        mapping = context.mapping.role_values(ROLE_CHARGE_TYPE) if context.mapping else {}
+        klass = resolver.classify_charge_type(raw, mapping)
+        if session.charge_type_source == CHARGE_TYPE_SOURCE_ENTITY:
+            if klass in CURRENT_TYPES and klass != session.charge_type:
+                _LOGGER.warning(
+                    "Vehicle %s reported charge type %s, which differs from the established %s; "
+                    "the session keeps %s",
+                    context.vehicle.id,
+                    klass,
+                    session.charge_type,
+                    session.charge_type,
+                )
+            return
+        if klass not in CURRENT_TYPES:
+            return
+        session.charge_type = klass
+        session.charge_type_source = CHARGE_TYPE_SOURCE_ENTITY
+        self._touch_live()
+
+    @callback
+    def _on_vehicle_energy_session_role(self, context: VehicleContext, state: State | None) -> None:
+        """Keep the last reported session energy of a vehicle's own running session."""
+        session = self._vehicle_sessions.get(context.vehicle.id)
+        if session is None:
+            return
+        value = resolver.read_number(
+            state, context.vehicle.energy_session, ENERGY_UNIT_FACTORS_TO_KWH
+        )
+        if value is not None:
+            session.energy_session_kwh = value
+            self._touch_live()
 
     # ----------------------------------------------------- state transitions
 
@@ -1677,6 +1885,314 @@ class SessionManager:
         if context is not None and self._vehicle_location(context) == TRACKER_STATE_NOT_HOME:
             session.location_conflict = True
 
+    # ------------------------------------------------------- vehicle sessions
+
+    def _vehicle_pause_timer_name(self, vehicle_id: str) -> str:
+        """Return the timer name for a vehicle's own minimum-pause timer."""
+        return f"vehicle_pause_{vehicle_id}"
+
+    def _vehicle_stale_timer_name(self, vehicle_id: str) -> str:
+        """Return the timer name for a vehicle's own source-unavailable timeout."""
+        return f"vehicle_stale_{vehicle_id}"
+
+    def _cancel_vehicle_timers(self, vehicle_id: str) -> None:
+        """Cancel every timer that belongs to a vehicle's own session."""
+        self._cancel_timer(self._vehicle_pause_timer_name(vehicle_id))
+        self._cancel_timer(self._vehicle_stale_timer_name(vehicle_id))
+
+    def _vehicle_source_unavailable(self, context: VehicleContext, now: datetime) -> None:
+        """Note that a vehicle's charge state is unusable and start its stale timeout (7.5)."""
+        session = self._vehicle_sessions.get(context.vehicle.id)
+        if session is None or session.state == SESSION_STATE_AWAITING_FINAL:
+            return
+        if session.unavailable_since is None:
+            session.unavailable_since = now
+        name = self._vehicle_stale_timer_name(context.vehicle.id)
+        if name not in self._timers:
+            elapsed = (now - session.unavailable_since).total_seconds()
+            self._set_timer(
+                name,
+                SESSION_TIMEOUT_H * 3600 - elapsed,
+                callback(lambda _now, c=context: self._on_vehicle_stale_timer(c)),
+            )
+
+    def _vehicle_source_available(self, vehicle_id: str, now: datetime) -> None:
+        """Note that a vehicle's charge state is usable again, canceling its stale timeout."""
+        session = self._vehicle_sessions.get(vehicle_id)
+        if session is None:
+            return
+        session.last_valid = now
+        if session.unavailable_since is not None:
+            session.unavailable_since = None
+            self._cancel_timer(self._vehicle_stale_timer_name(vehicle_id))
+
+    def _start_vehicle_session(
+        self, context: VehicleContext, now: datetime
+    ) -> RunningVehicleSession:
+        """Begin a vehicle's own session, deciding its location once from the tracker (7.4).
+
+        Home-zone means home_no_wallbox; anything else, including an unusable
+        tracker, means external, with coordinates captured for geocoding.
+        """
+        location = (
+            LOCATION_HOME_NO_WALLBOX
+            if self._vehicle_location(context) == TRACKER_STATE_HOME
+            else LOCATION_EXTERNAL
+        )
+        session = RunningVehicleSession(
+            vehicle_id=context.vehicle.id,
+            start=now,
+            location=location,
+            state=SESSION_STATE_CHARGING,
+            state_since=now,
+            last_valid=now,
+            soc_start=self._read_vehicle_number(context, ROLE_SOC, None),
+            odometer_km=self._read_vehicle_number(
+                context, ROLE_ODOMETER, DISTANCE_UNIT_FACTORS_TO_KM
+            ),
+        )
+        if location == LOCATION_EXTERNAL:
+            entity_id = resolver.resolve_entity_id(self._hass, context.vehicle.location)
+            tracker = self._hass.states.get(entity_id) if entity_id else None
+            if tracker is not None:
+                session.latitude = tracker.attributes.get("latitude")
+                session.longitude = tracker.attributes.get("longitude")
+                session.location_reported_at = tracker.last_changed
+            if session.latitude is not None and session.longitude is not None:
+                session.address_retry_pending = True
+                self._start_geocode(context.vehicle.id, session.start)
+        self._vehicle_sessions[context.vehicle.id] = session
+        _LOGGER.debug(
+            "An external session begins for vehicle %s, location %s", context.vehicle.id, location
+        )
+        return session
+
+    def _drive_vehicle_session(self, context: VehicleContext, klass: str, now: datetime) -> None:
+        """Move a vehicle's own session according to its charge state class (4.7, 7.4, 7.5).
+
+        Takes no part while the wallbox already claims this vehicle: the
+        wallbox is the authoritative source of location for it either way
+        (7.4). Only the charging class begins a session; connected_idle and
+        error only ever continue one that already exists (I17).
+        """
+        vehicle_id = context.vehicle.id
+        if self._session is not None and self._session.vehicle_id == vehicle_id:
+            return
+        session = self._vehicle_sessions.get(vehicle_id)
+        if session is not None and session.state == SESSION_STATE_AWAITING_FINAL:
+            return
+        if klass == CHARGE_STATE_DISCONNECTED:
+            if session is not None:
+                self._end_vehicle_session(context, session, now)
+            return
+        if session is None:
+            if klass != CHARGE_STATE_CHARGING:
+                return
+            session = self._start_vehicle_session(context, now)
+
+        if klass == CHARGE_STATE_CHARGING:
+            self._cancel_timer(self._vehicle_pause_timer_name(vehicle_id))
+            if session.open_phase() is None:
+                self._open_vehicle_phase(session, now)
+            session.pause_since = None
+            self._enter_vehicle_state(session, SESSION_STATE_CHARGING)
+        elif klass == CHARGE_STATE_CONNECTED_IDLE:
+            if session.state != SESSION_STATE_PAUSED:
+                session.pause_since = now
+                self._set_timer(
+                    self._vehicle_pause_timer_name(vehicle_id),
+                    MIN_PAUSE_MIN * 60,
+                    callback(lambda _now, c=context: self._on_vehicle_pause_timer(c)),
+                )
+                self._enter_vehicle_state(session, SESSION_STATE_PAUSED)
+        elif klass == CHARGE_STATE_ERROR and session.state != SESSION_STATE_ERROR:
+            self._cancel_timer(self._vehicle_pause_timer_name(vehicle_id))
+            end = session.pause_since if session.state == SESSION_STATE_PAUSED else now
+            self._close_vehicle_phase(session, end)
+            session.pause_since = None
+            session.charge_error = True
+            self._enter_vehicle_state(session, SESSION_STATE_ERROR)
+
+    def _enter_vehicle_state(self, session: RunningVehicleSession, state: str) -> None:
+        """Record a new state of a vehicle's own session, persist it and publish at once (I12)."""
+        if session.state != state or session.state_since is None:
+            session.state_since = self._now()
+        if session.state != state:
+            _LOGGER.debug(
+                "External session of vehicle %s: %s -> %s", session.vehicle_id, session.state, state
+            )
+        session.state = state
+        self._persist()
+        self._publish()
+
+    @callback
+    def _on_vehicle_pause_timer(self, context: VehicleContext) -> None:
+        """Close a vehicle's open phase once the interruption reached the minimum pause."""
+        self._timers.pop(self._vehicle_pause_timer_name(context.vehicle.id), None)
+        session = self._vehicle_sessions.get(context.vehicle.id)
+        if session is not None and session.state == SESSION_STATE_PAUSED and session.pause_since:
+            self._close_vehicle_phase(session, session.pause_since)
+            self._persist()
+
+    def _open_vehicle_phase(self, session: RunningVehicleSession, now: datetime) -> None:
+        """Start a new phase of a vehicle's own session; external phases carry no energy (6.3)."""
+        if len(session.phases) >= MAX_PHASES:
+            session.phases = list(merge_shortest_pauses(tuple(session.phases), MAX_PHASES - 1))
+            session.flagged = True
+        session.phases.append(Phase(start=_iso(now)))
+        _LOGGER.debug(
+            "External session of vehicle %s: phase %d begins",
+            session.vehicle_id,
+            len(session.phases),
+        )
+
+    def _close_vehicle_phase(self, session: RunningVehicleSession, end: datetime) -> None:
+        """Close the open phase of a vehicle's own session at the given moment."""
+        phase = session.open_phase()
+        if phase is None:
+            return
+        start = _parse(phase.start)
+        duration = max((end - start).total_seconds() / 60, 0.0) if start else 0.0
+        session.phases[-1] = replace(phase, end=_iso(end), duration_min=duration)
+
+    def _end_vehicle_session(
+        self, context: VehicleContext, session: RunningVehicleSession, now: datetime
+    ) -> None:
+        """React to a vehicle's own charge state falling to disconnected, the only end (7.5)."""
+        self._cancel_vehicle_timers(context.vehicle.id)
+        end = session.pause_since if session.state == SESSION_STATE_PAUSED else now
+        self._close_vehicle_phase(session, end)
+        session.plug_end = now
+        session.state = SESSION_STATE_AWAITING_FINAL
+        session.state_since = self._now()
+        self._persist()
+        self._publish()
+        self._hass.async_create_task(
+            self._async_finalize_vehicle_session(context.vehicle.id), eager_start=False
+        )
+
+    @callback
+    def _on_vehicle_stale_timer(self, context: VehicleContext) -> None:
+        """Close a vehicle's own session after its source was unusable for the whole timeout."""
+        self._timers.pop(self._vehicle_stale_timer_name(context.vehicle.id), None)
+        session = self._vehicle_sessions.get(context.vehicle.id)
+        if session is None or session.state == SESSION_STATE_AWAITING_FINAL:
+            return
+        self._cancel_timer(self._vehicle_pause_timer_name(context.vehicle.id))
+        end = session.last_valid or session.start
+        self._close_vehicle_phase(session, end)
+        session.plug_end = end
+        session.flagged = True
+        session.state = SESSION_STATE_AWAITING_FINAL
+        session.state_since = self._now()
+        self._persist()
+        self._publish()
+        self._hass.async_create_task(
+            self._async_finalize_vehicle_session(context.vehicle.id), eager_start=False
+        )
+
+    def _restore_vehicle_session_timers(self) -> None:
+        """Re-arm the timers of every vehicle session restored from the store."""
+        now = self._now()
+        for vehicle_id, session in list(self._vehicle_sessions.items()):
+            context = self._vehicles.get(vehicle_id)
+            if context is None:
+                continue
+            if session.state == SESSION_STATE_AWAITING_FINAL:
+                self._hass.async_create_task(
+                    self._async_finalize_vehicle_session(vehicle_id), eager_start=False
+                )
+                continue
+            if session.state == SESSION_STATE_PAUSED and session.pause_since:
+                remaining = MIN_PAUSE_MIN * 60 - (now - session.pause_since).total_seconds()
+                self._set_timer(
+                    self._vehicle_pause_timer_name(vehicle_id),
+                    remaining,
+                    callback(lambda _now, c=context: self._on_vehicle_pause_timer(c)),
+                )
+            if session.unavailable_since:
+                elapsed = (now - session.unavailable_since).total_seconds()
+                self._set_timer(
+                    self._vehicle_stale_timer_name(vehicle_id),
+                    SESSION_TIMEOUT_H * 3600 - elapsed,
+                    callback(lambda _now, c=context: self._on_vehicle_stale_timer(c)),
+                )
+
+    # ------------------------------------------------------------- geocoding
+
+    def _start_geocode(self, vehicle_id: str, session_start: datetime) -> None:
+        """Look up the address of a newly started external session, without waiting for it."""
+        settings = self._settings
+        if not settings.geocoding_enabled or not settings.geocoding_contact:
+            return
+        self._hass.async_create_task(
+            self._async_geocode(vehicle_id, session_start), eager_start=False
+        )
+
+    async def _async_geocode(self, vehicle_id: str, session_start: datetime) -> None:
+        """Resolve the address of a vehicle's running session and apply it if still current."""
+        session = self._vehicle_sessions.get(vehicle_id)
+        if session is None or session.latitude is None or session.longitude is None:
+            return
+        settings = self._settings
+        address = await geocoding.async_get_queue(self._hass).async_lookup(
+            self._hass,
+            url=settings.geocoding_url,
+            contact=settings.geocoding_contact,
+            latitude=session.latitude,
+            longitude=session.longitude,
+        )
+        session = self._vehicle_sessions.get(vehicle_id)
+        if session is None or session.start != session_start:
+            return
+        if address is not None:
+            session.address = address
+            session.address_retry_pending = False
+        self._persist()
+        self._touch_live()
+
+    async def _async_retry_pending_addresses(self) -> None:
+        """Retry the address of every stored session still waiting for one, once at startup."""
+        settings = self._settings
+        if not settings.geocoding_enabled or not settings.geocoding_contact:
+            return
+        for year in await async_list_session_years(self._hass):
+            store = SessionYearStore(self._hass, year)
+            pending = [
+                stored
+                for stored in await store.async_load()
+                if stored.address_retry_pending
+                and stored.latitude is not None
+                and stored.longitude is not None
+            ]
+            for target in pending:
+                address = await geocoding.async_get_queue(self._hass).async_lookup(
+                    self._hass,
+                    url=settings.geocoding_url,
+                    contact=settings.geocoding_contact,
+                    latitude=target.latitude,
+                    longitude=target.longitude,
+                )
+                if address is None:
+                    continue
+
+                def _apply(
+                    sessions: list[Session], target_id: str = target.id, address: str = address
+                ) -> list[Session]:
+                    return [
+                        replace(
+                            s,
+                            address=address,
+                            address_retry_pending=False,
+                            modified_at=_iso(self._now()),
+                        )
+                        if s.id == target_id
+                        else s
+                        for s in sessions
+                    ]
+
+                await store.async_update(_apply)
+
     # ------------------------------------------------------------ finishing
 
     def _counter_readable(self, session: RunningSession) -> bool:
@@ -1878,6 +2394,172 @@ class SessionManager:
             phases=tuple(_round_phase(phase) for phase in phases),
         )
 
+    async def _async_finalize_vehicle_session(self, vehicle_id: str) -> None:
+        """Write a finished vehicle session to the store, retrying on failure.
+
+        The session stays in self._vehicle_sessions, in state
+        awaiting_final, until the write succeeds, so a new charging report
+        for the same vehicle in the meantime cannot resume it: only the
+        disconnected class ever reaches here, and a session begins only from
+        no session at all (I17).
+        """
+        session = self._vehicle_sessions.get(vehicle_id)
+        context = self._vehicles.get(vehicle_id)
+        if session is None or context is None or session.state != SESSION_STATE_AWAITING_FINAL:
+            return
+        if (
+            session.address_retry_pending
+            and session.latitude is not None
+            and session.longitude is not None
+        ):
+            settings = self._settings
+            if settings.geocoding_enabled and settings.geocoding_contact:
+                address = await geocoding.async_get_queue(self._hass).async_lookup(
+                    self._hass,
+                    url=settings.geocoding_url,
+                    contact=settings.geocoding_contact,
+                    latitude=session.latitude,
+                    longitude=session.longitude,
+                )
+                if address is not None:
+                    session.address = address
+                    session.address_retry_pending = False
+
+        stored = self._build_vehicle_session(context, session)
+        year = dt_util.as_local(session.start).year
+
+        def _add(sessions: list[Session]) -> list[Session]:
+            taken = {existing.id for existing in sessions}
+            unique = stored
+            counter = 2
+            while unique.id in taken:
+                unique = replace(stored, id=f"{stored.id}_{counter}")
+                counter += 1
+            return [*sessions, unique]
+
+        try:
+            await SessionYearStore(self._hass, year).async_update(_add)
+        except Exception:
+            _LOGGER.exception(
+                "A finished external session could not be stored; it is kept and retried"
+            )
+            self._set_timer(
+                f"vehicle_final_{vehicle_id}",
+                60,
+                callback(
+                    lambda _now, v=vehicle_id: self._hass.async_create_task(
+                        self._async_finalize_vehicle_session(v), eager_start=False
+                    )
+                ),
+            )
+            return
+        del self._vehicle_sessions[vehicle_id]
+        self._open_followups = await self._async_count_followups()
+        await self._async_persist()
+        self._publish()
+
+    def _build_vehicle_session(
+        self, context: VehicleContext, session: RunningVehicleSession
+    ) -> Session:
+        """Assemble the stored session from a vehicle's own running one (6.2, 7.4, 8.5).
+
+        Cost is never determined for a session the wallbox did not capture:
+        there is no readable price, so it always stays open for manual entry.
+        """
+        vehicle = context.vehicle
+        phases = merge_shortest_pauses(tuple(session.phases), MAX_PHASES)
+        flagged = session.flagged or len(phases) < len(session.phases)
+        plug_end = session.plug_end or self._now()
+        plug_duration = max((plug_end - session.start).total_seconds() / 60, 0.0)
+        charge_duration = sum(phase.duration_min or 0.0 for phase in phases)
+        pause_duration = max(plug_duration - charge_duration, 0.0)
+
+        soc_end = self._read_vehicle_number(context, ROLE_SOC, None)
+        capacity = vehicle.capacity_kwh
+        raw_energy = energy_raw_kwh(session.soc_start, soc_end, capacity)
+        # No efficiency factor is determined yet; the raw estimate stands in for it unfactored.
+        estimated_energy = raw_energy
+        energy_kwh = derive_energy_kwh(None, None, session.energy_session_kwh, estimated_energy)
+        estimate_uncertain = (
+            session.soc_start is not None
+            and soc_end is not None
+            and abs(soc_end - session.soc_start) < self._settings.estimate_uncertain_threshold_pct
+        )
+
+        charge_type = session.charge_type
+        charge_type_source = session.charge_type_source
+        if charge_type_source != CHARGE_TYPE_SOURCE_ENTITY:
+            if energy_kwh is not None and charge_duration > 0:
+                avg_kw = energy_kwh / (charge_duration / 60)
+                charge_type = (
+                    CURRENT_TYPE_DC if avg_kw >= DC_POWER_THRESHOLD_KW else CURRENT_TYPE_AC
+                )
+                charge_type_source = CHARGE_TYPE_SOURCE_HEURISTIC
+            else:
+                charge_type = CHARGE_TYPE_UNKNOWN
+                charge_type_source = None
+
+        open_fields: list[str] = []
+        if session.soc_start is None:
+            open_fields.append("soc_start")
+        if soc_end is None:
+            open_fields.append("soc_end")
+        if session.odometer_km is None:
+            open_fields.append("odometer_km")
+        if energy_kwh is None:
+            open_fields.append("energy_kwh")
+        # Neither location carries a readable price; cost is always nacherfassbar (8.5).
+        open_fields.append("cost")
+
+        status = SESSION_STATUS_FLAGGED if flagged else SESSION_STATUS_FOLLOWUP_OPEN
+        now_iso = _iso(self._now())
+        start_local = dt_util.as_local(session.start)
+
+        return Session(
+            id=f"{start_local.strftime('%Y-%m-%dT%H:%M:%S')}_{vehicle.id}",
+            location=session.location,
+            plug_start=_iso(session.start),
+            identification_source=IDENTIFICATION_SOURCE_VEHICLE_API,
+            vehicle_id=vehicle.id,
+            vehicle_name=vehicle.name,
+            capacity_kwh=capacity,
+            wallbox_id=None,
+            plug_end=_iso(plug_end),
+            plug_duration_min=round(plug_duration, 1),
+            charge_duration_min=round(charge_duration, 1),
+            pause_duration_min=round(pause_duration, 1),
+            phase_count=len(phases),
+            phases_recorded=True,
+            soc_start=session.soc_start,
+            soc_end=soc_end,
+            odometer_km=session.odometer_km,
+            energy_vehicle_kwh=_round(session.energy_session_kwh, 3),
+            energy_raw_kwh=_round(raw_energy, 3),
+            energy_estimated_kwh=_round(estimated_energy, 3),
+            energy_kwh=_round(energy_kwh, 3),
+            estimate_uncertain=estimate_uncertain,
+            charge_type=charge_type,
+            charge_type_source=charge_type_source,
+            power_avg_kw=(
+                round(energy_kwh / (charge_duration / 60), 2)
+                if energy_kwh is not None and charge_duration > 0
+                else None
+            ),
+            address=session.address,
+            latitude=session.latitude,
+            longitude=session.longitude,
+            location_reported_at=(
+                _iso(session.location_reported_at) if session.location_reported_at else None
+            ),
+            address_retry_pending=session.address_retry_pending,
+            charge_error=session.charge_error,
+            status=status,
+            open_fields=tuple(open_fields),
+            created_at=now_iso,
+            modified_at=now_iso,
+            phases=tuple(_round_phase(phase) for phase in phases),
+        )
+
     async def _async_count_followups(self) -> int:
         """Count the stored sessions that still wait for values."""
         count = 0
@@ -1898,7 +2580,13 @@ class SessionManager:
 
     def _payload(self) -> dict[str, Any]:
         """Return what is written to the runtime store."""
-        payload: dict[str, Any] = {"session": self._session.to_dict() if self._session else None}
+        payload: dict[str, Any] = {
+            "session": self._session.to_dict() if self._session else None,
+            "vehicle_sessions": {
+                vehicle_id: session.to_dict()
+                for vehicle_id, session in self._vehicle_sessions.items()
+            },
+        }
         if self._counter_detection is not None:
             payload["counter_detection"] = self._counter_detection
         return payload
@@ -1980,8 +2668,9 @@ class SessionManager:
         self._publish()
 
     def _publish(self) -> None:
-        """Rebuild and publish the snapshot, and refresh the live subscribers."""
+        """Rebuild and publish the snapshots, and refresh the live subscribers."""
         self.snapshot = self._build_snapshot()
+        self.vehicle_snapshots = self._build_vehicle_snapshots()
         for listener in list(self._listeners):
             listener()
         self._touch_live()
@@ -2001,7 +2690,9 @@ class SessionManager:
         for listener in list(self._live_listeners):
             listener()
 
-    def _net_duration_min(self, session: RunningSession, now: datetime) -> float:
+    def _net_duration_min(
+        self, session: RunningSession | RunningVehicleSession, now: datetime
+    ) -> float:
         """Return the charging time so far, the sum of the phases."""
         total = 0.0
         for phase in session.phases:
@@ -2088,6 +2779,49 @@ class SessionManager:
             open_followups=self._open_followups,
         )
 
+    def _vehicle_session_energy(
+        self, context: VehicleContext, session: RunningVehicleSession
+    ) -> tuple[float | None, bool]:
+        """Return a vehicle's own session energy, and whether it is only an estimate (8.4).
+
+        The vehicle's reported session energy is authoritative where present;
+        without it, energy is estimated from the state of charge alone.
+        """
+        if session.energy_session_kwh is not None:
+            return session.energy_session_kwh, False
+        soc = self._read_vehicle_number(context, ROLE_SOC, None)
+        estimate = energy_raw_kwh(session.soc_start, soc, context.vehicle.capacity_kwh)
+        return estimate, estimate is not None
+
+    def _vehicle_charge_end(self, context: VehicleContext) -> datetime | None:
+        """Return a vehicle's own reported charge end, normalized to a timestamp."""
+        entity_id = resolver.resolve_entity_id(self._hass, context.vehicle.charge_end)
+        raw_end = resolver.usable_state(self._hass.states.get(entity_id)) if entity_id else None
+        charge_end = dt_util.parse_datetime(raw_end) if raw_end else None
+        return dt_util.as_utc(charge_end) if charge_end is not None else None
+
+    def _build_vehicle_snapshots(self) -> dict[str, VehicleSnapshot]:
+        """Collect what every vehicle's own entities publish (11.4, 11.5)."""
+        now = self._now()
+        snapshots: dict[str, VehicleSnapshot] = {}
+        for vehicle_id, context in self._vehicles.items():
+            session = self._vehicle_sessions.get(vehicle_id)
+            active = session is not None and session.state != SESSION_STATE_AWAITING_FINAL
+            energy = self._vehicle_session_energy(context, session)[0] if active else None
+            snapshots[vehicle_id] = VehicleSnapshot(
+                session_active=active,
+                session_state=session.state if active else None,
+                session_location=session.location if active else None,
+                session_soc_start=session.soc_start if active else None,
+                session_odometer_start=session.odometer_km if active else None,
+                session_energy_kwh=round(energy, 3) if energy is not None else None,
+                session_duration_net_min=(
+                    round(self._net_duration_min(session, now), 1) if active else None
+                ),
+                charge_end=self._vehicle_charge_end(context),
+            )
+        return snapshots
+
     def _plug_report(self, session: RunningSession | None) -> dict[str, Any]:
         """Describe the plug state of the wallbox for the live card."""
         unusable = not self._plug_usable or self._plug_class is None
@@ -2105,10 +2839,29 @@ class SessionManager:
         return COUNTER_TOTAL if self.wallbox.energy_total is not None else COUNTER_SESSION
 
     def live_payload(self) -> dict[str, Any]:
-        """Return the live values for the dashboard card.
+        """Return the live values of the wallbox's own session, or its idle state."""
+        return self._wallbox_block()
 
-        Card identifiers, VIN, address and coordinates are never included.
+    def live_blocks(self) -> list[dict[str, Any]]:
+        """Return the live values of every running session (11.1, E34, E37).
+
+        The wallbox block comes first, even without a session there, so the
+        card always has a fixed anchor; the running external sessions follow
+        it in the order they began. Card identifiers, VIN and coordinates are
+        never included; the address is (14).
         """
+        blocks = [self._wallbox_block()]
+        running = [
+            (self._vehicles[vehicle_id], session)
+            for vehicle_id, session in self._vehicle_sessions.items()
+            if session.state != SESSION_STATE_AWAITING_FINAL and vehicle_id in self._vehicles
+        ]
+        running.sort(key=lambda item: item[1].start)
+        blocks.extend(self._vehicle_block(context, session) for context, session in running)
+        return blocks
+
+    def _wallbox_block(self) -> dict[str, Any]:
+        """Return the live block of the wallbox's own session, or its idle state."""
         assert self.wallbox is not None
         assert self._card_reader is not None
         session = self._session
@@ -2132,6 +2885,7 @@ class SessionManager:
             charge_end = None
             charge_end_missing = CHARGE_END_MISSING_NO_POWER
         return {
+            "kind": LIVE_BLOCK_WALLBOX,
             "state": snapshot.state,
             "state_since": _iso(session.state_since) if session and session.state_since else None,
             "active": session is not None,
@@ -2163,14 +2917,18 @@ class SessionManager:
                 else None
             ),
             "location": LOCATION_HOME if session else None,
+            "address": None,
             "soc_start": snapshot.soc_start,
             "soc": snapshot.vehicle_soc,
             "soc_target": snapshot.vehicle_soc_target,
             "odometer_km": snapshot.odometer_start,
+            "range_km": None,
+            "charge_type": None,
             "charge_end": charge_end.isoformat() if charge_end else None,
             "charge_end_missing": charge_end_missing,
             "charge_power_kw": self._power_kw,
             "energy_kwh": energy,
+            "energy_is_estimate": False,
             "energy_grid_kwh": snapshot.energy_grid_kwh,
             "energy_solar_kwh": snapshot.energy_solar_kwh,
             "grid_share_pct": snapshot.grid_share_pct,
@@ -2192,6 +2950,67 @@ class SessionManager:
             "flagged": bool(session and session.flagged),
             "charge_error": bool(session and session.charge_error),
             "location_conflict": bool(session and session.location_conflict),
+        }
+
+    def _vehicle_block(
+        self, context: VehicleContext, session: RunningVehicleSession
+    ) -> dict[str, Any]:
+        """Return the live block of a vehicle's own running session (11.1, E37)."""
+        vehicle = context.vehicle
+        now = self._now()
+        soc = self._read_vehicle_number(context, ROLE_SOC, None)
+        soc_target = self._read_vehicle_number(context, ROLE_SOC_TARGET, None)
+        range_km = self._read_vehicle_number(context, ROLE_RANGE, DISTANCE_UNIT_FACTORS_TO_KM)
+        charge_power = self._read_vehicle_number(
+            context, ROLE_CHARGE_POWER, POWER_UNIT_FACTORS_TO_KW
+        )
+        charge_end = self._vehicle_charge_end(context)
+        energy, energy_is_estimate = self._vehicle_session_energy(context, session)
+        return {
+            "kind": LIVE_BLOCK_EXTERNAL,
+            "state": session.state,
+            "state_since": _iso(session.state_since) if session.state_since else None,
+            "active": True,
+            "phase_count": len(session.phases),
+            "waiting_for_power": False,
+            "plug": None,
+            "wallbox": None,
+            "currency": self._hass.config.currency,
+            "session_start": _iso(session.start),
+            "vehicle": {"id": vehicle.id, "name": vehicle.name},
+            "vehicle_guest": vehicle.is_guest,
+            "identification_source": IDENTIFICATION_SOURCE_VEHICLE_API,
+            "identification_decided": True,
+            "identification_conflict": False,
+            "identification_read": None,
+            "location": session.location,
+            "address": session.address,
+            "soc_start": session.soc_start,
+            "soc": soc,
+            "soc_target": soc_target,
+            "odometer_km": session.odometer_km,
+            "range_km": range_km,
+            "charge_type": session.charge_type
+            if session.charge_type != CHARGE_TYPE_UNKNOWN
+            else None,
+            "charge_end": charge_end.isoformat() if charge_end else None,
+            "charge_end_missing": None,
+            "charge_power_kw": charge_power,
+            "energy_kwh": round(energy, 3) if energy is not None else None,
+            "energy_is_estimate": energy_is_estimate,
+            "energy_grid_kwh": None,
+            "energy_solar_kwh": None,
+            "grid_share_pct": None,
+            "cost": None,
+            "effective_price": None,
+            "net_duration_min": round(self._net_duration_min(session, now), 1),
+            "plug_duration_min": round((now - session.start).total_seconds() / 60, 1),
+            "energy_unallocated_kwh": None,
+            "counter": None,
+            "sources": None,
+            "flagged": session.flagged,
+            "charge_error": session.charge_error,
+            "location_conflict": False,
         }
 
 
