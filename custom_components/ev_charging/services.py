@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
+from datetime import datetime
+from typing import Any
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntryState
@@ -12,13 +14,22 @@ from homeassistant.exceptions import ServiceValidationError, Unauthorized
 from homeassistant.helpers import config_validation as cv
 from homeassistant.util import dt as dt_util
 
-from . import geocoding
+from . import geocoding, session_manager
 from .const import (
     ATTR_CONFIRM,
     ATTR_SESSION_ID,
+    ATTR_VEHICLE_ID,
+    CURRENT_TYPES,
     DOMAIN,
+    LOCATIONS,
+    SERVICE_CLOSE_FOLLOWUP,
+    SERVICE_CORRECT_VEHICLE,
+    SERVICE_CREATE_SESSION,
     SERVICE_DELETE_ALL_DATA,
+    SERVICE_DELETE_SESSION,
     SERVICE_RETRY_ADDRESS,
+    SERVICE_UPDATE_SESSION,
+    UPDATE_SESSION_FIELDS,
 )
 from .models import HubSettings, Session
 from .store import SessionYearStore, async_list_session_years
@@ -27,6 +38,58 @@ _LOGGER = logging.getLogger(__name__)
 
 _DELETE_ALL_DATA_SCHEMA = vol.Schema({vol.Required(ATTR_CONFIRM): cv.boolean})
 _RETRY_ADDRESS_SCHEMA = vol.Schema({vol.Required(ATTR_SESSION_ID): cv.string})
+
+
+def _cv_offset_datetime(value: Any) -> datetime:
+    """Validate an ISO 8601 timestamp with a UTC offset (6.4)."""
+    if not isinstance(value, str):
+        raise vol.Invalid("expected a string")
+    try:
+        return session_manager.parse_offset_datetime(value)
+    except ValueError as err:
+        raise vol.Invalid(str(err)) from err
+
+
+_PERCENT = vol.All(vol.Coerce(float), vol.Range(min=0, max=100))
+_NON_NEGATIVE = vol.All(vol.Coerce(float), vol.Range(min=0))
+
+_UPDATE_SESSION_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_SESSION_ID): cv.string,
+        vol.Optional("soc_start"): _PERCENT,
+        vol.Optional("soc_end"): _PERCENT,
+        vol.Optional("odometer_km"): _NON_NEGATIVE,
+        vol.Optional("energy_billed_kwh"): _NON_NEGATIVE,
+        vol.Optional("cost"): _NON_NEGATIVE,
+        vol.Optional("charge_type"): vol.In(CURRENT_TYPES),
+        vol.Optional("address"): cv.string,
+        vol.Optional("note"): cv.string,
+        vol.Optional("provider"): cv.string,
+        vol.Optional("plug_end"): _cv_offset_datetime,
+    }
+)
+_DELETE_SESSION_SCHEMA = vol.Schema({vol.Required(ATTR_SESSION_ID): cv.string})
+_CLOSE_FOLLOWUP_SCHEMA = vol.Schema({vol.Required(ATTR_SESSION_ID): cv.string})
+_CORRECT_VEHICLE_SCHEMA = vol.Schema(
+    {vol.Required(ATTR_SESSION_ID): cv.string, vol.Required(ATTR_VEHICLE_ID): cv.string}
+)
+_CREATE_SESSION_SCHEMA = vol.Schema(
+    {
+        vol.Required("location"): vol.In(LOCATIONS),
+        vol.Required("plug_start"): _cv_offset_datetime,
+        vol.Required("plug_end"): _cv_offset_datetime,
+        vol.Optional(ATTR_VEHICLE_ID): cv.string,
+        vol.Optional("soc_start"): _PERCENT,
+        vol.Optional("soc_end"): _PERCENT,
+        vol.Optional("odometer_km"): _NON_NEGATIVE,
+        vol.Optional("energy_billed_kwh"): _NON_NEGATIVE,
+        vol.Optional("charge_type"): vol.In(CURRENT_TYPES),
+        vol.Optional("cost"): _NON_NEGATIVE,
+        vol.Optional("address"): cv.string,
+        vol.Optional("note"): cv.string,
+        vol.Optional("provider"): cv.string,
+    }
+)
 
 
 def _now_iso() -> str:
@@ -109,6 +172,56 @@ async def _async_handle_retry_address(hass: HomeAssistant, call: ServiceCall) ->
     raise ServiceValidationError(f"No session with id {session_id}")
 
 
+async def _async_handle_update_session(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Apply a nacherfassung or correction to a stored session, after admin check (10, 13)."""
+    await _async_require_admin(hass, call, permission=SERVICE_UPDATE_SESSION)
+    session_id = call.data[ATTR_SESSION_ID]
+    values = {name: call.data[name] for name in UPDATE_SESSION_FIELDS if name in call.data}
+    try:
+        await session_manager.async_update_session(hass, session_id, values)
+    except session_manager.SessionOperationError as err:
+        raise ServiceValidationError(str(err)) from err
+
+
+async def _async_handle_delete_session(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Remove one stored session, after admin check."""
+    await _async_require_admin(hass, call, permission=SERVICE_DELETE_SESSION)
+    try:
+        await session_manager.async_delete_session(hass, call.data[ATTR_SESSION_ID])
+    except session_manager.SessionOperationError as err:
+        raise ServiceValidationError(str(err)) from err
+
+
+async def _async_handle_close_followup(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Accept a session's missing values as final, after admin check (10)."""
+    await _async_require_admin(hass, call, permission=SERVICE_CLOSE_FOLLOWUP)
+    try:
+        await session_manager.async_close_followup(hass, call.data[ATTR_SESSION_ID])
+    except session_manager.SessionOperationError as err:
+        raise ServiceValidationError(str(err)) from err
+
+
+async def _async_handle_correct_vehicle(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Reassign a stored session to a different vehicle, after admin check (7.8)."""
+    await _async_require_admin(hass, call, permission=SERVICE_CORRECT_VEHICLE)
+    try:
+        await session_manager.async_correct_vehicle(
+            hass, call.data[ATTR_SESSION_ID], call.data[ATTR_VEHICLE_ID]
+        )
+    except session_manager.SessionOperationError as err:
+        raise ServiceValidationError(str(err)) from err
+
+
+async def _async_handle_create_session(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Fully reconstruct a past charging session by hand, after admin check (13)."""
+    await _async_require_admin(hass, call, permission=SERVICE_CREATE_SESSION)
+    fields = dict(call.data)
+    try:
+        await session_manager.async_create_session(hass, fields)
+    except session_manager.SessionOperationError as err:
+        raise ServiceValidationError(str(err)) from err
+
+
 @callback
 def async_setup_services(hass: HomeAssistant) -> None:
     """Register the domain's services, once per Home Assistant run."""
@@ -121,11 +234,41 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async def _retry_address(call: ServiceCall) -> None:
         await _async_handle_retry_address(hass, call)
 
+    async def _update_session(call: ServiceCall) -> None:
+        await _async_handle_update_session(hass, call)
+
+    async def _delete_session(call: ServiceCall) -> None:
+        await _async_handle_delete_session(hass, call)
+
+    async def _close_followup(call: ServiceCall) -> None:
+        await _async_handle_close_followup(hass, call)
+
+    async def _correct_vehicle(call: ServiceCall) -> None:
+        await _async_handle_correct_vehicle(hass, call)
+
+    async def _create_session(call: ServiceCall) -> None:
+        await _async_handle_create_session(hass, call)
+
     hass.services.async_register(
         DOMAIN, SERVICE_DELETE_ALL_DATA, _delete_all_data, schema=_DELETE_ALL_DATA_SCHEMA
     )
     hass.services.async_register(
         DOMAIN, SERVICE_RETRY_ADDRESS, _retry_address, schema=_RETRY_ADDRESS_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_UPDATE_SESSION, _update_session, schema=_UPDATE_SESSION_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_DELETE_SESSION, _delete_session, schema=_DELETE_SESSION_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_CLOSE_FOLLOWUP, _close_followup, schema=_CLOSE_FOLLOWUP_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_CORRECT_VEHICLE, _correct_vehicle, schema=_CORRECT_VEHICLE_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_CREATE_SESSION, _create_session, schema=_CREATE_SESSION_SCHEMA
     )
 
 
@@ -134,3 +277,8 @@ def async_unload_services(hass: HomeAssistant) -> None:
     """Remove the domain's services."""
     hass.services.async_remove(DOMAIN, SERVICE_DELETE_ALL_DATA)
     hass.services.async_remove(DOMAIN, SERVICE_RETRY_ADDRESS)
+    hass.services.async_remove(DOMAIN, SERVICE_UPDATE_SESSION)
+    hass.services.async_remove(DOMAIN, SERVICE_DELETE_SESSION)
+    hass.services.async_remove(DOMAIN, SERVICE_CLOSE_FOLLOWUP)
+    hass.services.async_remove(DOMAIN, SERVICE_CORRECT_VEHICLE)
+    hass.services.async_remove(DOMAIN, SERVICE_CREATE_SESSION)

@@ -10,3 +10,143 @@ retry_address:
       required: true
       selector:
         text:
+update_session:
+  fields:
+    id:
+      required: true
+      selector:
+        text:
+    soc_start:
+      selector:
+        number:
+          min: 0
+          max: 100
+          mode: box
+          unit_of_measurement: "%"
+    soc_end:
+      selector:
+        number:
+          min: 0
+          max: 100
+          mode: box
+          unit_of_measurement: "%"
+    odometer_km:
+      selector:
+        number:
+          min: 0
+          mode: box
+    energy_billed_kwh:
+      selector:
+        number:
+          min: 0
+          mode: box
+    cost:
+      selector:
+        number:
+          min: 0
+          mode: box
+    charge_type:
+      selector:
+        select:
+          options:
+            - ac
+            - dc
+    address:
+      selector:
+        text:
+    note:
+      selector:
+        text:
+    provider:
+      selector:
+        text:
+    plug_end:
+      selector:
+        datetime:
+delete_session:
+  fields:
+    id:
+      required: true
+      selector:
+        text:
+close_followup:
+  fields:
+    id:
+      required: true
+      selector:
+        text:
+correct_vehicle:
+  fields:
+    id:
+      required: true
+      selector:
+        text:
+    vehicle_id:
+      required: true
+      selector:
+        text:
+create_session:
+  fields:
+    location:
+      required: true
+      selector:
+        select:
+          options:
+            - home
+            - home_no_wallbox
+            - external
+    plug_start:
+      required: true
+      selector:
+        datetime:
+    plug_end:
+      required: true
+      selector:
+        datetime:
+    vehicle_id:
+      selector:
+        text:
+    soc_start:
+      selector:
+        number:
+          min: 0
+          max: 100
+          mode: box
+          unit_of_measurement: "%"
+    soc_end:
+      selector:
+        number:
+          min: 0
+          max: 100
+          mode: box
+          unit_of_measurement: "%"
+    odometer_km:
+      selector:
+        number:
+          min: 0
+          mode: box
+    energy_billed_kwh:
+      selector:
+        number:
+          min: 0
+          mode: box
+    charge_type:
+      selector:
+        select:
+          options:
+            - ac
+            - dc
+    cost:
+      selector:
+        number:
+          min: 0
+          mode: box
+    address:
+      selector:
+        text:
+    note:
+      selector:
+        text:
+    provider:
+      selector:
+        text:

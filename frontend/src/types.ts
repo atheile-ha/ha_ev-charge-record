@@ -15,6 +15,7 @@ export interface HomeAssistant {
 
 export type SessionLocation = "home" | "home_no_wallbox" | "external";
 export type ChargeType = "ac" | "dc" | "unknown";
+export type ChargeTypeSource = "entity" | "wallbox_config" | "heuristic";
 export type SessionStatus = "complete" | "followup_open" | "flagged";
 export type IdentificationSource = "rfid" | "emaid" | "vehicle_api" | "manual" | "unresolved";
 
@@ -39,6 +40,7 @@ export interface Session {
   location: SessionLocation;
   identification_source: IdentificationSource;
   identification_conflict: boolean;
+  identification_corrected: boolean;
   plug_start: string;
   plug_end: string | null;
   plug_duration_min: number | null;
@@ -55,6 +57,7 @@ export interface Session {
   energy_unallocated_kwh: number;
   cost: number | null;
   charge_type: ChargeType;
+  charge_type_source: ChargeTypeSource | null;
   power_avg_kw: number | null;
   address: string | null;
   latitude: number | null;

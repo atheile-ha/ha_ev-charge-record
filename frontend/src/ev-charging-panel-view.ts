@@ -1,7 +1,18 @@
 import { LitElement, css, html, nothing, type PropertyValues, type TemplateResult } from "lit";
 import { property, state } from "lit/decorators.js";
 import { classMap } from "lit/directives/class-map.js";
-import { listSessions, listVehicles, listYear } from "./api";
+import {
+  closeFollowup,
+  correctVehicle,
+  createSession,
+  deleteSession,
+  listOpenSessions,
+  listSessions,
+  listVehicles,
+  listYear,
+  updateSession,
+  type SessionCreate,
+} from "./api";
 import { onConnectionReady } from "./connection";
 import "./ev-charging-session-list";
 import {
@@ -39,6 +50,17 @@ import {
   type ViewId,
 } from "./logic";
 import { renderSessionBody, sessionBodyStyles } from "./session-body";
+import {
+  buildUpdatePayload,
+  editStyles,
+  fieldsForCorrection,
+  fieldsForOpenSession,
+  hasUpdatePayload,
+  renderEditFields,
+  renderVehicleSelect,
+  type EditFieldName,
+  type EditValues,
+} from "./session-edit";
 import { sharedStyles } from "./styles";
 import type {
   ChargeType,
@@ -55,6 +77,10 @@ import type {
 const REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 const RECENT_COUNT = 5;
 
+// Pseudo id under which the create-session form tracks its own busy and
+// error state, alongside the per-session ids used by the other actions.
+const CREATE_KEY = "__create__";
+
 const CHEVRON_LEFT = "M15.41,16.58L10.83,12L15.41,7.42L14,6L8,12L14,18L15.41,16.58Z";
 const CHEVRON_RIGHT = "M8.59,16.58L13.17,12L8.59,7.42L10,6L16,12L10,18L8.59,16.58Z";
 
@@ -62,6 +88,8 @@ const VIEWS: { id: ViewId; label: TextKey }[] = [
   { id: "overview", label: "view_overview" },
   { id: "recent", label: "view_recent" },
   { id: "detail", label: "view_detail" },
+  { id: "followup", label: "view_followup" },
+  { id: "correction", label: "view_correction" },
 ];
 const LOCATIONS: SessionLocation[] = ["home", "home_no_wallbox", "external"];
 const CHARGE_TYPES: ChargeType[] = ["ac", "dc", "unknown"];
@@ -96,9 +124,19 @@ export class EvChargingPanelView extends LitElement {
   @state() private _failed = false;
   @state() private _metric: Metric = "energy";
 
+  @state() private _openSessions?: Session[];
+  @state() private _editingId: string | null = null;
+  @state() private _editValues: Record<string, EditValues> = {};
+  @state() private _vehicleDraft: Record<string, string> = {};
+  @state() private _busyId: string | null = null;
+  @state() private _editError: Record<string, string> = {};
+  @state() private _creating = false;
+  @state() private _createValues: Record<string, string> = {};
+
   private _started = false;
   private _yearKey?: number;
   private _recentRequested = false;
+  private _openRequested = false;
   private _timer?: number;
   private _connectionUnsub?: () => void;
 
@@ -145,7 +183,11 @@ export class EvChargingPanelView extends LitElement {
       this._started = true;
       void this._loadShared(hass, false);
     }
-    if (state.view !== "recent" && this._yearKey !== state.year) {
+    if (
+      state.view !== "recent" &&
+      state.view !== "followup" &&
+      this._yearKey !== state.year
+    ) {
       this._yearKey = state.year;
       this._yearSessions = undefined;
       void this._loadYear(hass, state.year, false);
@@ -153,6 +195,10 @@ export class EvChargingPanelView extends LitElement {
     if (state.view === "recent" && !this._recentRequested) {
       this._recentRequested = true;
       void this._loadRecent(hass, false);
+    }
+    if (state.view === "followup" && !this._openRequested) {
+      this._openRequested = true;
+      void this._loadOpenSessions(hass, false);
     }
   }
 
@@ -163,11 +209,14 @@ export class EvChargingPanelView extends LitElement {
       return;
     }
     void this._loadShared(hass, true);
-    if (state.view !== "recent") {
+    if (state.view !== "recent" && state.view !== "followup") {
       void this._loadYear(hass, state.year, true);
     }
     if (state.view === "recent") {
       void this._loadRecent(hass, true);
+    }
+    if (state.view === "followup") {
+      void this._loadOpenSessions(hass, true);
     }
   }
 
@@ -183,6 +232,7 @@ export class EvChargingPanelView extends LitElement {
     this._started = false;
     this._yearKey = undefined;
     this._recentRequested = false;
+    this._openRequested = false;
     this.requestUpdate();
   }
 
@@ -236,6 +286,14 @@ export class EvChargingPanelView extends LitElement {
     }
   }
 
+  private async _loadOpenSessions(hass: HomeAssistant, silent: boolean): Promise<void> {
+    try {
+      this._openSessions = await listOpenSessions(hass);
+    } catch (error) {
+      this._fail(error, silent);
+    }
+  }
+
   private _setState(patch: Partial<PanelState>): void {
     if (!this._state) {
       return;
@@ -268,16 +326,21 @@ export class EvChargingPanelView extends LitElement {
     if (!t) {
       return html`<div class="spinner" role="progressbar"></div>`;
     }
+    const withPeriod = state.view === "overview" || state.view === "detail" || state.view === "correction";
     return html`
       <div class="view">
         ${this._renderTabs(t, state)}
-        ${state.view === "recent" ? nothing : this._renderFilters(t, state)}
-        ${state.view === "recent" ? nothing : this._renderPeriod(t, state)}
+        ${withPeriod ? this._renderFilters(t, state) : nothing}
+        ${withPeriod ? this._renderPeriod(t, state) : nothing}
         ${state.view === "overview"
           ? this._renderOverview(t, state)
           : state.view === "detail"
             ? this._renderDetail(t, state)
-            : this._renderRecent(t)}
+            : state.view === "followup"
+              ? this._renderFollowup(t)
+              : state.view === "correction"
+                ? this._renderCorrection(t, state)
+                : this._renderRecent(t)}
         <p class="hint muted">${t("multi_day_hint")} ${t("estimate_hint")}</p>
       </div>
     `;
@@ -562,6 +625,456 @@ export class EvChargingPanelView extends LitElement {
         ></ev-charging-session-list>`;
   }
 
+  // ----------------------------------------------------------- nacherfassung
+
+  private _setDraft(id: string, field: EditFieldName, value: string): void {
+    this._editValues = { ...this._editValues, [id]: { ...this._editValues[id], [field]: value } };
+  }
+
+  private _setVehicleDraft(id: string, value: string): void {
+    this._vehicleDraft = { ...this._vehicleDraft, [id]: value };
+  }
+
+  private static _omit<T>(record: Record<string, T>, id: string): Record<string, T> {
+    const next = { ...record };
+    delete next[id];
+    return next;
+  }
+
+  private async _run(
+    id: string,
+    action: () => Promise<unknown>,
+    reload: () => Promise<void>,
+  ): Promise<void> {
+    this._busyId = id;
+    try {
+      await action();
+      this._editValues = EvChargingPanelView._omit(this._editValues, id);
+      this._editError = EvChargingPanelView._omit(this._editError, id);
+      await reload();
+    } catch (error) {
+      console.error("ev_charging: session correction failed", error);
+      this._editError = { ...this._editError, [id]: this._t?.("edit_error") ?? "error" };
+    } finally {
+      this._busyId = null;
+    }
+  }
+
+  private async _saveUpdate(session: Session, reload: () => Promise<void>): Promise<void> {
+    const payload = buildUpdatePayload(this._editValues[session.id] ?? {});
+    if (Object.keys(payload).length === 0) {
+      return;
+    }
+    await this._run(session.id, () => updateSession(this.hass!, session.id, payload), reload);
+  }
+
+  private async _saveVehicle(session: Session, reload: () => Promise<void>): Promise<void> {
+    const vehicleId = this._vehicleDraft[session.id];
+    if (!vehicleId) {
+      return;
+    }
+    await this._run(session.id, () => correctVehicle(this.hass!, session.id, vehicleId), reload);
+  }
+
+  private async _accept(session: Session, reload: () => Promise<void>): Promise<void> {
+    await this._run(session.id, () => closeFollowup(this.hass!, session.id), reload);
+  }
+
+  private async _remove(session: Session, reload: () => Promise<void>): Promise<void> {
+    if (!window.confirm(this._t?.("edit_delete_confirm") ?? "")) {
+      return;
+    }
+    this._editingId = null;
+    await this._run(
+      session.id,
+      async () => {
+        await deleteSession(this.hass!, session.id);
+      },
+      reload,
+    );
+  }
+
+  private _renderFollowup(t: Translate): TemplateResult {
+    const sessions = this._openSessions;
+    if (!sessions) {
+      return html`<div class="spinner" role="progressbar"></div>`;
+    }
+    if (sessions.length === 0) {
+      return html`<div class="message">${t("followup_empty")}</div>`;
+    }
+    const reload = () => this._loadOpenSessions(this.hass!, true);
+    return html`<div class="followup-list">
+      ${sessions.map((session) => this._renderFollowupRow(session, t, reload))}
+    </div>`;
+  }
+
+  private _renderFollowupRow(
+    session: Session,
+    t: Translate,
+    reload: () => Promise<void>,
+  ): TemplateResult {
+    const hass = this.hass!;
+    const locale = hass.locale.language;
+    const zone = hass.config.time_zone;
+    const fields = fieldsForOpenSession(session);
+    const values = this._editValues[session.id] ?? {};
+    const busy = this._busyId === session.id;
+    const error = this._editError[session.id];
+    return html`<div class="followup-row">
+      <div class="followup-head">
+        <span class=${classMap({ vehicle: true, unassigned: session.vehicle_id === null })}
+          >${vehicleLabel(session, t)}</span
+        >
+        <span class="muted">${formatDateTime(session.plug_start, locale, zone)}</span>
+        <span class="chip">${t(`location_${session.location}`)}</span>
+      </div>
+      ${session.open_fields.includes("vehicle_id")
+        ? html`<div class="edit-vehicle">
+            ${renderVehicleSelect(
+              this._vehicles,
+              this._vehicleDraft[session.id] ?? "",
+              (value) => this._setVehicleDraft(session.id, value),
+              t,
+            )}
+            <button
+              class="text"
+              ?disabled=${busy || !this._vehicleDraft[session.id]}
+              @click=${() => this._saveVehicle(session, reload)}
+            >
+              ${t("edit_assign_vehicle")}
+            </button>
+          </div>`
+        : nothing}
+      ${fields.length > 0
+        ? renderEditFields(
+            session,
+            fields,
+            values,
+            (field, value) => this._setDraft(session.id, field, value),
+            t,
+          )
+        : nothing}
+      <div class="edit-actions">
+        ${fields.length > 0
+          ? html`<button
+              class="text"
+              ?disabled=${busy || !hasUpdatePayload(values)}
+              @click=${() => this._saveUpdate(session, reload)}
+            >
+              ${t("edit_save")}
+            </button>`
+          : nothing}
+        <button class="text" ?disabled=${busy} @click=${() => this._accept(session, reload)}>
+          ${t("edit_accept")}
+        </button>
+        ${error ? html`<span class="edit-message error">${error}</span>` : nothing}
+      </div>
+    </div>`;
+  }
+
+  // -------------------------------------------------------------- korrektur
+
+  private _toggleEdit(id: string): void {
+    this._editingId = this._editingId === id ? null : id;
+  }
+
+  private _toggleCreate(): void {
+    this._creating = !this._creating;
+    if (!this._creating) {
+      this._createValues = {};
+    }
+  }
+
+  private async _createNew(reload: () => Promise<void>): Promise<void> {
+    const values = this._createValues;
+    if (!values.location || !values.plug_start || !values.plug_end) {
+      return;
+    }
+    const fields: SessionCreate = {
+      location: values.location as SessionLocation,
+      plug_start: new Date(values.plug_start).toISOString(),
+      plug_end: new Date(values.plug_end).toISOString(),
+    };
+    if (values.vehicle_id) fields.vehicle_id = values.vehicle_id;
+    if (values.soc_start) fields.soc_start = Number(values.soc_start);
+    if (values.soc_end) fields.soc_end = Number(values.soc_end);
+    if (values.odometer_km) fields.odometer_km = Number(values.odometer_km);
+    if (values.energy_billed_kwh) fields.energy_billed_kwh = Number(values.energy_billed_kwh);
+    if (values.charge_type) fields.charge_type = values.charge_type as ChargeType;
+    if (values.cost) fields.cost = Number(values.cost);
+    if (values.address) fields.address = values.address;
+    if (values.note) fields.note = values.note;
+    if (values.provider) fields.provider = values.provider;
+    await this._run(CREATE_KEY, () => createSession(this.hass!, fields), reload);
+    this._creating = false;
+    this._createValues = {};
+  }
+
+  private _renderCorrection(t: Translate, state: PanelState): TemplateResult {
+    if (!this._yearSessions) {
+      return html`<div class="spinner" role="progressbar"></div>`;
+    }
+    const zone = this.hass!.config.time_zone;
+    const ofMonth = sessionsOfMonth(this._yearSessions, state.month, zone);
+    const visible = applyFilters(ofMonth, state.filters);
+    const reload = () => this._loadYear(this.hass!, state.year, true);
+    return html`
+      <div class="edit-actions">
+        <button class="text" @click=${() => this._toggleCreate()}>
+          ${t("edit_new_session")}
+        </button>
+      </div>
+      ${this._creating ? this._renderCreateForm(t, reload) : nothing}
+      <p class="count muted">
+        ${t("filter_count", { shown: visible.length, total: ofMonth.length })}
+      </p>
+      ${visible.length === 0
+        ? html`<div class="message">
+            ${ofMonth.length === 0 ? t("no_sessions") : t("no_sessions_filtered")}
+          </div>`
+        : this._renderCorrectionTable(visible, t, reload)}
+    `;
+  }
+
+  private _renderCorrectionTable(
+    sessions: Session[],
+    t: Translate,
+    reload: () => Promise<void>,
+  ): TemplateResult {
+    return html`<div class="correction-table">
+      <div class="head" role="row">
+        <span>${t("col_date")}</span>
+        <span>${t("filter_vehicle")}</span>
+        <span>${t("filter_location")}</span>
+        <span>${t("filter_charge_type")}</span>
+        <span class="num">${t("total_energy")}</span>
+        <span class="num">${t("total_cost")}</span>
+        <span class="num">${t("total_duration")}</span>
+        <span>${t("filter_status")}</span>
+      </div>
+      ${sessions.map((session) => this._renderCorrectionRow(session, t, reload))}
+    </div>`;
+  }
+
+  private _renderCorrectionRow(
+    session: Session,
+    t: Translate,
+    reload: () => Promise<void>,
+  ): TemplateResult {
+    const editing = this._editingId === session.id;
+    const error = this._editError[session.id];
+    return html`<div class="correction-item">
+      ${this._renderSession(session, t)}
+      <div class="edit-actions">
+        <button class="text" @click=${() => this._toggleEdit(session.id)}>
+          ${t(editing ? "edit_cancel" : "edit_edit")}
+        </button>
+        <button
+          class="text danger"
+          ?disabled=${this._busyId === session.id}
+          @click=${() => this._remove(session, reload)}
+        >
+          ${t("edit_delete")}
+        </button>
+        ${error ? html`<span class="edit-message error">${error}</span>` : nothing}
+      </div>
+      ${editing ? this._renderCorrectionForm(session, t, reload) : nothing}
+    </div>`;
+  }
+
+  private _renderCorrectionForm(
+    session: Session,
+    t: Translate,
+    reload: () => Promise<void>,
+  ): TemplateResult {
+    const values = this._editValues[session.id] ?? {};
+    const busy = this._busyId === session.id;
+    const fields = fieldsForCorrection(session);
+    const vehicleDraft = this._vehicleDraft[session.id] ?? session.vehicle_id ?? "";
+    return html`<div class="edit-form">
+      <div class="edit-vehicle">
+        ${renderVehicleSelect(
+          this._vehicles,
+          vehicleDraft,
+          (value) => this._setVehicleDraft(session.id, value),
+          t,
+        )}
+        <button
+          class="text"
+          ?disabled=${busy || !vehicleDraft || vehicleDraft === session.vehicle_id}
+          @click=${() => this._saveVehicle(session, reload)}
+        >
+          ${t("edit_assign_vehicle")}
+        </button>
+      </div>
+      ${renderEditFields(
+        session,
+        fields,
+        values,
+        (field, value) => this._setDraft(session.id, field, value),
+        t,
+      )}
+      <div class="edit-actions">
+        <button
+          class="text"
+          ?disabled=${busy || !hasUpdatePayload(values)}
+          @click=${() => this._saveUpdate(session, reload)}
+        >
+          ${t("edit_save")}
+        </button>
+        ${session.status === "followup_open" || session.open_fields.length > 0
+          ? html`<button class="text" ?disabled=${busy} @click=${() => this._accept(session, reload)}>
+              ${t("edit_accept")}
+            </button>`
+          : nothing}
+      </div>
+    </div>`;
+  }
+
+  private _renderCreateForm(t: Translate, reload: () => Promise<void>): TemplateResult {
+    const values = this._createValues;
+    const set = (field: string, value: string): void => {
+      this._createValues = { ...this._createValues, [field]: value };
+    };
+    const busy = this._busyId === CREATE_KEY;
+    const error = this._editError[CREATE_KEY];
+    const ready = Boolean(values.location && values.plug_start && values.plug_end);
+    return html`<div class="edit-form">
+      <div class="edit-fields">
+        <label class="edit-row">
+          <span class="muted">${t("filter_location")}</span>
+          <select @change=${(event: Event) => set("location", (event.target as HTMLSelectElement).value)}>
+            <option value="" .selected=${!values.location}>${t("filter_all")}</option>
+            ${LOCATIONS.map(
+              (location) =>
+                html`<option value=${location} .selected=${values.location === location}>
+                  ${t(`location_${location}`)}
+                </option>`,
+            )}
+          </select>
+        </label>
+        <label class="edit-row">
+          <span class="muted">${t("detail_plug_start")}</span>
+          <input
+            type="datetime-local"
+            .value=${values.plug_start ?? ""}
+            @input=${(event: Event) => set("plug_start", (event.target as HTMLInputElement).value)}
+          />
+        </label>
+        <label class="edit-row">
+          <span class="muted">${t("detail_plug_end")}</span>
+          <input
+            type="datetime-local"
+            .value=${values.plug_end ?? ""}
+            @input=${(event: Event) => set("plug_end", (event.target as HTMLInputElement).value)}
+          />
+        </label>
+        <label class="edit-row">
+          <span class="muted">${t("filter_vehicle")}</span>
+          ${renderVehicleSelect(
+            this._vehicles,
+            values.vehicle_id ?? "",
+            (value) => set("vehicle_id", value),
+            t,
+          )}
+        </label>
+        <label class="edit-row">
+          <span class="muted">${t("field_soc_start")}</span>
+          <input
+            type="number"
+            min="0"
+            max="100"
+            step="0.1"
+            .value=${values.soc_start ?? ""}
+            @input=${(event: Event) => set("soc_start", (event.target as HTMLInputElement).value)}
+          />
+        </label>
+        <label class="edit-row">
+          <span class="muted">${t("field_soc_end")}</span>
+          <input
+            type="number"
+            min="0"
+            max="100"
+            step="0.1"
+            .value=${values.soc_end ?? ""}
+            @input=${(event: Event) => set("soc_end", (event.target as HTMLInputElement).value)}
+          />
+        </label>
+        <label class="edit-row">
+          <span class="muted">${t("field_odometer_km")}</span>
+          <input
+            type="number"
+            min="0"
+            step="0.1"
+            .value=${values.odometer_km ?? ""}
+            @input=${(event: Event) => set("odometer_km", (event.target as HTMLInputElement).value)}
+          />
+        </label>
+        <label class="edit-row">
+          <span class="muted">${t("field_energy_billed_kwh")}</span>
+          <input
+            type="number"
+            min="0"
+            step="0.001"
+            .value=${values.energy_billed_kwh ?? ""}
+            @input=${(event: Event) =>
+              set("energy_billed_kwh", (event.target as HTMLInputElement).value)}
+          />
+        </label>
+        <label class="edit-row">
+          <span class="muted">${t("filter_charge_type")}</span>
+          <select
+            @change=${(event: Event) => set("charge_type", (event.target as HTMLSelectElement).value)}
+          >
+            <option value="" .selected=${!values.charge_type}>${t("filter_all")}</option>
+            <option value="ac" .selected=${values.charge_type === "ac"}>${t("charge_type_ac")}</option>
+            <option value="dc" .selected=${values.charge_type === "dc"}>${t("charge_type_dc")}</option>
+          </select>
+        </label>
+        <label class="edit-row">
+          <span class="muted">${t("field_cost")}</span>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            .value=${values.cost ?? ""}
+            @input=${(event: Event) => set("cost", (event.target as HTMLInputElement).value)}
+          />
+        </label>
+        <label class="edit-row">
+          <span class="muted">${t("detail_address")}</span>
+          <input
+            type="text"
+            .value=${values.address ?? ""}
+            @input=${(event: Event) => set("address", (event.target as HTMLInputElement).value)}
+          />
+        </label>
+        <label class="edit-row">
+          <span class="muted">${t("detail_provider")}</span>
+          <input
+            type="text"
+            .value=${values.provider ?? ""}
+            @input=${(event: Event) => set("provider", (event.target as HTMLInputElement).value)}
+          />
+        </label>
+        <label class="edit-row">
+          <span class="muted">${t("detail_note")}</span>
+          <input
+            type="text"
+            .value=${values.note ?? ""}
+            @input=${(event: Event) => set("note", (event.target as HTMLInputElement).value)}
+          />
+        </label>
+      </div>
+      <div class="edit-actions">
+        <button class="text" ?disabled=${busy || !ready} @click=${() => this._createNew(reload)}>
+          ${t("edit_create")}
+        </button>
+        ${error ? html`<span class="edit-message error">${error}</span>` : nothing}
+      </div>
+    </div>`;
+  }
+
   private _renderFilter(
     label: string,
     key: keyof Filters,
@@ -644,6 +1157,7 @@ export class EvChargingPanelView extends LitElement {
   public static override styles = [
     sharedStyles,
     sessionBodyStyles,
+    editStyles,
     css`
       :host {
         display: block;
@@ -933,6 +1447,53 @@ export class EvChargingPanelView extends LitElement {
       .hint {
         margin: 0;
         font-size: 0.85em;
+      }
+
+      .followup-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .followup-row {
+        padding: 12px 14px;
+        border: 1px solid var(--ev-line);
+        border-radius: var(--ev-radius);
+      }
+
+      .followup-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px 12px;
+      }
+
+      .followup-head .vehicle {
+        font-weight: 500;
+      }
+
+      .correction-table .head {
+        margin-bottom: 12px;
+        border-radius: var(--ev-radius) var(--ev-radius) 0 0;
+      }
+
+      .correction-item {
+        margin-bottom: 12px;
+        border: 1px solid var(--ev-line);
+        border-radius: var(--ev-radius);
+        overflow: hidden;
+      }
+
+      .correction-item .edit-actions,
+      .correction-item .edit-form {
+        margin: 0;
+        padding: 10px 14px;
+      }
+
+      .correction-item .edit-form {
+        border: none;
+        border-top: 1px solid var(--ev-line);
+        border-radius: 0;
       }
 
       @media (max-width: 800px) {

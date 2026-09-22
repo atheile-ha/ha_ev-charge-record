@@ -371,7 +371,7 @@ async def async_setup_entry(
         config_subentry_id=manager.wallbox_subentry_id,
     )
     for context in manager.vehicle_contexts:
-        if not context.vehicle.active:
+        if not context.vehicle.active or context.vehicle.is_guest:
             continue
         descriptions = list(VEHICLE_SENSORS)
         if context.vehicle.soc is not None or context.vehicle.energy_session is not None:

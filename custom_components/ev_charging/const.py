@@ -292,8 +292,30 @@ DISTANCE_UNIT_FACTORS_TO_KM = {"km": 1.0, "m": 0.001, "mi": 1.609344}
 
 SERVICE_DELETE_ALL_DATA = "delete_all_data"
 SERVICE_RETRY_ADDRESS = "retry_address"
+SERVICE_UPDATE_SESSION = "update_session"
+SERVICE_DELETE_SESSION = "delete_session"
+SERVICE_CREATE_SESSION = "create_session"
+SERVICE_CLOSE_FOLLOWUP = "close_followup"
+SERVICE_CORRECT_VEHICLE = "correct_vehicle"
 ATTR_CONFIRM = "confirm"
 ATTR_SESSION_ID = "id"
+ATTR_VEHICLE_ID = "vehicle_id"
+
+# Fields update_session may change (10, 13, 15). vehicle_id runs exclusively
+# through correct_vehicle (7.8); location, plug_start, wallbox_id and every
+# measured or derived energy field (I2) are never accepted here.
+UPDATE_SESSION_FIELDS = (
+    "soc_start",
+    "soc_end",
+    "odometer_km",
+    "energy_billed_kwh",
+    "cost",
+    "charge_type",
+    "address",
+    "note",
+    "provider",
+    "plug_end",
+)
 
 # Live subscription block kinds (11.1, E37). The wallbox block is always
 # first, the vehicle-driven blocks of running external sessions follow.

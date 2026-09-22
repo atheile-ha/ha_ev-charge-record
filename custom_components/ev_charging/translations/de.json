@@ -606,6 +606,79 @@
           "description": "Die ID des Ladevorgangs, für den die Adresse ermittelt werden soll."
         }
       }
+    },
+    "update_session": {
+      "name": "Ladevorgang ändern",
+      "description": "Trägt fehlende Werte nach oder korrigiert einzelne Felder eines gespeicherten Ladevorgangs.",
+      "fields": {
+        "id": { "name": "Session-ID", "description": "Die ID des zu ändernden Ladevorgangs." },
+        "soc_start": { "name": "Ladestand bei Start", "description": "In Prozent." },
+        "soc_end": { "name": "Ladestand bei Ende", "description": "In Prozent." },
+        "odometer_km": { "name": "Kilometerstand", "description": "In Kilometern." },
+        "energy_billed_kwh": {
+          "name": "Energie (laut Rechnung)",
+          "description": "Die aus der Rechnung entnommene Energiemenge in kWh."
+        },
+        "cost": { "name": "Kosten", "description": "Von Hand eingetragene Kosten." },
+        "charge_type": {
+          "name": "Ladeart",
+          "description": "Wird nur angenommen, wenn die Ladeart heuristisch ermittelt wurde."
+        },
+        "address": { "name": "Adresse", "description": "" },
+        "note": { "name": "Notiz", "description": "" },
+        "provider": { "name": "Anbieter", "description": "" },
+        "plug_end": {
+          "name": "Abgesteckt",
+          "description": "Wird nur angenommen, solange der Ladevorgang noch kein Ende trägt."
+        }
+      }
+    },
+    "delete_session": {
+      "name": "Ladevorgang löschen",
+      "description": "Entfernt einen gespeicherten Ladevorgang unwiderruflich.",
+      "fields": {
+        "id": { "name": "Session-ID", "description": "Die ID des zu löschenden Ladevorgangs." }
+      }
+    },
+    "close_followup": {
+      "name": "Nacherfassung abschließen",
+      "description": "Akzeptiert die verbliebenen fehlenden Werte eines Ladevorgangs als endgültig.",
+      "fields": {
+        "id": { "name": "Session-ID", "description": "Die ID des zu akzeptierenden Ladevorgangs." }
+      }
+    },
+    "correct_vehicle": {
+      "name": "Fahrzeug korrigieren",
+      "description": "Ordnet einen gespeicherten Ladevorgang einem anderen Fahrzeug zu, oder löst einen unzugeordneten auf.",
+      "fields": {
+        "id": { "name": "Session-ID", "description": "Die ID des Ladevorgangs." },
+        "vehicle_id": { "name": "Fahrzeug", "description": "Die ID des zuzuordnenden Fahrzeugs." }
+      }
+    },
+    "create_session": {
+      "name": "Ladevorgang nachtragen",
+      "description": "Erfasst einen vergangenen Ladevorgang vollständig von Hand.",
+      "fields": {
+        "location": {
+          "name": "Ladeort",
+          "description": "home, home_no_wallbox oder external."
+        },
+        "plug_start": { "name": "Angesteckt", "description": "" },
+        "plug_end": { "name": "Abgesteckt", "description": "" },
+        "vehicle_id": { "name": "Fahrzeug", "description": "" },
+        "soc_start": { "name": "Ladestand bei Start", "description": "In Prozent." },
+        "soc_end": { "name": "Ladestand bei Ende", "description": "In Prozent." },
+        "odometer_km": { "name": "Kilometerstand", "description": "In Kilometern." },
+        "energy_billed_kwh": {
+          "name": "Energie (laut Rechnung)",
+          "description": "Die aus der Rechnung entnommene Energiemenge in kWh."
+        },
+        "charge_type": { "name": "Ladeart", "description": "" },
+        "cost": { "name": "Kosten", "description": "" },
+        "address": { "name": "Adresse", "description": "" },
+        "note": { "name": "Notiz", "description": "" },
+        "provider": { "name": "Anbieter", "description": "" }
+      }
     }
   },
   "issues": {

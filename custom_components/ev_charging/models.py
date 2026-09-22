@@ -422,6 +422,7 @@ class Session:
     card_uid: str | None = None
     card_label: str | None = None
     identification_conflict: bool = False
+    identification_corrected: bool = False
 
     plug_end: str | None = None
     plug_duration_min: float | None = None
@@ -495,6 +496,7 @@ class Session:
             "location": self.location,
             "identification_source": self.identification_source,
             "identification_conflict": self.identification_conflict,
+            "identification_corrected": self.identification_corrected,
             "plug_start": self.plug_start,
             "plug_end": self.plug_end,
             "plug_duration_min": self.plug_duration_min,
@@ -551,6 +553,7 @@ class Session:
             location=data["location"],
             identification_source=data["identification_source"],
             identification_conflict=data.get("identification_conflict", False),
+            identification_corrected=data.get("identification_corrected", False),
             plug_start=data["plug_start"],
             plug_end=data.get("plug_end"),
             plug_duration_min=data.get("plug_duration_min"),

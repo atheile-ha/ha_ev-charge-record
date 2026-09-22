@@ -606,6 +606,76 @@
           "description": "The id of the session to look up the address for."
         }
       }
+    },
+    "update_session": {
+      "name": "Update session",
+      "description": "Fills in missing values or corrects individual fields of a stored session.",
+      "fields": {
+        "id": { "name": "Session ID", "description": "The id of the session to change." },
+        "soc_start": { "name": "State of charge at start", "description": "Percent." },
+        "soc_end": { "name": "State of charge at end", "description": "Percent." },
+        "odometer_km": { "name": "Odometer", "description": "Kilometers." },
+        "energy_billed_kwh": {
+          "name": "Energy (billed)",
+          "description": "The energy from the invoice, in kWh."
+        },
+        "cost": { "name": "Cost", "description": "Entered by hand." },
+        "charge_type": {
+          "name": "Charge type",
+          "description": "Only accepted while the charge type was determined heuristically."
+        },
+        "address": { "name": "Address", "description": "" },
+        "note": { "name": "Note", "description": "" },
+        "provider": { "name": "Provider", "description": "" },
+        "plug_end": {
+          "name": "Unplugged",
+          "description": "Only accepted while the session has no end time yet."
+        }
+      }
+    },
+    "delete_session": {
+      "name": "Delete session",
+      "description": "Permanently removes one stored session.",
+      "fields": {
+        "id": { "name": "Session ID", "description": "The id of the session to delete." }
+      }
+    },
+    "close_followup": {
+      "name": "Close follow-up",
+      "description": "Accepts a session's remaining missing values as final.",
+      "fields": {
+        "id": { "name": "Session ID", "description": "The id of the session to accept." }
+      }
+    },
+    "correct_vehicle": {
+      "name": "Correct vehicle",
+      "description": "Reassigns a stored session to a different vehicle, or resolves an unassigned one.",
+      "fields": {
+        "id": { "name": "Session ID", "description": "The id of the session." },
+        "vehicle_id": { "name": "Vehicle", "description": "The id of the vehicle to assign." }
+      }
+    },
+    "create_session": {
+      "name": "Create session",
+      "description": "Fully reconstructs a past charging session by hand.",
+      "fields": {
+        "location": { "name": "Location", "description": "home, home_no_wallbox or external." },
+        "plug_start": { "name": "Plugged in", "description": "" },
+        "plug_end": { "name": "Unplugged", "description": "" },
+        "vehicle_id": { "name": "Vehicle", "description": "" },
+        "soc_start": { "name": "State of charge at start", "description": "Percent." },
+        "soc_end": { "name": "State of charge at end", "description": "Percent." },
+        "odometer_km": { "name": "Odometer", "description": "Kilometers." },
+        "energy_billed_kwh": {
+          "name": "Energy (billed)",
+          "description": "The energy from the invoice, in kWh."
+        },
+        "charge_type": { "name": "Charge type", "description": "" },
+        "cost": { "name": "Cost", "description": "" },
+        "address": { "name": "Address", "description": "" },
+        "note": { "name": "Note", "description": "" },
+        "provider": { "name": "Provider", "description": "" }
+      }
     }
   },
   "issues": {

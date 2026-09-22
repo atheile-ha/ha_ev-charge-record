@@ -9,7 +9,8 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry, ConfigSubentry
+from homeassistant.components.recorder import history
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState, ConfigSubentry
 from homeassistant.core import (
     CALLBACK_TYPE,
     Event,
@@ -51,13 +52,16 @@ from .const import (
     CURRENT_TYPE_DC,
     CURRENT_TYPES,
     DC_POWER_THRESHOLD_KW,
+    DEFAULT_ESTIMATE_UNCERTAIN_THRESHOLD_PCT,
     DISTANCE_UNIT_FACTORS_TO_KM,
+    DOMAIN,
     ENERGY_UNIT_FACTORS_TO_KWH,
     ERROR_CLASS_ERROR,
     ERROR_CLASS_OK,
     ERROR_DEBOUNCE_S,
     FINAL_VALUES_GRACE_S,
     GRID_POWER_WINDOW_S,
+    IDENTIFICATION_SOURCE_MANUAL,
     IDENTIFICATION_SOURCE_UNRESOLVED,
     IDENTIFICATION_SOURCE_VEHICLE_API,
     LIVE_BLOCK_EXTERNAL,
@@ -1848,8 +1852,11 @@ class SessionManager:
     def _resolve_late(self) -> None:
         """Assign a still unassigned session once exactly one vehicle reports charging.
 
-        Only the vehicle and its capacity are set; the state of charge and
-        odometer at the start stay open.
+        The vehicle and its capacity are set immediately. The state of
+        charge and odometer at the start are looked up from the recorder in
+        the background (7.8) and applied if the session is still the same
+        one when the lookup returns; they stay open if the recorder has no
+        answer, the same as before a card or vehicle-api match ever ran.
         """
         session = self._session
         if (
@@ -1873,8 +1880,43 @@ class SessionManager:
         session.identification_source = IDENTIFICATION_SOURCE_VEHICLE_API
         self._assign_vehicle(session, candidates[0], capture_start=False)
         self._evaluate_location_conflict()
+        self._start_late_history(candidates[0], session.start)
         self._persist()
         self._publish()
+
+    def _start_late_history(self, context: VehicleContext, session_start: datetime) -> None:
+        """Look up the start values of a late-assigned session, without waiting for it."""
+        if context.vehicle.soc is None and context.vehicle.odometer is None:
+            return
+        self._hass.async_create_task(
+            self._async_apply_late_history(context, session_start), eager_start=False
+        )
+
+    async def _async_apply_late_history(
+        self, context: VehicleContext, session_start: datetime
+    ) -> None:
+        """Read soc_start and odometer_km from the recorder, apply them if still open (7.8)."""
+        soc_start = await async_role_history_number(
+            self._hass, context.vehicle.soc, session_start, None
+        )
+        odometer_km = await async_role_history_number(
+            self._hass, context.vehicle.odometer, session_start, DISTANCE_UNIT_FACTORS_TO_KM
+        )
+        if soc_start is None and odometer_km is None:
+            return
+        session = self._session
+        if (
+            session is None
+            or session.start != session_start
+            or session.vehicle_id != context.vehicle.id
+        ):
+            return
+        if soc_start is not None and session.soc_start is None:
+            session.soc_start = soc_start
+        if odometer_km is not None and session.odometer_km is None:
+            session.odometer_km = odometer_km
+        self._persist()
+        self._touch_live()
 
     def _evaluate_location_conflict(self) -> None:
         """Mark a session whose assigned vehicle reports being away while the wallbox charges."""
@@ -3031,3 +3073,411 @@ def _round_phase(phase: Phase) -> Phase:
         power_avg_kw=_round(phase.power_avg_kw, 2),
         power_max_kw=_round(phase.power_max_kw, 2),
     )
+
+
+# --------------------------------------------------------------------------
+# Corrections and nacherfassung on stored sessions (10, 13, 15). Both the
+# services and the panel's WebSocket commands call these functions, so there
+# is exactly one place that changes a stored session by hand.
+
+
+class SessionOperationError(Exception):
+    """Base class for a rejected session correction."""
+
+
+class SessionNotFoundError(SessionOperationError):
+    """No stored session has the given id."""
+
+
+class SessionValidationError(SessionOperationError):
+    """The requested change is not valid for this session."""
+
+
+def parse_offset_datetime(value: str) -> datetime:
+    """Parse an ISO 8601 timestamp that carries a UTC offset (6.4).
+
+    Raises ValueError if value is not a timestamp or carries no offset.
+    """
+    parsed = dt_util.parse_datetime(value)
+    if parsed is None or parsed.tzinfo is None:
+        raise ValueError("expected an ISO 8601 timestamp with a UTC offset")
+    return parsed
+
+
+def _history_state(hass: HomeAssistant, entity_id: str, at: datetime) -> State | None:
+    """Blocking: the entity's state in effect at the given moment (recorder history)."""
+    changes = history.state_changes_during_period(
+        hass, at, at, entity_id, include_start_time_state=True, no_attributes=False
+    )
+    states = changes.get(entity_id) or []
+    return states[0] if states else None
+
+
+async def async_role_history_number(
+    hass: HomeAssistant,
+    role: EntityRole | None,
+    at: datetime,
+    factors: dict[str, float] | None,
+) -> float | None:
+    """Read a numeric role's recorded value at a point in time (7.8), executor-only."""
+    entity_id = resolver.resolve_entity_id(hass, role)
+    if entity_id is None:
+        return None
+    state = await hass.async_add_executor_job(_history_state, hass, entity_id, at)
+    return resolver.read_number(state, role, factors)
+
+
+def _hub_settings(hass: HomeAssistant) -> HubSettings | None:
+    """Return the global settings of the loaded hub entry, if there is one."""
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if entry.state is ConfigEntryState.LOADED:
+            return HubSettings.from_dict(entry.data)
+    return None
+
+
+def _estimate_uncertain_threshold(hass: HomeAssistant) -> float:
+    """Return the configured threshold, or the default if no hub entry is loaded."""
+    settings = _hub_settings(hass)
+    return (
+        settings.estimate_uncertain_threshold_pct
+        if settings is not None
+        else DEFAULT_ESTIMATE_UNCERTAIN_THRESHOLD_PCT
+    )
+
+
+def _vehicle_by_id(hass: HomeAssistant, vehicle_id: str) -> Vehicle | None:
+    """Return the configured vehicle with the given id, if any."""
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        for subentry in entry.subentries.values():
+            if subentry.subentry_type == SUBENTRY_TYPE_VEHICLE:
+                vehicle = Vehicle.from_dict(subentry.data)
+                if vehicle.id == vehicle_id:
+                    return vehicle
+    return None
+
+
+def _first_wallbox(hass: HomeAssistant) -> Wallbox | None:
+    """Return the configured wallbox, if any. At most one is allowed (E1)."""
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        for subentry in entry.subentries.values():
+            if subentry.subentry_type == SUBENTRY_TYPE_WALLBOX:
+                return Wallbox.from_dict(subentry.data)
+    return None
+
+
+async def async_find_stored_session(hass: HomeAssistant, session_id: str) -> tuple[int, Session]:
+    """Return the year and the stored session for a session id.
+
+    Raises SessionNotFoundError if no year holds a session with that id.
+    """
+    for year in await async_list_session_years(hass):
+        for session in await SessionYearStore(hass, year).async_load():
+            if session.id == session_id:
+                return year, session
+    raise SessionNotFoundError(f"No session with id {session_id}")
+
+
+async def _async_replace_session(hass: HomeAssistant, year: int, updated: Session) -> None:
+    """Overwrite one stored session of a year by id."""
+
+    def _apply(sessions: list[Session]) -> list[Session]:
+        return [updated if session.id == updated.id else session for session in sessions]
+
+    await SessionYearStore(hass, year).async_update(_apply)
+
+
+async def _async_refresh_followups(hass: HomeAssistant) -> None:
+    """Tell every loaded manager to recount open follow-ups after a stored session changed."""
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if entry.state is ConfigEntryState.LOADED and entry.runtime_data.manager is not None:
+            await entry.runtime_data.manager.async_refresh_followups()
+
+
+_OPEN_FIELD_ORDER = ("vehicle_id", "soc_start", "soc_end", "odometer_km", "energy_kwh", "cost")
+
+
+def _sync_open_fields(session: Session) -> Session:
+    """Recompute open_fields over the fields nacherfassung can fill, from their current values.
+
+    A field among _OPEN_FIELD_ORDER is present exactly while its value is
+    still null; any other entry (none exists today) is left as it is.
+    """
+    fields = tuple(name for name in _OPEN_FIELD_ORDER if getattr(session, name) is None)
+    extra = tuple(name for name in session.open_fields if name not in _OPEN_FIELD_ORDER)
+    return replace(session, open_fields=(*fields, *extra))
+
+
+def _recompute_status(session: Session) -> Session:
+    """Promote followup_open to complete once nothing is missing; flagged always persists."""
+    if session.status == SESSION_STATUS_FLAGGED:
+        return session
+    status = SESSION_STATUS_FOLLOWUP_OPEN if session.open_fields else SESSION_STATUS_COMPLETE
+    return replace(session, status=status)
+
+
+def _recompute_energy(session: Session, *, threshold_pct: float) -> Session:
+    """Recompute the fields derived from soc_start, soc_end, capacity_kwh and energy_billed_kwh.
+
+    No efficiency factor exists yet (Kapitel 9 is a later stage); the raw
+    estimate stands in for it unfactored, the same as the live capture.
+    """
+    raw = energy_raw_kwh(session.soc_start, session.soc_end, session.capacity_kwh)
+    energy_kwh = derive_energy_kwh(
+        session.energy_billed_kwh, session.energy_measured_kwh, session.energy_vehicle_kwh, raw
+    )
+    power_avg = (
+        round(energy_kwh / (session.charge_duration_min / 60), 2)
+        if energy_kwh is not None and session.charge_duration_min
+        else None
+    )
+    uncertain = (
+        session.soc_start is not None
+        and session.soc_end is not None
+        and abs(session.soc_end - session.soc_start) < threshold_pct
+    )
+    return replace(
+        session,
+        energy_raw_kwh=_round(raw, 3),
+        energy_estimated_kwh=_round(raw, 3),
+        energy_kwh=_round(energy_kwh, 3),
+        power_avg_kw=power_avg,
+        estimate_uncertain=uncertain,
+    )
+
+
+def _add_modified(session: Session, *names: str) -> Session:
+    """Append field names to modified_fields, without duplicates."""
+    modified = list(session.modified_fields)
+    for name in names:
+        if name not in modified:
+            modified.append(name)
+    return replace(session, modified_fields=tuple(modified))
+
+
+async def async_update_session(
+    hass: HomeAssistant, session_id: str, values: dict[str, Any]
+) -> Session:
+    """Apply a nacherfassung or correction to one stored session (10, 13, 15).
+
+    values may hold any of UPDATE_SESSION_FIELDS from const.py; the caller's
+    schema rejects anything else before this runs. charge_type is only
+    accepted for a session whose charge_type_source is heuristic (5.5), and
+    plug_end only while it is still unset.
+    """
+    year, session = await async_find_stored_session(hass, session_id)
+
+    changes: dict[str, Any] = {}
+    for name, value in values.items():
+        if name == "charge_type" and session.charge_type_source != CHARGE_TYPE_SOURCE_HEURISTIC:
+            raise SessionValidationError(
+                "charge_type can only be corrected for a heuristically determined session"
+            )
+        if name == "plug_end" and session.plug_end is not None:
+            raise SessionValidationError("plug_end is already set")
+        changes[name] = value
+
+    updated = replace(session, **changes, modified_at=_now_iso())
+    updated = _add_modified(updated, *changes.keys())
+    if {"soc_start", "soc_end", "energy_billed_kwh"} & changes.keys():
+        updated = _recompute_energy(updated, threshold_pct=_estimate_uncertain_threshold(hass))
+    updated = _sync_open_fields(updated)
+    updated = _recompute_status(updated)
+
+    await _async_replace_session(hass, year, updated)
+    await _async_refresh_followups(hass)
+    return updated
+
+
+async def async_delete_session(hass: HomeAssistant, session_id: str) -> None:
+    """Remove one stored session (13)."""
+    year, _ = await async_find_stored_session(hass, session_id)
+
+    def _remove(sessions: list[Session]) -> list[Session]:
+        return [session for session in sessions if session.id != session_id]
+
+    await SessionYearStore(hass, year).async_update(_remove)
+    await _async_refresh_followups(hass)
+
+
+async def async_close_followup(hass: HomeAssistant, session_id: str) -> Session:
+    """Accept a session's remaining missing values as final (10).
+
+    open_fields is cleared; a status of followup_open is promoted to
+    complete. A session that is flagged for another reason stays flagged.
+    """
+    year, session = await async_find_stored_session(hass, session_id)
+    updated = replace(session, open_fields=(), modified_at=_now_iso())
+    updated = _recompute_status(updated)
+    await _async_replace_session(hass, year, updated)
+    await _async_refresh_followups(hass)
+    return updated
+
+
+async def async_correct_vehicle(hass: HomeAssistant, session_id: str, vehicle_id: str) -> Session:
+    """Reassign a stored session to a different vehicle, or resolve an unresolved one (7.8).
+
+    energy, cost and phases are kept and now belong to the corrected
+    vehicle. capacity_kwh is taken from the new vehicle. soc_start and
+    odometer_km are re-read from the new vehicle's recorder history at
+    plug_start; a value the recorder cannot supply goes to open_fields.
+    soc_end is not re-determined, matching 7.8's correction table, which
+    names only soc_start and odometer_km. card_uid and card_label are kept
+    as the identification actually read, marked identification_corrected.
+    """
+    year, session = await async_find_stored_session(hass, session_id)
+    vehicle = _vehicle_by_id(hass, vehicle_id)
+    if vehicle is None:
+        raise SessionValidationError(f"Unknown vehicle {vehicle_id}")
+
+    try:
+        plug_start = parse_offset_datetime(session.plug_start)
+    except ValueError as err:
+        raise SessionValidationError(f"Session {session_id} has an unreadable plug_start") from err
+
+    soc_start = await async_role_history_number(hass, vehicle.soc, plug_start, None)
+    odometer_km = await async_role_history_number(
+        hass, vehicle.odometer, plug_start, DISTANCE_UNIT_FACTORS_TO_KM
+    )
+
+    updated = replace(
+        session,
+        vehicle_id=vehicle.id,
+        vehicle_name=vehicle.name,
+        capacity_kwh=vehicle.capacity_kwh,
+        soc_start=soc_start,
+        odometer_km=odometer_km,
+        identification_corrected=True,
+        modified_at=_now_iso(),
+    )
+    updated = _add_modified(updated, "vehicle_id", "capacity_kwh", "soc_start", "odometer_km")
+    updated = _recompute_energy(updated, threshold_pct=_estimate_uncertain_threshold(hass))
+    updated = _sync_open_fields(updated)
+    updated = _recompute_status(updated)
+
+    await _async_replace_session(hass, year, updated)
+    await _async_refresh_followups(hass)
+    return updated
+
+
+def _now_iso() -> str:
+    """Format the current moment as local ISO 8601 with offset, to the second."""
+    return _iso(dt_util.utcnow())
+
+
+async def async_create_session(hass: HomeAssistant, fields: dict[str, Any]) -> Session:
+    """Fully reconstruct a past charging session by hand (13).
+
+    Modeled on the legacy-data import (16): a single synthetic phase spans
+    the whole plugged-in time, phases_recorded is false, and power_avg_kw is
+    derived from energy and duration. No efficiency factor exists yet, so an
+    energy estimate from the state of charge is used unfactored, the same as
+    the live capture.
+    """
+    location = fields["location"]
+    plug_start: datetime = fields["plug_start"]
+    plug_end: datetime = fields["plug_end"]
+    if plug_end <= plug_start:
+        raise SessionValidationError("plug_end must be after plug_start")
+
+    vehicle_id = fields.get("vehicle_id")
+    vehicle = _vehicle_by_id(hass, vehicle_id) if vehicle_id else None
+    if vehicle_id and vehicle is None:
+        raise SessionValidationError(f"Unknown vehicle {vehicle_id}")
+
+    plug_duration = (plug_end - plug_start).total_seconds() / 60
+    soc_start = fields.get("soc_start")
+    soc_end = fields.get("soc_end")
+    capacity = vehicle.capacity_kwh if vehicle is not None else None
+    raw = energy_raw_kwh(soc_start, soc_end, capacity)
+    energy_kwh = derive_energy_kwh(fields.get("energy_billed_kwh"), None, None, raw)
+    power_avg = (
+        round(energy_kwh / (plug_duration / 60), 2)
+        if energy_kwh is not None and plug_duration > 0
+        else None
+    )
+    threshold = _estimate_uncertain_threshold(hass)
+    estimate_uncertain = (
+        soc_start is not None and soc_end is not None and abs(soc_end - soc_start) < threshold
+    )
+
+    charge_type = fields.get("charge_type")
+    wallbox = _first_wallbox(hass) if location == LOCATION_HOME else None
+    if charge_type is not None:
+        charge_type_source: str | None = CHARGE_TYPE_SOURCE_HEURISTIC
+    elif wallbox is not None:
+        charge_type = wallbox.current_type
+        charge_type_source = CHARGE_TYPE_SOURCE_WALLBOX_CONFIG
+    else:
+        charge_type = CHARGE_TYPE_UNKNOWN
+        charge_type_source = None
+
+    open_fields = tuple(
+        name
+        for name, value in (
+            ("vehicle_id", vehicle_id),
+            ("soc_start", soc_start),
+            ("soc_end", soc_end),
+            ("odometer_km", fields.get("odometer_km")),
+            ("energy_kwh", energy_kwh),
+            ("cost", fields.get("cost")),
+        )
+        if value is None
+    )
+    status = SESSION_STATUS_FOLLOWUP_OPEN if open_fields else SESSION_STATUS_COMPLETE
+
+    now_iso = _now_iso()
+    local_start = dt_util.as_local(plug_start)
+    base_id = f"{local_start.strftime('%Y-%m-%dT%H:%M:%S')}_{vehicle_id or IDENTIFICATION_SOURCE_UNRESOLVED}"
+    phase = Phase(start=_iso(plug_start), end=_iso(plug_end), duration_min=round(plug_duration, 1))
+
+    session = Session(
+        id=base_id,
+        location=location,
+        plug_start=_iso(plug_start),
+        identification_source=(
+            IDENTIFICATION_SOURCE_MANUAL if vehicle_id else IDENTIFICATION_SOURCE_UNRESOLVED
+        ),
+        vehicle_id=vehicle_id,
+        vehicle_name=vehicle.name if vehicle is not None else None,
+        capacity_kwh=capacity,
+        wallbox_id=wallbox.id if wallbox is not None else None,
+        plug_end=_iso(plug_end),
+        plug_duration_min=round(plug_duration, 1),
+        charge_duration_min=round(plug_duration, 1),
+        pause_duration_min=0.0,
+        phase_count=1,
+        phases_recorded=False,
+        soc_start=soc_start,
+        soc_end=soc_end,
+        odometer_km=fields.get("odometer_km"),
+        energy_billed_kwh=fields.get("energy_billed_kwh"),
+        energy_raw_kwh=_round(raw, 3),
+        energy_estimated_kwh=_round(raw, 3),
+        energy_kwh=_round(energy_kwh, 3),
+        estimate_uncertain=estimate_uncertain,
+        cost=fields.get("cost"),
+        charge_type=charge_type,
+        charge_type_source=charge_type_source,
+        power_avg_kw=power_avg,
+        address=fields.get("address"),
+        provider=fields.get("provider"),
+        note=fields.get("note"),
+        status=status,
+        open_fields=open_fields,
+        created_at=now_iso,
+        modified_at=now_iso,
+        phases=(phase,),
+    )
+
+    def _add(sessions: list[Session]) -> list[Session]:
+        taken = {existing.id for existing in sessions}
+        unique = session
+        counter = 2
+        while unique.id in taken:
+            unique = replace(session, id=f"{session.id}_{counter}")
+            counter += 1
+        return [*sessions, unique]
+
+    await SessionYearStore(hass, local_start.year).async_update(_add)
+    await _async_refresh_followups(hass)
+    return session

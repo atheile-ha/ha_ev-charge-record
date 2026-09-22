@@ -60,7 +60,7 @@ async def async_setup_entry(
         config_subentry_id=manager.wallbox_subentry_id,
     )
     for context in manager.vehicle_contexts:
-        if not context.vehicle.active:
+        if not context.vehicle.active or context.vehicle.is_guest:
             continue
         async_add_entities(
             [EvChargingVehicleSessionBinarySensor(manager, context)],

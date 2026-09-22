@@ -1,4 +1,4 @@
-"""Read-only WebSocket commands that feed the panel and the dashboard cards."""
+"""WebSocket commands that feed the panel and the dashboard cards."""
 
 from __future__ import annotations
 
@@ -12,10 +12,13 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.util import dt as dt_util
 
+from . import session_manager
 from .const import (
+    CURRENT_TYPES,
     DEFAULT_RECENT_LIMIT,
     DOMAIN,
     LOCATION_EXTERNAL,
+    LOCATIONS,
     MAX_LIST_LIMIT,
     SESSION_STATUS_FOLLOWUP_OPEN,
     SUBENTRY_TYPE_VEHICLE,
@@ -89,12 +92,17 @@ def summarize_year(sessions: list[Session]) -> dict[str, Any]:
 
 @callback
 def async_setup_websocket(hass: HomeAssistant) -> None:
-    """Register the read-only commands. Registering twice is harmless."""
+    """Register the commands. Registering twice is harmless."""
     websocket_api.async_register_command(hass, ws_sessions_list)
     websocket_api.async_register_command(hass, ws_sessions_stats)
     websocket_api.async_register_command(hass, ws_sessions_open)
     websocket_api.async_register_command(hass, ws_vehicles_list)
     websocket_api.async_register_command(hass, ws_live_subscribe)
+    websocket_api.async_register_command(hass, ws_sessions_update)
+    websocket_api.async_register_command(hass, ws_sessions_delete)
+    websocket_api.async_register_command(hass, ws_sessions_close_followup)
+    websocket_api.async_register_command(hass, ws_sessions_correct_vehicle)
+    websocket_api.async_register_command(hass, ws_sessions_create)
 
 
 @websocket_api.websocket_command(
@@ -260,3 +268,155 @@ def ws_live_subscribe(
     connection.subscriptions[msg["id"]] = manager.async_add_live_listener(_push)
     connection.send_result(msg["id"])
     _push()
+
+
+# --------------------------------------------------------------------- write commands (I7)
+
+
+def _ws_offset_datetime(value: Any) -> datetime:
+    """Validate an ISO 8601 timestamp with a UTC offset (6.4)."""
+    if not isinstance(value, str):
+        raise vol.Invalid("expected a string")
+    try:
+        return session_manager.parse_offset_datetime(value)
+    except ValueError as err:
+        raise vol.Invalid(str(err)) from err
+
+
+_PERCENT = vol.All(vol.Coerce(float), vol.Range(min=0, max=100))
+_NON_NEGATIVE = vol.All(vol.Coerce(float), vol.Range(min=0))
+
+
+def _send_operation_error(
+    connection: websocket_api.ActiveConnection,
+    msg_id: int,
+    err: session_manager.SessionOperationError,
+) -> None:
+    """Translate a rejected session correction into a WebSocket error response."""
+    code = (
+        websocket_api.ERR_NOT_FOUND
+        if isinstance(err, session_manager.SessionNotFoundError)
+        else websocket_api.ERR_INVALID_FORMAT
+    )
+    connection.send_error(msg_id, code, str(err))
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "ev_charging/sessions/update",
+        vol.Required("session_id"): str,
+        vol.Optional("soc_start"): _PERCENT,
+        vol.Optional("soc_end"): _PERCENT,
+        vol.Optional("odometer_km"): _NON_NEGATIVE,
+        vol.Optional("energy_billed_kwh"): _NON_NEGATIVE,
+        vol.Optional("cost"): _NON_NEGATIVE,
+        vol.Optional("charge_type"): vol.In(CURRENT_TYPES),
+        vol.Optional("address"): str,
+        vol.Optional("note"): str,
+        vol.Optional("provider"): str,
+        vol.Optional("plug_end"): _ws_offset_datetime,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_sessions_update(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Apply a nacherfassung or correction to a stored session (10, 13, 15)."""
+    values = {key: value for key, value in msg.items() if key not in ("type", "id", "session_id")}
+    try:
+        updated = await session_manager.async_update_session(hass, msg["session_id"], values)
+    except session_manager.SessionOperationError as err:
+        _send_operation_error(connection, msg["id"], err)
+        return
+    connection.send_result(msg["id"], {"session": _payload(updated)})
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "ev_charging/sessions/delete", vol.Required("session_id"): str}
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_sessions_delete(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Remove one stored session (13)."""
+    try:
+        await session_manager.async_delete_session(hass, msg["session_id"])
+    except session_manager.SessionOperationError as err:
+        _send_operation_error(connection, msg["id"], err)
+        return
+    connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "ev_charging/sessions/close_followup", vol.Required("session_id"): str}
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_sessions_close_followup(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Accept a session's missing values as final (10)."""
+    try:
+        updated = await session_manager.async_close_followup(hass, msg["session_id"])
+    except session_manager.SessionOperationError as err:
+        _send_operation_error(connection, msg["id"], err)
+        return
+    connection.send_result(msg["id"], {"session": _payload(updated)})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "ev_charging/sessions/correct_vehicle",
+        vol.Required("session_id"): str,
+        vol.Required("vehicle_id"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_sessions_correct_vehicle(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Reassign a stored session to a different vehicle, or resolve an unresolved one (7.8)."""
+    try:
+        updated = await session_manager.async_correct_vehicle(
+            hass, msg["session_id"], msg["vehicle_id"]
+        )
+    except session_manager.SessionOperationError as err:
+        _send_operation_error(connection, msg["id"], err)
+        return
+    connection.send_result(msg["id"], {"session": _payload(updated)})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "ev_charging/sessions/create",
+        vol.Required("location"): vol.In(LOCATIONS),
+        vol.Required("plug_start"): _ws_offset_datetime,
+        vol.Required("plug_end"): _ws_offset_datetime,
+        vol.Optional("vehicle_id"): str,
+        vol.Optional("soc_start"): _PERCENT,
+        vol.Optional("soc_end"): _PERCENT,
+        vol.Optional("odometer_km"): _NON_NEGATIVE,
+        vol.Optional("energy_billed_kwh"): _NON_NEGATIVE,
+        vol.Optional("charge_type"): vol.In(CURRENT_TYPES),
+        vol.Optional("cost"): _NON_NEGATIVE,
+        vol.Optional("address"): str,
+        vol.Optional("note"): str,
+        vol.Optional("provider"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_sessions_create(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Fully reconstruct a past charging session by hand (13)."""
+    fields = {key: value for key, value in msg.items() if key not in ("type", "id")}
+    try:
+        created = await session_manager.async_create_session(hass, fields)
+    except session_manager.SessionOperationError as err:
+        _send_operation_error(connection, msg["id"], err)
+        return
+    connection.send_result(msg["id"], {"session": _payload(created)})

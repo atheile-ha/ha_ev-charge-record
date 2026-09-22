@@ -11,7 +11,7 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 - Erfassung von Ladevorgängen über die Fahrzeugschnittstelle, unabhängig von der Wallbox: für Ladevorgänge zu Hause ohne Wallbox und für externe Ladevorgänge, auch mehrere gleichzeitig
 - Adressermittlung externer Ladevorgänge aus den Koordinaten des Standort-Trackers über einen Geocoding-Dienst, mit Ratenbegrenzung auf eine Anfrage je Sekunde
 - Service `ev_charging.retry_address`
-- Entität `binary_sensor.<fahrzeug>_session_active` sowie standardmäßig deaktivierte Sensoren für Sessionzustand, Ladeort, Ladestand und Kilometerstand bei Beginn, Ladeenergie und Netto-Ladedauer je aktivem Fahrzeug, dazu ein normalisiertes Ladeende je Fahrzeug
+- Entität `binary_sensor.<fahrzeug>_session_active` sowie standardmäßig deaktivierte Sensoren für Sessionzustand, Ladeort, Ladestand und Kilometerstand bei Beginn, Ladeenergie und Netto-Ladedauer je aktivem, nicht als Gastfahrzeug geführtem Fahrzeug, dazu ein normalisiertes Ladeende
 
 ### Geändert
 
