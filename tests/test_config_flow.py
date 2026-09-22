@@ -1237,6 +1237,9 @@ async def test_the_direct_read_settings_can_be_changed_without_a_new_wallbox(
     assert data["unit_id"] == 1
     assert data["identification_from_register"] is True
 
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
 
 async def test_changing_to_a_device_without_a_register_drops_the_register_choice(
     hass: HomeAssistant,
@@ -1256,3 +1259,6 @@ async def test_changing_to_a_device_without_a_register_drops_the_register_choice
     assert result["type"] is FlowResultType.ABORT
     data = entry.subentries[subentry.subentry_id].data
     assert data["identification_from_register"] is False
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
