@@ -4,6 +4,19 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.5.1] - 2026-09-23
+
+### Hinzugefügt
+
+- Panel-Ansichten Nacherfassung und Korrektur, in Panel und `ev-charging-panel-card` gleichermaßen: fehlende Werte direkt eintragen, einzelne Ladevorgänge bearbeiten oder löschen, Fahrzeug korrigieren, einen vergangenen Ladevorgang von Hand nachtragen
+- Services `ev_charging.update_session`, `ev_charging.delete_session`, `ev_charging.create_session`, `ev_charging.close_followup` und `ev_charging.correct_vehicle`, nur für Administratoren
+- WebSocket-Kommandos `ev_charging/sessions/update`, `/delete`, `/create`, `/close_followup` und `/correct_vehicle`, nur für Administratoren
+- Feld `identification_corrected` an der Session
+
+### Geändert
+
+- Die automatische Zuordnung eines noch unzugeordneten Ladevorgangs zu einem Fahrzeug ermittelt Ladestand und Kilometerstand bei Beginn jetzt aus der Recorder-Historie, statt sie offen zu lassen
+
 ## [0.5.0] - 2026-09-22
 
 ### Hinzugefügt

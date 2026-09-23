@@ -582,7 +582,22 @@
         "live_charge_type": "Ladeart",
         "live_odometer": "Kilometerstand",
         "live_address": "Adresse",
-        "live_remaining_time": "Restliche Ladezeit"
+        "live_remaining_time": "Restliche Ladezeit",
+        "view_followup": "Nacherfassung",
+        "view_correction": "Korrektur",
+        "followup_empty": "Keine offenen Nacherfassungen.",
+        "field_energy_billed_kwh": "Energie (laut Rechnung)",
+        "edit_select_vehicle": "Fahrzeug wählen",
+        "edit_assign_vehicle": "Zuordnen",
+        "edit_save": "Speichern",
+        "edit_accept": "Als vollständig akzeptieren",
+        "edit_edit": "Bearbeiten",
+        "edit_cancel": "Abbrechen",
+        "edit_delete": "Löschen",
+        "edit_delete_confirm": "Diesen Ladevorgang löschen? Das kann nicht rückgängig gemacht werden.",
+        "edit_new_session": "Ladevorgang nachtragen",
+        "edit_create": "Anlegen",
+        "edit_error": "Die Änderung konnte nicht gespeichert werden."
       }
     }
   },
@@ -624,9 +639,9 @@
           "name": "Ladeart",
           "description": "Wird nur angenommen, wenn die Ladeart heuristisch ermittelt wurde."
         },
-        "address": { "name": "Adresse", "description": "" },
-        "note": { "name": "Notiz", "description": "" },
-        "provider": { "name": "Anbieter", "description": "" },
+        "address": { "name": "Adresse", "description": "Die korrigierte Adresse." },
+        "note": { "name": "Notiz", "description": "Ein Freitext-Vermerk." },
+        "provider": { "name": "Anbieter", "description": "Der Name des Ladeanbieters." },
         "plug_end": {
           "name": "Abgesteckt",
           "description": "Wird nur angenommen, solange der Ladevorgang noch kein Ende trägt."
@@ -663,9 +678,9 @@
           "name": "Ladeort",
           "description": "home, home_no_wallbox oder external."
         },
-        "plug_start": { "name": "Angesteckt", "description": "" },
-        "plug_end": { "name": "Abgesteckt", "description": "" },
-        "vehicle_id": { "name": "Fahrzeug", "description": "" },
+        "plug_start": { "name": "Angesteckt", "description": "Wann das Fahrzeug angesteckt wurde." },
+        "plug_end": { "name": "Abgesteckt", "description": "Wann das Fahrzeug abgesteckt wurde." },
+        "vehicle_id": { "name": "Fahrzeug", "description": "Die ID des ladenden Fahrzeugs." },
         "soc_start": { "name": "Ladestand bei Start", "description": "In Prozent." },
         "soc_end": { "name": "Ladestand bei Ende", "description": "In Prozent." },
         "odometer_km": { "name": "Kilometerstand", "description": "In Kilometern." },
@@ -673,11 +688,11 @@
           "name": "Energie (laut Rechnung)",
           "description": "Die aus der Rechnung entnommene Energiemenge in kWh."
         },
-        "charge_type": { "name": "Ladeart", "description": "" },
-        "cost": { "name": "Kosten", "description": "" },
-        "address": { "name": "Adresse", "description": "" },
-        "note": { "name": "Notiz", "description": "" },
-        "provider": { "name": "Anbieter", "description": "" }
+        "charge_type": { "name": "Ladeart", "description": "ac oder dc." },
+        "cost": { "name": "Kosten", "description": "Von Hand eingetragene Kosten." },
+        "address": { "name": "Adresse", "description": "Die Adresse des Ladeorts." },
+        "note": { "name": "Notiz", "description": "Ein Freitext-Vermerk." },
+        "provider": { "name": "Anbieter", "description": "Der Name des Ladeanbieters." }
       }
     }
   },

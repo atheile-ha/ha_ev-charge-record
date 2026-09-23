@@ -77,6 +77,11 @@ describe("state in the address", () => {
     expect(parseState("/recent", "")).toEqual({ view: "recent" });
   });
 
+  it("accepts the follow-up and correction views", () => {
+    expect(parseState("/followup", "")).toEqual({ view: "followup" });
+    expect(parseState("/correction", "")).toEqual({ view: "correction" });
+  });
+
   it("falls back to the defaults for an empty address", () => {
     expect(parseState("", "")).toEqual({});
   });

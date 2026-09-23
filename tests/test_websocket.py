@@ -1,4 +1,4 @@
-"""Tests for the read-only WebSocket commands of the panel and the cards."""
+"""Tests for the WebSocket commands of the panel and the cards."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from custom_components.ev_charging.const import (
 )
 from custom_components.ev_charging.models import Card, Session, Vehicle
 from custom_components.ev_charging.store import SessionYearStore
+from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.typing import WebSocketGenerator
@@ -496,3 +497,144 @@ async def test_stats_count_open_followups_per_month(
     assert months[4]["open_followups"] == 2
     assert months[5]["open_followups"] == 1
     assert months[0]["open_followups"] == 0
+
+
+# ------------------------------------------------------------------------- I7
+
+
+@pytest.mark.parametrize(
+    ("command", "params"),
+    [
+        ("sessions/update", {"session_id": "a", "note": "x"}),
+        ("sessions/delete", {"session_id": "a"}),
+        ("sessions/close_followup", {"session_id": "a"}),
+        ("sessions/correct_vehicle", {"session_id": "a", "vehicle_id": "v001"}),
+        (
+            "sessions/create",
+            {
+                "location": "external",
+                "plug_start": "2026-06-01T10:00:00+02:00",
+                "plug_end": "2026-06-01T12:00:00+02:00",
+            },
+        ),
+    ],
+)
+async def test_every_write_command_rejects_a_non_administrator(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    hass_read_only_access_token: str,
+    command: str,
+    params: dict[str, Any],
+) -> None:
+    """I7: every schreibende WebSocket-Kommando trägt require_admin."""
+    await _store(hass, 2026, [_session("a", "2026-05-03T08:00:00+02:00")])
+    client = await hass_ws_client(hass, hass_read_only_access_token)
+
+    response = await _call(client, command, **params)
+
+    assert not response["success"]
+    assert response["error"]["code"] == websocket_api.ERR_UNAUTHORIZED
+    (unchanged,) = await SessionYearStore(hass, 2026).async_load()
+    assert unchanged.note is None
+
+
+async def test_update_command_applies_the_change_for_an_admin(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    await _store(hass, 2026, [_session("a", "2026-05-03T08:00:00+02:00")])
+    client = await hass_ws_client(hass)
+
+    response = await _call(client, "sessions/update", session_id="a", note="checked")
+
+    assert response["success"], response
+    assert response["result"]["session"]["note"] == "checked"
+    (updated,) = await SessionYearStore(hass, 2026).async_load()
+    assert updated.note == "checked"
+
+
+async def test_update_command_reports_an_unknown_session(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    client = await hass_ws_client(hass)
+
+    response = await _call(client, "sessions/update", session_id="does-not-exist", note="x")
+
+    assert not response["success"]
+    assert response["error"]["code"] == websocket_api.ERR_NOT_FOUND
+
+
+async def test_delete_command_removes_the_session_for_an_admin(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    await _store(hass, 2026, [_session("a", "2026-05-03T08:00:00+02:00")])
+    client = await hass_ws_client(hass)
+
+    response = await _call(client, "sessions/delete", session_id="a")
+
+    assert response["success"], response
+    assert await SessionYearStore(hass, 2026).async_load() == []
+
+
+async def test_close_followup_command_completes_the_session_for_an_admin(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    await _store(
+        hass,
+        2026,
+        [_session("a", "2026-05-03T08:00:00+02:00", status="followup_open", open_fields=("cost",))],
+    )
+    client = await hass_ws_client(hass)
+
+    response = await _call(client, "sessions/close_followup", session_id="a")
+
+    assert response["success"], response
+    assert response["result"]["session"]["status"] == "complete"
+    assert response["result"]["session"]["open_fields"] == []
+
+
+async def test_correct_vehicle_command_reassigns_the_session_for_an_admin(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    vehicle = Vehicle(id="v002", name="EQB", capacity_kwh=70.5)
+    MockConfigEntry(
+        domain=DOMAIN,
+        title=TITLE,
+        data={},
+        subentries_data=[
+            {
+                "data": vehicle.to_dict(),
+                "subentry_type": SUBENTRY_TYPE_VEHICLE,
+                "title": vehicle.name,
+                "unique_id": None,
+            }
+        ],
+    ).add_to_hass(hass)
+    await _store(hass, 2026, [_session("a", "2026-05-03T08:00:00+02:00", vehicle_id="v001")])
+    client = await hass_ws_client(hass)
+
+    response = await _call(client, "sessions/correct_vehicle", session_id="a", vehicle_id="v002")
+
+    assert response["success"], response
+    assert response["result"]["session"]["vehicle_id"] == "v002"
+    assert response["result"]["session"]["identification_corrected"] is True
+
+
+async def test_create_command_stores_a_new_session_for_an_admin(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator
+) -> None:
+    client = await hass_ws_client(hass)
+
+    response = await _call(
+        client,
+        "sessions/create",
+        location="external",
+        plug_start="2026-06-01T10:00:00+02:00",
+        plug_end="2026-06-01T12:00:00+02:00",
+        cost=12.5,
+    )
+
+    assert response["success"], response
+    assert response["result"]["session"]["location"] == "external"
+    assert response["result"]["session"]["cost"] == 12.5
+    (created,) = await SessionYearStore(hass, 2026).async_load()
+    assert created.id == response["result"]["session"]["id"]

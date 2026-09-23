@@ -582,7 +582,22 @@
         "live_charge_type": "Charge type",
         "live_odometer": "Odometer",
         "live_address": "Address",
-        "live_remaining_time": "Remaining time"
+        "live_remaining_time": "Remaining time",
+        "view_followup": "Follow-up",
+        "view_correction": "Correction",
+        "followup_empty": "No open follow-ups.",
+        "field_energy_billed_kwh": "Energy (billed)",
+        "edit_select_vehicle": "Choose vehicle",
+        "edit_assign_vehicle": "Assign",
+        "edit_save": "Save",
+        "edit_accept": "Accept as complete",
+        "edit_edit": "Edit",
+        "edit_cancel": "Cancel",
+        "edit_delete": "Delete",
+        "edit_delete_confirm": "Delete this session? This cannot be undone.",
+        "edit_new_session": "Add session",
+        "edit_create": "Create",
+        "edit_error": "The change could not be saved."
       }
     }
   },
@@ -624,9 +639,9 @@
           "name": "Charge type",
           "description": "Only accepted while the charge type was determined heuristically."
         },
-        "address": { "name": "Address", "description": "" },
-        "note": { "name": "Note", "description": "" },
-        "provider": { "name": "Provider", "description": "" },
+        "address": { "name": "Address", "description": "The corrected address." },
+        "note": { "name": "Note", "description": "A free-text note." },
+        "provider": { "name": "Provider", "description": "The name of the charging provider." },
         "plug_end": {
           "name": "Unplugged",
           "description": "Only accepted while the session has no end time yet."
@@ -660,9 +675,9 @@
       "description": "Fully reconstructs a past charging session by hand.",
       "fields": {
         "location": { "name": "Location", "description": "home, home_no_wallbox or external." },
-        "plug_start": { "name": "Plugged in", "description": "" },
-        "plug_end": { "name": "Unplugged", "description": "" },
-        "vehicle_id": { "name": "Vehicle", "description": "" },
+        "plug_start": { "name": "Plugged in", "description": "When the vehicle was plugged in." },
+        "plug_end": { "name": "Unplugged", "description": "When the vehicle was unplugged." },
+        "vehicle_id": { "name": "Vehicle", "description": "The id of the vehicle that charged." },
         "soc_start": { "name": "State of charge at start", "description": "Percent." },
         "soc_end": { "name": "State of charge at end", "description": "Percent." },
         "odometer_km": { "name": "Odometer", "description": "Kilometers." },
@@ -670,11 +685,11 @@
           "name": "Energy (billed)",
           "description": "The energy from the invoice, in kWh."
         },
-        "charge_type": { "name": "Charge type", "description": "" },
-        "cost": { "name": "Cost", "description": "" },
-        "address": { "name": "Address", "description": "" },
-        "note": { "name": "Note", "description": "" },
-        "provider": { "name": "Provider", "description": "" }
+        "charge_type": { "name": "Charge type", "description": "ac or dc." },
+        "cost": { "name": "Cost", "description": "Entered by hand." },
+        "address": { "name": "Address", "description": "The address of the charging location." },
+        "note": { "name": "Note", "description": "A free-text note." },
+        "provider": { "name": "Provider", "description": "The name of the charging provider." }
       }
     }
   },

@@ -3105,10 +3105,19 @@ def parse_offset_datetime(value: str) -> datetime:
 
 
 def _history_state(hass: HomeAssistant, entity_id: str, at: datetime) -> State | None:
-    """Blocking: the entity's state in effect at the given moment (recorder history)."""
-    changes = history.state_changes_during_period(
-        hass, at, at, entity_id, include_start_time_state=True, no_attributes=False
-    )
+    """Blocking: the entity's state in effect at the given moment (recorder history).
+
+    Returns None on any failure, including a recorder that is not loaded at
+    all: a missing history is treated the same as one with no answer, never
+    as a fault of this integration.
+    """
+    try:
+        changes = history.state_changes_during_period(
+            hass, at, at, entity_id, include_start_time_state=True, no_attributes=False
+        )
+    except Exception:
+        _LOGGER.debug("Recorder history for %s is not available", entity_id, exc_info=True)
+        return None
     states = changes.get(entity_id) or []
     return states[0] if states else None
 
@@ -3196,15 +3205,24 @@ async def _async_refresh_followups(hass: HomeAssistant) -> None:
 _OPEN_FIELD_ORDER = ("vehicle_id", "soc_start", "soc_end", "odometer_km", "energy_kwh", "cost")
 
 
-def _sync_open_fields(session: Session) -> Session:
-    """Recompute open_fields over the fields nacherfassung can fill, from their current values.
+def _sync_open_fields(session: Session, candidates: tuple[str, ...]) -> Session:
+    """Add or remove open_fields entries among candidates, from their current values.
 
-    A field among _OPEN_FIELD_ORDER is present exactly while its value is
-    still null; any other entry (none exists today) is left as it is.
+    Only the given candidates are touched: each is present exactly while its
+    value is still null. A field a correction never writes, such as cost on
+    a home session with no configured grid price, is never turned into an
+    open field just because it happens to be null; every other existing
+    entry is left exactly as it was.
     """
-    fields = tuple(name for name in _OPEN_FIELD_ORDER if getattr(session, name) is None)
-    extra = tuple(name for name in session.open_fields if name not in _OPEN_FIELD_ORDER)
-    return replace(session, open_fields=(*fields, *extra))
+    fields = set(session.open_fields)
+    for name in candidates:
+        if getattr(session, name) is None:
+            fields.add(name)
+        else:
+            fields.discard(name)
+    ordered = tuple(name for name in _OPEN_FIELD_ORDER if name in fields)
+    extra = tuple(name for name in fields if name not in _OPEN_FIELD_ORDER)
+    return replace(session, open_fields=(*ordered, *extra))
 
 
 def _recompute_status(session: Session) -> Session:
@@ -3272,15 +3290,27 @@ async def async_update_session(
             raise SessionValidationError(
                 "charge_type can only be corrected for a heuristically determined session"
             )
-        if name == "plug_end" and session.plug_end is not None:
-            raise SessionValidationError("plug_end is already set")
+        if name == "plug_end":
+            if session.plug_end is not None:
+                raise SessionValidationError("plug_end is already set")
+            try:
+                plug_start = parse_offset_datetime(session.plug_start)
+            except ValueError as err:
+                raise SessionValidationError(
+                    f"Session {session_id} has an unreadable plug_start"
+                ) from err
+            changes["plug_end"] = _iso(value)
+            changes["plug_duration_min"] = round((value - plug_start).total_seconds() / 60, 1)
+            continue
         changes[name] = value
 
     updated = replace(session, **changes, modified_at=_now_iso())
     updated = _add_modified(updated, *changes.keys())
+    open_candidates = {name for name in changes if name in _OPEN_FIELD_ORDER}
     if {"soc_start", "soc_end", "energy_billed_kwh"} & changes.keys():
         updated = _recompute_energy(updated, threshold_pct=_estimate_uncertain_threshold(hass))
-    updated = _sync_open_fields(updated)
+        open_candidates.add("energy_kwh")
+    updated = _sync_open_fields(updated, tuple(open_candidates))
     updated = _recompute_status(updated)
 
     await _async_replace_session(hass, year, updated)
@@ -3351,7 +3381,7 @@ async def async_correct_vehicle(hass: HomeAssistant, session_id: str, vehicle_id
     )
     updated = _add_modified(updated, "vehicle_id", "capacity_kwh", "soc_start", "odometer_km")
     updated = _recompute_energy(updated, threshold_pct=_estimate_uncertain_threshold(hass))
-    updated = _sync_open_fields(updated)
+    updated = _sync_open_fields(updated, ("vehicle_id", "soc_start", "odometer_km", "energy_kwh"))
     updated = _recompute_status(updated)
 
     await _async_replace_session(hass, year, updated)
@@ -3427,7 +3457,8 @@ async def async_create_session(hass: HomeAssistant, fields: dict[str, Any]) -> S
 
     now_iso = _now_iso()
     local_start = dt_util.as_local(plug_start)
-    base_id = f"{local_start.strftime('%Y-%m-%dT%H:%M:%S')}_{vehicle_id or IDENTIFICATION_SOURCE_UNRESOLVED}"
+    suffix = vehicle_id or IDENTIFICATION_SOURCE_UNRESOLVED
+    base_id = f"{local_start.strftime('%Y-%m-%dT%H:%M:%S')}_{suffix}"
     phase = Phase(start=_iso(plug_start), end=_iso(plug_end), duration_min=round(plug_duration, 1))
 
     session = Session(
