@@ -1262,3 +1262,43 @@ async def test_changing_to_a_device_without_a_register_drops_the_register_choice
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
+
+
+async def test_the_reconfigure_form_suggests_the_stored_entities(hass: HomeAssistant) -> None:
+    """The stored entities are offered as suggested values, empty roles as none."""
+    entry = await _setup_hub(hass)
+    await _add_vehicle(
+        hass, entry, roles={"soc": "sensor.glb_soc", "charge_power": "sensor.glb_power"}
+    )
+    subentry = next(iter(entry.get_subentries_of_type(SUBENTRY_TYPE_VEHICLE)))
+
+    result = await hass.config_entries.subentries.async_init(
+        (entry.entry_id, SUBENTRY_TYPE_VEHICLE),
+        context={"source": SOURCE_RECONFIGURE, "subentry_id": subentry.subentry_id},
+    )
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"mapping_id": NO_VEHICLE_INTEGRATION}
+    )
+
+    assert result["step_id"] == "details_reconfigure"
+    roles = next(value for key, value in result["data_schema"].schema.items() if key == "roles")
+    suggested = {
+        str(marker): (marker.description or {}).get("suggested_value")
+        for marker in roles.schema.schema
+    }
+    assert suggested["soc"] == "sensor.glb_soc"
+    assert suggested["charge_power"] == "sensor.glb_power"
+    assert suggested["range"] is None
+
+
+async def test_an_entity_role_can_be_cleared_in_the_reconfigure_form(hass: HomeAssistant) -> None:
+    """A role left out of the submitted form is removed, not restored from the stored value."""
+    entry = await _setup_hub(hass)
+    await _add_vehicle(hass, entry, roles={"soc": "sensor.glb_soc"})
+    subentry = next(iter(entry.get_subentries_of_type(SUBENTRY_TYPE_VEHICLE)))
+
+    result = await _add_vehicle(hass, entry, subentry_id=subentry.subentry_id, roles={})
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.subentries[subentry.subentry_id].data["soc"] is None

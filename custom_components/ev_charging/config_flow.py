@@ -246,25 +246,25 @@ class EvChargingConfigFlow(ConfigFlow, domain=DOMAIN):
                     "estimate_uncertain_threshold_pct",
                     default=d.estimate_uncertain_threshold_pct,
                 ): vol.Coerce(float),
-                vol.Optional("grid_power", default=_entity_id(d.grid_power)): vol.Any(
-                    None, EntitySelector()
-                ),
+                vol.Optional(
+                    "grid_power", description={"suggested_value": _entity_id(d.grid_power)}
+                ): vol.Any(None, EntitySelector()),
                 vol.Required("grid_power_inverted", default=d.grid_power_inverted): bool,
-                vol.Optional("grid_import", default=_entity_id(d.grid_import)): vol.Any(
-                    None, EntitySelector()
-                ),
-                vol.Optional("grid_export", default=_entity_id(d.grid_export)): vol.Any(
-                    None, EntitySelector()
-                ),
-                vol.Optional("price_grid", default=_entity_id(d.price_grid)): vol.Any(
-                    None, EntitySelector()
-                ),
+                vol.Optional(
+                    "grid_import", description={"suggested_value": _entity_id(d.grid_import)}
+                ): vol.Any(None, EntitySelector()),
+                vol.Optional(
+                    "grid_export", description={"suggested_value": _entity_id(d.grid_export)}
+                ): vol.Any(None, EntitySelector()),
+                vol.Optional(
+                    "price_grid", description={"suggested_value": _entity_id(d.price_grid)}
+                ): vol.Any(None, EntitySelector()),
                 vol.Optional("price_grid_fixed", default=d.price_grid_fixed): vol.Any(
                     None, vol.Coerce(float)
                 ),
-                vol.Optional("price_feed_in", default=_entity_id(d.price_feed_in)): vol.Any(
-                    None, EntitySelector()
-                ),
+                vol.Optional(
+                    "price_feed_in", description={"suggested_value": _entity_id(d.price_feed_in)}
+                ): vol.Any(None, EntitySelector()),
                 vol.Optional("price_feed_in_fixed", default=d.price_feed_in_fixed): vol.Any(
                     None, vol.Coerce(float)
                 ),
@@ -497,25 +497,39 @@ class WallboxSubentryFlow(ConfigSubentryFlow):
                     vol.Schema(
                         {
                             vol.Optional(
-                                "charge_power", default=_entity_id(d.charge_power) if d else None
+                                "charge_power",
+                                description={
+                                    "suggested_value": _entity_id(d.charge_power) if d else None
+                                },
                             ): vol.Any(None, EntitySelector()),
                             vol.Optional(
-                                "energy_total", default=_entity_id(d.energy_total) if d else None
+                                "energy_total",
+                                description={
+                                    "suggested_value": _entity_id(d.energy_total) if d else None
+                                },
                             ): vol.Any(None, EntitySelector()),
                             vol.Optional(
                                 "energy_session",
-                                default=_entity_id(d.energy_session) if d else None,
+                                description={
+                                    "suggested_value": _entity_id(d.energy_session) if d else None
+                                },
                             ): vol.Any(None, EntitySelector()),
                             vol.Optional(
-                                "plug_state", default=_entity_id(d.plug_state) if d else None
+                                "plug_state",
+                                description={
+                                    "suggested_value": _entity_id(d.plug_state) if d else None
+                                },
                             ): vol.Any(None, EntitySelector()),
                             vol.Optional(
                                 "identification",
-                                default=_entity_id(d.identification) if d else None,
+                                description={
+                                    "suggested_value": _entity_id(d.identification) if d else None
+                                },
                             ): vol.Any(None, EntitySelector()),
                             **register_field,
                             vol.Optional(
-                                "error", default=_entity_id(d.error) if d else None
+                                "error",
+                                description={"suggested_value": _entity_id(d.error) if d else None},
                             ): vol.Any(None, EntitySelector()),
                         }
                     ),
@@ -834,39 +848,67 @@ class VehicleSubentryFlow(ConfigSubentryFlow):
                 vol.Required("roles"): section(
                     vol.Schema(
                         {
-                            vol.Optional("soc", default=_entity_id(d.soc) if d else None): vol.Any(
-                                None, EntitySelector()
-                            ),
                             vol.Optional(
-                                "soc_target", default=_entity_id(d.soc_target) if d else None
+                                "soc",
+                                description={"suggested_value": _entity_id(d.soc) if d else None},
                             ): vol.Any(None, EntitySelector()),
                             vol.Optional(
-                                "odometer", default=_entity_id(d.odometer) if d else None
+                                "soc_target",
+                                description={
+                                    "suggested_value": _entity_id(d.soc_target) if d else None
+                                },
                             ): vol.Any(None, EntitySelector()),
                             vol.Optional(
-                                "charge_state", default=_entity_id(d.charge_state) if d else None
+                                "odometer",
+                                description={
+                                    "suggested_value": _entity_id(d.odometer) if d else None
+                                },
                             ): vol.Any(None, EntitySelector()),
                             vol.Optional(
-                                "charge_type", default=_entity_id(d.charge_type) if d else None
+                                "charge_state",
+                                description={
+                                    "suggested_value": _entity_id(d.charge_state) if d else None
+                                },
                             ): vol.Any(None, EntitySelector()),
                             vol.Optional(
-                                "plug_state", default=_entity_id(d.plug_state) if d else None
+                                "charge_type",
+                                description={
+                                    "suggested_value": _entity_id(d.charge_type) if d else None
+                                },
+                            ): vol.Any(None, EntitySelector()),
+                            vol.Optional(
+                                "plug_state",
+                                description={
+                                    "suggested_value": _entity_id(d.plug_state) if d else None
+                                },
                             ): vol.Any(None, EntitySelector()),
                             vol.Optional(
                                 "energy_session",
-                                default=_entity_id(d.energy_session) if d else None,
+                                description={
+                                    "suggested_value": _entity_id(d.energy_session) if d else None
+                                },
                             ): vol.Any(None, EntitySelector()),
                             vol.Optional(
-                                "location", default=_entity_id(d.location) if d else None
+                                "location",
+                                description={
+                                    "suggested_value": _entity_id(d.location) if d else None
+                                },
                             ): vol.Any(None, EntitySelector()),
                             vol.Optional(
-                                "charge_end", default=_entity_id(d.charge_end) if d else None
+                                "charge_end",
+                                description={
+                                    "suggested_value": _entity_id(d.charge_end) if d else None
+                                },
                             ): vol.Any(None, EntitySelector()),
                             vol.Optional(
-                                "charge_power", default=_entity_id(d.charge_power) if d else None
+                                "charge_power",
+                                description={
+                                    "suggested_value": _entity_id(d.charge_power) if d else None
+                                },
                             ): vol.Any(None, EntitySelector()),
                             vol.Optional(
-                                "range", default=_entity_id(d.range) if d else None
+                                "range",
+                                description={"suggested_value": _entity_id(d.range) if d else None},
                             ): vol.Any(None, EntitySelector()),
                         }
                     ),

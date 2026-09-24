@@ -75,6 +75,18 @@ def test_mercedes_me_charge_state_and_type_match_the_concept() -> None:
     assert charge_type["error"] == "neutral"
 
 
+def test_mercedes_me_plug_state_reads_the_charge_inlet_coupler() -> None:
+    """Only "vehicle not plugged" is not connected, the neutral value keeps the last class."""
+    loaded = mappings.load_all(mappings.MAPPINGS_DIR)
+
+    assert loaded["mbapi2020_mercedes_me"].role_values("plug_state") == {
+        "vehicle not plugged": "not_connected",
+        "vehicle plugged": "connected",
+        "plugged": "connected",
+        "error": "neutral",
+    }
+
+
 def test_skoda_charge_state_and_plug_state_match_the_concept() -> None:
     """The Škoda mapping's charge_state, charge_type and plug_state match chapter 4.7.
 

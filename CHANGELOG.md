@@ -4,6 +4,15 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.5.2] - 2026-09-24
+
+### Geändert
+
+- Für das Fahrzeug an der Wallbox beginnt keine zweite Fahrzeugsession mehr, auch nicht kurz nach dem Ende der Wallbox-Session
+- Der Steckerzustand des Fahrzeugs (`plug_state`) beendet dessen eigene Session, beim Mercedes über `chargeinletcoupler`
+- Zugeordnete Entitäten stehen in den Dialogen als Vorschlag im Feld und lassen sich leeren
+- Der Skriptpfad der Karten trägt die Startzeit von Home Assistant
+
 ## [0.5.1] - 2026-09-23
 
 ### Hinzugefügt

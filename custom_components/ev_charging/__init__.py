@@ -16,6 +16,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.loader import async_get_integration
+from homeassistant.util import dt as dt_util
 
 from . import mappings, problems, resolver, services, websocket
 from .const import (
@@ -37,6 +38,7 @@ from .session_manager import SessionManager
 _LOGGER = logging.getLogger(__name__)
 
 _DATA_STATIC_PATH_REGISTERED = "frontend_static_path_registered"
+_DATA_START_TOKEN = "frontend_start_token"
 
 PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR]
 
@@ -168,9 +170,10 @@ async def _async_register_frontend(hass: HomeAssistant) -> str | None:
     """Serve the frontend bundle and register the panel and the dashboard cards.
 
     Returns the bundle URL, or None if the frontend integration is not loaded.
-    The URL carries the integration version and a digest of the bundle file,
-    so browsers and the companion apps fetch a changed bundle instead of
-    reusing a cached one, even when the version did not change.
+    The URL carries the integration version, a digest of the bundle file and
+    the time Home Assistant started, so browsers and the companion apps fetch
+    the bundle again after an update and after every restart. Reloading the
+    entry keeps the URL.
     """
     if "frontend" not in hass.config.components:
         _LOGGER.warning("The frontend integration is not loaded; panel and cards are unavailable")
@@ -186,6 +189,8 @@ async def _async_register_frontend(hass: HomeAssistant) -> str | None:
         bundle_url += f"&h={digest}"
 
     domain_data = hass.data.setdefault(DOMAIN, {})
+    start_token = domain_data.setdefault(_DATA_START_TOKEN, int(dt_util.utcnow().timestamp()))
+    bundle_url += f"&s={start_token}"
     if not domain_data.get(_DATA_STATIC_PATH_REGISTERED):
         await hass.http.async_register_static_paths(
             [StaticPathConfig(FRONTEND_STATIC_URL_PATH, str(bundle_path), cache_headers=True)]

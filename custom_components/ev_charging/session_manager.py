@@ -95,6 +95,9 @@ from .const import (
     ROLE_RANGE,
     ROLE_SOC,
     ROLE_SOC_TARGET,
+    SAME_VEHICLE_POWER_TOLERANCE_MIN_KW,
+    SAME_VEHICLE_POWER_TOLERANCE_RATIO,
+    SAME_VEHICLE_WINDOW_S,
     SESSION_STATE_AWAITING_FINAL,
     SESSION_STATE_CANDIDATE,
     SESSION_STATE_CHARGING,
@@ -324,6 +327,39 @@ def should_discard(
     )
 
 
+def is_wallbox_vehicle(
+    *,
+    session_age_s: float,
+    charge_edge_age_s: float | None,
+    wallbox_charging: bool,
+    wallbox_power_kw: float | None,
+    vehicle_power_kw: float | None,
+) -> bool:
+    """Return whether a vehicle that reports charging is the car at the wallbox.
+
+    Called for a vehicle at home while the wallbox session has no vehicle. The
+    wallbox session must have begun, or its charging power must have risen or
+    fallen, within the window, or the wallbox must be charging now. When both
+    powers are known and positive and differ by more than the larger of the
+    absolute and the relative tolerance, it is another car.
+    """
+    near = (
+        wallbox_charging
+        or session_age_s <= SAME_VEHICLE_WINDOW_S
+        or (charge_edge_age_s is not None and charge_edge_age_s <= SAME_VEHICLE_WINDOW_S)
+    )
+    if not near:
+        return False
+    if wallbox_power_kw and wallbox_power_kw > 0 and vehicle_power_kw and vehicle_power_kw > 0:
+        tolerance = max(
+            SAME_VEHICLE_POWER_TOLERANCE_MIN_KW,
+            SAME_VEHICLE_POWER_TOLERANCE_RATIO * wallbox_power_kw,
+        )
+        if abs(wallbox_power_kw - vehicle_power_kw) > tolerance:
+            return False
+    return True
+
+
 def energy_raw_kwh(
     soc_start: float | None, soc_end: float | None, capacity_kwh: float | None
 ) -> float | None:
@@ -415,6 +451,7 @@ class RunningSession:
     flagged: bool = False
     plug_last_valid: datetime | None = None
     plug_unavailable_since: datetime | None = None
+    same_vehicles: list[str] = field(default_factory=list)
 
     def open_phase(self) -> Phase | None:
         """Return the phase that is still open, if any."""
@@ -461,6 +498,7 @@ class RunningSession:
             "plug_unavailable_since": (
                 self.plug_unavailable_since.isoformat() if self.plug_unavailable_since else None
             ),
+            "same_vehicles": list(self.same_vehicles),
         }
 
     @classmethod
@@ -509,6 +547,7 @@ class RunningSession:
             flagged=data.get("flagged", False),
             plug_last_valid=_parse(data.get("plug_last_valid")),
             plug_unavailable_since=_parse(data.get("plug_unavailable_since")),
+            same_vehicles=list(data.get("same_vehicles", [])),
         )
 
 
@@ -696,6 +735,8 @@ class SessionManager:
         self._plug_usable = False
         self._error_class: str | None = None
         self._vehicle_charge_class: dict[str, str | None] = {}
+        self._vehicle_plug_class: dict[str, str | None] = {}
+        self._vehicle_rearm: set[str] = set()
         self._units_seen: dict[str, str | None] = {}
         self._counter_detection: dict[str, str] | None = None
         self._open_followups = 0
@@ -759,6 +800,7 @@ class SessionManager:
 
         stored = await RuntimeStore(self._hass).async_load()
         self._counter_detection = stored.get("counter_detection")
+        self._vehicle_rearm = set(stored.get("vehicle_rearm", []))
         if stored.get("session"):
             try:
                 self._session = RunningSession.from_dict(stored["session"])
@@ -844,6 +886,9 @@ class SessionManager:
                 continue
             self._watch_role(
                 vehicle.charge_state, lambda s, c=context: self._on_vehicle_charge_state(c, s)
+            )
+            self._watch_role(
+                vehicle.plug_state, lambda s, c=context: self._on_vehicle_plug_state(c, s)
             )
             self._watch_role(vehicle.location, lambda _s: self._on_vehicle_location())
             self._watch_role(
@@ -2015,7 +2060,10 @@ class SessionManager:
         Takes no part while the wallbox already claims this vehicle: the
         wallbox is the authoritative source of location for it either way
         (7.4). Only the charging class begins a session; connected_idle and
-        error only ever continue one that already exists (I17).
+        error only ever continue one that already exists. A session does
+        not begin for the car at the wallbox, nor for a vehicle that has
+        reported charging since its wallbox session ended until it has reported
+        anything else.
         """
         vehicle_id = context.vehicle.id
         if self._session is not None and self._session.vehicle_id == vehicle_id:
@@ -2023,12 +2071,17 @@ class SessionManager:
         session = self._vehicle_sessions.get(vehicle_id)
         if session is not None and session.state == SESSION_STATE_AWAITING_FINAL:
             return
+        if klass != CHARGE_STATE_CHARGING and vehicle_id in self._vehicle_rearm:
+            self._vehicle_rearm.discard(vehicle_id)
+            self._persist()
         if klass == CHARGE_STATE_DISCONNECTED:
             if session is not None:
                 self._end_vehicle_session(context, session, now)
             return
         if session is None:
             if klass != CHARGE_STATE_CHARGING:
+                return
+            if vehicle_id in self._vehicle_rearm or self._wallbox_covers_vehicle(context, now):
                 return
             session = self._start_vehicle_session(context, now)
 
@@ -2054,6 +2107,92 @@ class SessionManager:
             session.pause_since = None
             session.charge_error = True
             self._enter_vehicle_state(session, SESSION_STATE_ERROR)
+
+    def _wallbox_covers_vehicle(self, context: VehicleContext, now: datetime) -> bool:
+        """Whether the wallbox session already accounts for a vehicle that reports charging.
+
+        Only a vehicle at home can be at the wallbox. Once the wallbox session
+        names another vehicle, this one is a different car. While it names
+        none, the vehicle counts as the car at the wallbox when its charging
+        report falls in the window of the wallbox session and its power does
+        not contradict the wallbox power. The verdict holds until that session
+        ends. It assigns nothing: the wallbox session stays as it is.
+        """
+        session = self._session
+        vehicle_id = context.vehicle.id
+        if session is None or self._vehicle_location(context) != TRACKER_STATE_HOME:
+            return False
+        if session.vehicle_id is not None:
+            return False
+        if vehicle_id in session.same_vehicles:
+            return True
+        edges = [session.power_since, session.pause_since]
+        if session.phases:
+            edges += [_parse(session.phases[-1].start), _parse(session.phases[-1].end)]
+        recent = [edge for edge in edges if edge is not None]
+        charging = self._power_active()
+        matches = is_wallbox_vehicle(
+            session_age_s=(now - session.start).total_seconds(),
+            charge_edge_age_s=(now - max(recent)).total_seconds() if recent else None,
+            wallbox_charging=charging,
+            wallbox_power_kw=self._power_kw if charging else None,
+            vehicle_power_kw=self._read_vehicle_number(
+                context, ROLE_CHARGE_POWER, POWER_UNIT_FACTORS_TO_KW
+            ),
+        )
+        if matches:
+            session.same_vehicles.append(vehicle_id)
+            self._persist()
+        return matches
+
+    def _arm_vehicle_rearm(self, session: RunningSession) -> None:
+        """Hold back vehicles of an ended wallbox session that still report charging.
+
+        A vehicle reports the unplugging late, so it may go on reporting
+        charging for a while. It may begin its own session again only after
+        it reported something else.
+        """
+        for vehicle_id in {*session.same_vehicles, session.vehicle_id} - {None}:
+            if self._vehicle_charge_class.get(vehicle_id) == CHARGE_STATE_CHARGING:
+                self._vehicle_rearm.add(vehicle_id)
+
+    @callback
+    def _on_vehicle_plug_state(self, context: VehicleContext, state: State | None) -> None:
+        """Classify a vehicle's plug state; not connected ends its own session.
+
+        The plug state only ever ends a session. A value the mapping marks
+        neutral keeps the last class, and an unusable state changes nothing.
+        """
+        vehicle_id = context.vehicle.id
+        raw = resolver.usable_state(state)
+        if raw is None:
+            return
+        mapping = context.mapping.role_values(ROLE_PLUG_STATE) if context.mapping else {}
+        klass, found = resolver.classify_with_neutral(
+            raw,
+            mapping,
+            default=PLUG_STATE_CONNECTED,
+            last_class=self._vehicle_plug_class.get(vehicle_id),
+        )
+        problems.check_unknown_mapping_value(
+            self._hass,
+            found=found,
+            subentry_id=context.subentry_id,
+            subentry_title=context.title,
+            role_name=ROLE_PLUG_STATE,
+            raw_value=raw,
+        )
+        if klass is not None:
+            self._vehicle_plug_class[vehicle_id] = klass
+        session = self._vehicle_sessions.get(vehicle_id)
+        if (
+            klass == PLUG_STATE_NOT_CONNECTED
+            and session is not None
+            and session.state != SESSION_STATE_AWAITING_FINAL
+            and not (self._session is not None and self._session.vehicle_id == vehicle_id)
+        ):
+            self._end_vehicle_session(context, session, self._now())
+        self._touch_live()
 
     def _enter_vehicle_state(self, session: RunningVehicleSession, state: str) -> None:
         """Record a new state of a vehicle's own session, persist it and publish at once (I12)."""
@@ -2298,6 +2437,7 @@ class SessionManager:
         finally:
             self._finalizing = False
         self._clear_session_timers()
+        self._arm_vehicle_rearm(session)
         self._session = None
         if not empty:
             self._open_followups = await self._async_count_followups()
@@ -2631,6 +2771,8 @@ class SessionManager:
         }
         if self._counter_detection is not None:
             payload["counter_detection"] = self._counter_detection
+        if self._vehicle_rearm:
+            payload["vehicle_rearm"] = sorted(self._vehicle_rearm)
         return payload
 
     def _persist(self) -> None:

@@ -81,6 +81,14 @@ FINAL_VALUES_GRACE_S = 2
 ERROR_DEBOUNCE_S = 5
 SESSION_TIMEOUT_H = 12
 
+# A vehicle at home that reports charging counts as the car at the wallbox
+# when the wallbox session began, or its charging power rose or fell, at most
+# this many seconds ago, unless both powers are known and differ by more than
+# the larger of the absolute and the relative tolerance.
+SAME_VEHICLE_WINDOW_S = 120
+SAME_VEHICLE_POWER_TOLERANCE_RATIO = 0.25
+SAME_VEHICLE_POWER_TOLERANCE_MIN_KW = 1.5
+
 # Geocoding (7.7). At most one request per this many seconds, serialized
 # through one queue shared by every lookup.
 GEOCODING_MIN_INTERVAL_S = 1.0

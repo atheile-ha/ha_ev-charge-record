@@ -30,6 +30,7 @@ from custom_components.ev_charging.session_manager import (
     energy_raw_kwh,
     identify,
     identify_late,
+    is_wallbox_vehicle,
     should_discard,
 )
 from custom_components.ev_charging.store import SessionYearStore
@@ -3716,3 +3717,328 @@ async def test_a_restarted_external_session_keeps_running_across_reload(
     block = _external_block(restarted_manager, "v001")
     assert block is not None
     assert block["state"] == SESSION_STATE_CHARGING
+
+
+# ------------------------------- the car at the wallbox and the vehicle's plug state
+
+GLB_PLUG = "sensor.glb_plug"
+GLB_POWER = "sensor.glb_power"
+PLUG_VEHICLE = "vehicle plugged"
+PLUG_VEHICLE_NOT = "vehicle not plugged"
+
+
+def _glb_unidentified(**overrides: Any) -> dict[str, Any]:
+    """A GLB the wallbox cannot identify: no card and no identification by the vehicle report."""
+    return _glb_ext(identify_by_vehicle_api=False, cards=(), **overrides)
+
+
+@pytest.mark.parametrize(
+    ("session_age_s", "edge_age_s", "charging", "expected"),
+    [
+        (10, None, False, True),
+        (120, None, False, True),
+        (121, None, False, False),
+        (3600, None, True, True),
+        (3600, 60, False, True),
+        (3600, 121, False, False),
+        (3600, None, False, False),
+    ],
+)
+def test_the_window_decides_whether_a_vehicle_is_the_car_at_the_wallbox(
+    session_age_s: float, edge_age_s: float | None, charging: bool, expected: bool
+) -> None:
+    """Session start, charging now, or a recent rise or fall of the power count."""
+    assert (
+        is_wallbox_vehicle(
+            session_age_s=session_age_s,
+            charge_edge_age_s=edge_age_s,
+            wallbox_charging=charging,
+            wallbox_power_kw=None,
+            vehicle_power_kw=None,
+        )
+        is expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("wallbox_kw", "vehicle_kw", "expected"),
+    [
+        (7.0, 6.5, True),
+        (7.0, 5.25, True),
+        (7.0, 5.0, False),
+        (7.0, 9.0, False),
+        (11.0, 8.5, True),
+        (11.0, 8.0, False),
+        (2.0, 0.5, True),
+        (2.0, 0.4, False),
+        (7.0, None, True),
+        (7.0, 0.0, True),
+        (None, 3.0, True),
+    ],
+)
+def test_powers_that_differ_beyond_the_tolerance_mean_another_car(
+    wallbox_kw: float | None, vehicle_kw: float | None, expected: bool
+) -> None:
+    """The tolerance is the larger of 1.5 kW and a quarter of the wallbox power."""
+    assert (
+        is_wallbox_vehicle(
+            session_age_s=10,
+            charge_edge_age_s=None,
+            wallbox_charging=True,
+            wallbox_power_kw=wallbox_kw,
+            vehicle_power_kw=vehicle_kw,
+        )
+        is expected
+    )
+
+
+async def test_a_vehicle_reporting_charging_with_the_wallbox_gets_no_external_session(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """The car the wallbox cannot identify is still the car at the wallbox."""
+    _entry, manager = await _setup(hass, vehicles=(_glb_unidentified(),))
+    await _set(hass, GLB_TRACKER, "home")
+    await _start_charging(hass, freezer)
+
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 1)
+    assert _external_block(manager, "v001") is None
+
+    await _advance(hass, freezer, 30)
+    await _set(hass, GLB_CHARGE, CHARGING_DC)
+    await _advance(hass, freezer, 1)
+
+    assert _external_block(manager, "v001") is None
+    assert len(manager.live_blocks()) == 1
+    assert manager.live_payload()["identification_source"] == "unresolved"
+
+
+async def test_the_verdict_holds_while_the_wallbox_pauses_beyond_the_window(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """A later report in a long pause still begins nothing, also after a reload."""
+    entry, manager = await _setup(hass, vehicles=(_glb_unidentified(),))
+    await _set(hass, GLB_TRACKER, "home")
+    await _start_charging(hass, freezer)
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 1)
+    await _set(hass, POWER, "0", "kW")
+    await _advance(hass, freezer, 400)
+
+    await _set(hass, GLB_CHARGE, CHARGING_DC)
+    await _advance(hass, freezer, 1)
+    assert _external_block(manager, "v001") is None
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    manager = entry.runtime_data.manager
+    assert manager is not None
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 1)
+
+    assert _external_block(manager, "v001") is None
+
+
+async def test_a_vehicle_reporting_charging_long_after_the_wallbox_session_began_is_another_car(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """With no charging at the wallbox in the window, the report is not the car at the wallbox."""
+    _entry, manager = await _setup(hass, vehicles=(_glb_unidentified(),))
+    await _set(hass, GLB_TRACKER, "home")
+    await _set(hass, PLUG, PLUGGED)
+    await _advance(hass, freezer, 300)
+
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 1)
+
+    block = _external_block(manager, "v001")
+    assert block is not None
+    assert block["location"] == LOCATION_HOME_NO_WALLBOX
+
+
+@pytest.mark.parametrize(
+    ("vehicle_kw", "external"),
+    [("6.5", False), ("5.25", False), ("5.0", True), ("2.0", True), ("0", False)],
+)
+async def test_the_vehicle_power_tells_another_car_from_the_one_at_the_wallbox(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, vehicle_kw: str, external: bool
+) -> None:
+    """Both powers known and far apart mean a second car, close together mean the same."""
+    _entry, manager = await _setup(
+        hass, vehicles=(_glb_unidentified(charge_power=_role(GLB_POWER, "kW")),)
+    )
+    await _set(hass, GLB_TRACKER, "home")
+    await _set(hass, GLB_POWER, vehicle_kw, "kW")
+    await _start_charging(hass, freezer, power_kw=7.0)
+
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 1)
+
+    assert (_external_block(manager, "v001") is not None) is external
+
+
+async def test_a_vehicle_at_home_is_another_car_once_the_wallbox_names_a_different_one(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """The wallbox session already assigned to the EQB leaves the GLB its own session."""
+    _entry, manager = await _setup(hass, vehicles=(_glb_unidentified(), _eqb()))
+    await _set(hass, EQB_TRACKER, "home")
+    await _start_charging(hass, freezer)
+    await _advance(hass, freezer, 20)
+    assert manager.live_payload()["vehicle"]["id"] == "v002"
+
+    await _set(hass, GLB_TRACKER, "home")
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 1)
+
+    assert _external_block(manager, "v001") is not None
+
+
+async def test_a_vehicle_outside_the_home_zone_keeps_its_external_session_beside_the_wallbox(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """A vehicle that is away cannot be at the wallbox."""
+    _entry, manager = await _setup(hass, vehicles=(_glb_unidentified(),))
+    await _set(hass, GLB_TRACKER, "not_home")
+    await _start_charging(hass, freezer)
+
+    await _set(hass, GLB_CHARGE, CHARGING_DC)
+    await _advance(hass, freezer, 1)
+
+    block = _external_block(manager, "v001")
+    assert block is not None
+    assert block["location"] == LOCATION_EXTERNAL
+
+
+async def test_a_vehicle_of_an_ended_wallbox_session_begins_again_only_after_another_report(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """The late report of the unplugging, still charging, does not begin a session."""
+    _entry, manager = await _setup(hass, vehicles=(_glb_unidentified(),))
+    await _set(hass, GLB_TRACKER, "home")
+    await _start_charging(hass, freezer)
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 60)
+    await _unplug(hass, freezer)
+    assert len(await _stored(hass)) == 1
+
+    await _set(hass, GLB_CHARGE, CHARGING_DC)
+    await _advance(hass, freezer, 1)
+    assert _external_block(manager, "v001") is None
+
+    await _set(hass, GLB_CHARGE, CONNECTED_IDLE)
+    await _advance(hass, freezer, 1)
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 1)
+
+    block = _external_block(manager, "v001")
+    assert block is not None
+    assert block["location"] == LOCATION_HOME_NO_WALLBOX
+
+
+async def test_a_vehicle_that_was_not_charging_at_the_end_of_the_wallbox_session_is_not_held_back(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """Only a vehicle that still reports charging waits for another report."""
+    _entry, manager = await _setup(hass, vehicles=(_glb_unidentified(),))
+    await _set(hass, GLB_TRACKER, "home")
+    await _start_charging(hass, freezer)
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 60)
+    await _set(hass, GLB_CHARGE, CONNECTED_IDLE)
+    await _advance(hass, freezer, 1)
+    await _unplug(hass, freezer)
+
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 1)
+
+    assert _external_block(manager, "v001") is not None
+
+
+async def _start_external_with_plug(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> tuple[MockConfigEntry, SessionManager]:
+    hass.states.async_set(GLB_PLUG, PLUG_VEHICLE)
+    entry, manager = await _setup(hass, vehicles=(_glb_unidentified(plug_state=_role(GLB_PLUG)),))
+    await _set(hass, GLB_TRACKER, "not_home")
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 1)
+    assert _external_block(manager, "v001") is not None
+    return entry, manager
+
+
+async def test_the_vehicle_plug_state_not_connected_ends_its_external_session(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """The session ends and is stored, without the charge state reporting anything."""
+    _entry, manager = await _start_external_with_plug(hass, freezer)
+    await _advance(hass, freezer, 60)
+
+    await _set(hass, GLB_PLUG, PLUG_VEHICLE_NOT)
+    await _advance(hass, freezer, 1)
+
+    assert _external_block(manager, "v001") is None
+    (stored,) = await _stored(hass)
+    assert stored.location == LOCATION_EXTERNAL
+    assert stored.vehicle_id == "v001"
+
+
+@pytest.mark.parametrize("value", ["vehicle plugged", "plugged", "error"])
+async def test_a_connected_or_neutral_vehicle_plug_state_never_ends_the_session(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, value: str
+) -> None:
+    """Connected and the neutral value change nothing, and raise no repair issue."""
+    entry, manager = await _start_external_with_plug(hass, freezer)
+    subentry_id = next(
+        s.subentry_id for s in entry.subentries.values() if s.subentry_type == SUBENTRY_TYPE_VEHICLE
+    )
+
+    await _set(hass, GLB_PLUG, value)
+    await _advance(hass, freezer, 1)
+
+    assert _external_block(manager, "v001") is not None
+    assert _issue(hass, problems.unknown_mapping_value_issue_id(subentry_id, "plug_state")) is None
+
+
+async def test_a_neutral_plug_value_keeps_the_last_class(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """After not connected, the neutral value does not read as connected, and nothing ends twice."""
+    _entry, manager = await _start_external_with_plug(hass, freezer)
+    await _set(hass, GLB_PLUG, PLUG_VEHICLE_NOT)
+    await _advance(hass, freezer, 1)
+    assert _external_block(manager, "v001") is None
+
+    await _set(hass, GLB_PLUG, "error")
+    await _advance(hass, freezer, 1)
+
+    assert len(await _stored(hass)) == 1
+
+
+async def test_an_unmapped_vehicle_plug_value_stays_open_and_flags_an_issue(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """A raw value outside the mapping ends nothing."""
+    entry, manager = await _start_external_with_plug(hass, freezer)
+    subentry_id = next(
+        s.subentry_id for s in entry.subentries.values() if s.subentry_type == SUBENTRY_TYPE_VEHICLE
+    )
+
+    await _set(hass, GLB_PLUG, "something new")
+    await _advance(hass, freezer, 1)
+
+    assert _external_block(manager, "v001") is not None
+    assert _issue(hass, problems.unknown_mapping_value_issue_id(subentry_id, "plug_state"))
+
+
+async def test_an_unusable_vehicle_plug_state_ends_nothing(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """Unknown and unavailable are no plug report."""
+    _entry, manager = await _start_external_with_plug(hass, freezer)
+
+    for value in ("unavailable", "unknown"):
+        await _set(hass, GLB_PLUG, value)
+        await _advance(hass, freezer, 1)
+
+    assert _external_block(manager, "v001") is not None

@@ -66,7 +66,14 @@ Standardmäßig deaktiviert: `sensor.<fahrzeug>_session_state`, `_session_locati
 
 ## Erfassung über die Fahrzeugschnittstelle
 
-Unabhängig von der Wallbox erfasst die Integration einen Ladevorgang für jedes aktive Fahrzeug mit zugeordneter Rolle `charge_state`. Er beginnt, sobald das Fahrzeug erstmals `charging` meldet, und endet, sobald es `disconnected` meldet. Solange die Wallbox dasselbe Fahrzeug bereits lädt und identifiziert hat, entsteht dafür kein zweiter Ladevorgang. Mehrere Fahrzeuge können gleichzeitig laden.
+Unabhängig von der Wallbox erfasst die Integration einen Ladevorgang für jedes aktive Fahrzeug mit zugeordneter Rolle `charge_state`. Er beginnt, sobald das Fahrzeug erstmals `charging` meldet, und endet, sobald es `disconnected` meldet oder die Rolle `plug_state` des Fahrzeugs den Zustand nicht verbunden meldet. Mehrere Fahrzeuge können gleichzeitig laden.
+
+Lädt die Wallbox, entsteht für das Fahrzeug an der Wallbox kein zweiter Ladevorgang:
+
+- Hat die Wallbox das Fahrzeug zugeordnet, beginnt dafür kein eigener Ladevorgang.
+- Hat sie ein anderes Fahrzeug zugeordnet, gilt ein Fahrzeug zu Hause als anderes Auto und erfasst einen eigenen Ladevorgang.
+- Hat sie kein Fahrzeug zugeordnet, gilt ein Fahrzeug zu Hause, das `charging` meldet, als das Auto an der Wallbox, wenn der Ladevorgang der Wallbox oder ein Anstieg oder Abfall ihrer Ladeleistung höchstens 2 Minuten zurückliegt oder die Wallbox gerade lädt. Melden beide Fahrzeug und Wallbox eine Ladeleistung und weichen diese um mehr als 25 Prozent der Wallbox-Leistung, mindestens aber 1,5 kW, voneinander ab, gilt es als anderes Auto. Ein Fahrzeug außerhalb der Heimzone ist immer ein anderes Auto. Die Zuordnung der Wallbox ändert sich dadurch nicht.
+- Nach dem Ende des Ladevorgangs der Wallbox beginnt für ein Fahrzeug, das weiterhin `charging` meldet, erst dann wieder ein eigener Ladevorgang, wenn es zwischendurch einen anderen Ladezustand gemeldet hat.
 
 Der Ladeort ist `home_no_wallbox`, wenn der Standort-Tracker des Fahrzeugs beim Beginn die Heimzone meldet, sonst `external`. Bei `external` werden Koordinaten und Zeitpunkt der letzten Standortmeldung übernommen und eine Adresse ermittelt, erneut beim Ende, sofern die erste Ermittlung fehlschlug, und beim Start der Integration für jeden noch offenen Fall; manuell über `ev_charging.retry_address`. Die Ladeart übernimmt die erste eindeutige Meldung der Rolle `charge_type` und ändert sich danach nicht mehr; ohne eine solche Meldung wird sie am Ende aus der mittleren Ladeleistung geschätzt (Schwelle 25 kW für Gleichstrom). Die geladene Energie ist die von der Rolle `energy_session` gemeldete Menge, sonst eine aus der Ladestandsänderung geschätzte und entsprechend gekennzeichnete Menge. Kosten werden für diese Ladevorgänge nicht ermittelt und bleiben zur Nacherfassung offen.
 
@@ -135,6 +142,8 @@ Mit zusätzlich `pymodbus: debug` protokolliert die Modbus-Bibliothek die übert
 ## Installation
 
 HACS, benutzerdefiniertes Repository, Kategorie Integration. Anschließend unter Geräte und Dienste hinzufügen.
+
+Zeigt die Companion-App nach einem Update oder einem Neustart von Home Assistant „Karte nicht gefunden“, hilft es, die App einmal vollständig zu schließen und neu zu öffnen.
 
 ## Datenhaltung
 

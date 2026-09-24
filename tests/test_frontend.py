@@ -33,9 +33,10 @@ FRONTEND_DIR = COMPONENT / "frontend"
 FRONTEND_SOURCES = COMPONENT.parent.parent / "frontend" / "src"
 
 
-def _bundle_url(version: str) -> str:
+def _bundle_url(hass: HomeAssistant, version: str) -> str:
     digest = hashlib.sha256((FRONTEND_DIR / FRONTEND_BUNDLE_FILENAME).read_bytes()).hexdigest()
-    return f"{FRONTEND_STATIC_URL_PATH}?v={version}&h={digest[:12]}"
+    start = hass.data[DOMAIN]["frontend_start_token"]
+    return f"{FRONTEND_STATIC_URL_PATH}?v={version}&h={digest[:12]}&s={start}"
 
 
 def _manifest_version() -> str:
@@ -71,7 +72,7 @@ async def test_setup_registers_the_panel_and_the_bundle_script(
     """The panel and the script for the cards use the same versioned bundle URL."""
     await _setup(hass, _entry())
 
-    bundle_url = _bundle_url(_manifest_version())
+    bundle_url = _bundle_url(hass, _manifest_version())
     panel = hass.data[frontend.DATA_PANELS][PANEL_URL_PATH]
     assert panel.component_name == "custom"
     assert panel.sidebar_title == TITLE
@@ -91,7 +92,24 @@ async def test_bundle_url_changes_with_the_integration_version(
     ):
         await _setup(hass, _entry())
 
-    assert _bundle_url("9.9.9") in hass.data[frontend.DATA_EXTRA_MODULE_URL].urls
+    assert _bundle_url(hass, "9.9.9") in hass.data[frontend.DATA_EXTRA_MODULE_URL].urls
+
+
+async def test_bundle_url_carries_the_start_time_and_keeps_it_when_the_entry_reloads(
+    hass: HomeAssistant, frontend_stub: None
+) -> None:
+    """The URL holds the start time of the process, unchanged by unloading and loading again."""
+    entry = _entry()
+    await _setup(hass, entry)
+    bundle_url = entry.runtime_data.bundle_url
+    assert re.search(r"&s=\d+$", bundle_url)
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.runtime_data.bundle_url == bundle_url
 
 
 async def test_bundle_is_served(

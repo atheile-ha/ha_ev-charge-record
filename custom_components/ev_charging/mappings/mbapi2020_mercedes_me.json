@@ -58,6 +58,15 @@
         "16": "neutral",
         "error": "neutral"
       }
+    },
+    "plug_state": {
+      "source_entity_suffix": "chargeinletcoupler",
+      "values": {
+        "vehicle not plugged": "not_connected",
+        "vehicle plugged": "connected",
+        "plugged": "connected",
+        "error": "neutral"
+      }
     }
   }
 }
