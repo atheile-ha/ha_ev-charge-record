@@ -103,6 +103,7 @@ def async_setup_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_sessions_close_followup)
     websocket_api.async_register_command(hass, ws_sessions_correct_vehicle)
     websocket_api.async_register_command(hass, ws_sessions_create)
+    websocket_api.async_register_command(hass, ws_sessions_merge)
 
 
 @websocket_api.websocket_command(
@@ -420,3 +421,48 @@ async def ws_sessions_create(
         _send_operation_error(connection, msg["id"], err)
         return
     connection.send_result(msg["id"], {"session": _payload(created)})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "ev_charging/sessions/merge",
+        vol.Required("session_ids"): vol.All([str], vol.Length(min=1)),
+        vol.Optional("odometer_km", default=dict): {str: _NON_NEGATIVE},
+        vol.Optional("dry_run", default=False): bool,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_sessions_merge(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Replace the selected sessions by one merged session.
+
+    With dry_run, nothing is written: the result holds either the merged
+    session as a preview, or the unmet conditions and the sessions that
+    still need an odometer reading. Without dry_run, an unmet condition is
+    an error and the store stays unchanged.
+    """
+    try:
+        merged = await session_manager.async_merge_sessions(
+            hass, msg["session_ids"], dict(msg["odometer_km"]), dry_run=msg["dry_run"]
+        )
+    except session_manager.SessionMergeError as err:
+        if msg["dry_run"]:
+            connection.send_result(
+                msg["id"],
+                {
+                    "session": None,
+                    "violations": list(err.check.violations),
+                    "missing_odometer": list(err.check.missing_odometer),
+                },
+            )
+            return
+        _send_operation_error(connection, msg["id"], err)
+        return
+    except session_manager.SessionOperationError as err:
+        _send_operation_error(connection, msg["id"], err)
+        return
+    connection.send_result(
+        msg["id"], {"session": _payload(merged), "violations": [], "missing_odometer": []}
+    )

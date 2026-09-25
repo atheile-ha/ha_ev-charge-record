@@ -71,6 +71,25 @@ export interface Session {
   phases: Phase[];
 }
 
+export type MergeViolation =
+  | "too_few_sessions"
+  | "odometer_missing"
+  | "odometer_deviation"
+  | "vehicle_differs"
+  | "location_differs"
+  | "charge_type_differs"
+  | "card_differs"
+  | "address_differs"
+  | "year_differs";
+
+// Answer of sessions/merge: the merged session, or the unmet conditions of
+// a dry run and the sessions that still need an odometer reading.
+export interface MergeResult {
+  session: Session | null;
+  violations: MergeViolation[];
+  missing_odometer: string[];
+}
+
 export interface Summary {
   count: number;
   energy_kwh: number;

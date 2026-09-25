@@ -4,6 +4,12 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.5.4] - 2026-09-25
+
+### Hinzugefügt
+
+- Zusammenführen ausgewählter Sessions in der Ansicht „Korrektur“ mit Vorschau und Bestätigung, Service `ev_charging.merge_sessions` und WebSocket-Kommando `ev_charging/sessions/merge`
+
 ## [0.5.3] - 2026-09-25
 
 ### Geändert

@@ -1,4 +1,11 @@
-import type { ChargeType, HomeAssistant, Session, SessionLocation, Vehicle } from "./types";
+import type {
+  ChargeType,
+  HomeAssistant,
+  MergeResult,
+  Session,
+  SessionLocation,
+  Vehicle,
+} from "./types";
 
 export interface ListParams {
   year?: number;
@@ -118,4 +125,20 @@ export async function createSession(
     ...fields,
   });
   return result.session;
+}
+
+// Replaces the selected sessions by one merged session. With dryRun,
+// nothing is written and the result is a preview or the unmet conditions.
+export function mergeSessions(
+  hass: HomeAssistant,
+  sessionIds: string[],
+  odometerKm: Record<string, number>,
+  dryRun: boolean,
+): Promise<MergeResult> {
+  return hass.callWS<MergeResult>({
+    type: "ev_charging/sessions/merge",
+    session_ids: sessionIds,
+    odometer_km: odometerKm,
+    dry_run: dryRun,
+  });
 }

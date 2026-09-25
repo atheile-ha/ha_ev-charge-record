@@ -597,7 +597,28 @@
         "edit_delete_confirm": "Delete this session? This cannot be undone.",
         "edit_new_session": "Add session",
         "edit_create": "Create",
-        "edit_error": "The change could not be saved."
+        "edit_error": "The change could not be saved.",
+        "merge_select": "Select for merging",
+        "merge_selected": "{count} selected",
+        "merge_action": "Merge",
+        "merge_clear": "Clear selection",
+        "merge_checking": "Checking the selection …",
+        "merge_blocked": "These sessions cannot be merged:",
+        "merge_odometer_prompt": "Odometer reading for the session of {date}",
+        "merge_preview_title": "Result of the merge",
+        "merge_warning": "Merging cannot be undone. The selected sessions are replaced by this one session.",
+        "merge_confirm": "Merge permanently",
+        "merge_cancel": "Cancel",
+        "merge_error": "The sessions could not be merged.",
+        "merge_violation_too_few_sessions": "Select at least two sessions.",
+        "merge_violation_odometer_missing": "An odometer reading is missing.",
+        "merge_violation_odometer_deviation": "The odometer readings differ by more than 1 km.",
+        "merge_violation_vehicle_differs": "The vehicles differ.",
+        "merge_violation_location_differs": "The charging locations differ.",
+        "merge_violation_charge_type_differs": "The charge types differ.",
+        "merge_violation_card_differs": "The cards differ.",
+        "merge_violation_address_differs": "The addresses differ.",
+        "merge_violation_year_differs": "The sessions belong to different years."
       }
     }
   },
@@ -691,7 +712,29 @@
         "note": { "name": "Note", "description": "A free-text note." },
         "provider": { "name": "Provider", "description": "The name of the charging provider." }
       }
+    },
+    "merge_sessions": {
+      "name": "Merge sessions",
+      "description": "Replaces the selected stored sessions by one merged session. This cannot be undone.",
+      "fields": {
+        "session_ids": { "name": "Sessions", "description": "The ids of the sessions to merge, at least two." },
+        "confirm": { "name": "Confirm", "description": "Must be set to true. Merging cannot be undone." },
+        "odometer_km": { "name": "Odometer readings", "description": "Odometer reading in km per session id, only for sessions without one." }
+      }
     }
+  },
+  "exceptions": {
+    "merge_confirm_required": { "message": "merge_sessions requires confirm: true. Merging cannot be undone." },
+    "merge_session_not_found": { "message": "No session with id {session_id}." },
+    "merge_too_few_sessions": { "message": "Select at least two sessions." },
+    "merge_odometer_missing": { "message": "No odometer reading for the sessions {sessions}. Enter one via odometer_km." },
+    "merge_odometer_deviation": { "message": "The odometer readings differ by more than 1 km." },
+    "merge_vehicle_differs": { "message": "The vehicles differ." },
+    "merge_location_differs": { "message": "The charging locations differ." },
+    "merge_charge_type_differs": { "message": "The charge types differ." },
+    "merge_card_differs": { "message": "The cards differ." },
+    "merge_address_differs": { "message": "The addresses differ." },
+    "merge_year_differs": { "message": "The sessions belong to different years." }
   },
   "issues": {
     "role_entity_removed": {

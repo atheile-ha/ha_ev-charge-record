@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any
@@ -19,7 +20,22 @@ from .const import (
     DEFAULT_POWER_THRESHOLD_KW,
     DEFAULT_START_DEBOUNCE_S,
     DEFAULT_UPDATE_INTERVAL_S,
+    MAX_PHASES,
+    MERGE_MARKER,
+    MERGE_MAX_ODOMETER_DEVIATION_KM,
+    MERGE_VIOLATION_ADDRESS,
+    MERGE_VIOLATION_CARD,
+    MERGE_VIOLATION_CHARGE_TYPE,
+    MERGE_VIOLATION_LOCATION,
+    MERGE_VIOLATION_ODOMETER_DEVIATION,
+    MERGE_VIOLATION_ODOMETER_MISSING,
+    MERGE_VIOLATION_TOO_FEW_SESSIONS,
+    MERGE_VIOLATION_VEHICLE,
+    MERGE_VIOLATION_YEAR,
+    MERGE_VIOLATIONS,
     SESSION_STATUS_COMPLETE,
+    SESSION_STATUS_FLAGGED,
+    SESSION_STATUS_FOLLOWUP_OPEN,
     SOLAR_VALUATION_FEED_IN_TARIFF,
 )
 
@@ -660,3 +676,268 @@ def merge_shortest_pauses(phases: tuple[Phase, ...], limit: int) -> tuple[Phase,
         index = gaps.index(min(gaps))
         merged[index : index + 2] = [_merge_phase_pair(merged[index], merged[index + 1])]
     return tuple(merged)
+
+
+# --------------------------------------------------------------------------
+# Merging stored sessions into one. Nothing here is ever triggered by
+# the capture itself; it runs only on an explicit request.
+
+# Fields summed over the selection. Each sum is only formed when every
+# session holds a value; a value present in some sessions but not in all
+# gives null and an open_fields entry.
+_MERGE_SUM_FIELDS = (
+    "energy_measured_kwh",
+    "energy_measured_session_kwh",
+    "energy_vehicle_kwh",
+    "energy_raw_kwh",
+    "energy_estimated_kwh",
+    "energy_billed_kwh",
+    "energy_grid_kwh",
+    "energy_solar_kwh",
+    "cost",
+)
+_STATUS_SEVERITY = (SESSION_STATUS_COMPLETE, SESSION_STATUS_FOLLOWUP_OPEN, SESSION_STATUS_FLAGGED)
+
+
+@dataclass(frozen=True, slots=True)
+class MergeCheck:
+    """Result of checking a selection of sessions for merging.
+
+    violations holds the keys of every unmet condition, in the order of
+    MERGE_VIOLATIONS. missing_odometer names the sessions that have no
+    odometer_km and for which none was entered.
+    """
+
+    violations: tuple[str, ...]
+    missing_odometer: tuple[str, ...] = ()
+
+    @property
+    def ok(self) -> bool:
+        """Whether the selection may be merged."""
+        return not self.violations
+
+
+class MergeRejectedError(Exception):
+    """The selected sessions do not meet the conditions for merging."""
+
+    def __init__(self, check: MergeCheck) -> None:
+        """Keep the failed check for the caller."""
+        super().__init__(", ".join(check.violations))
+        self.check = check
+
+
+def _plug_start_time(session: Session) -> datetime:
+    """Return plug_start as an offset-aware datetime."""
+    return datetime.fromisoformat(session.plug_start)
+
+
+def _odometer(session: Session, odometer_inputs: Mapping[str, float]) -> float | None:
+    """Return the stored odometer reading, or the entered one if none is stored."""
+    if session.odometer_km is not None:
+        return session.odometer_km
+    return odometer_inputs.get(session.id)
+
+
+def check_merge(
+    sessions: Sequence[Session],
+    odometer_inputs: Mapping[str, float],
+    local_year: Callable[[Session], int],
+) -> MergeCheck:
+    """Check every condition for merging the given stored sessions.
+
+    odometer_inputs maps a session id to an entered odometer reading; it is
+    only used for sessions without a stored odometer_km. A missing card or
+    address in every session counts as equal, as does a missing vehicle.
+    local_year returns the year a session belongs to.
+    """
+    violations: set[str] = set()
+    if len({session.id for session in sessions}) < 2:
+        violations.add(MERGE_VIOLATION_TOO_FEW_SESSIONS)
+
+    missing = tuple(
+        session.id for session in sessions if _odometer(session, odometer_inputs) is None
+    )
+    if missing:
+        violations.add(MERGE_VIOLATION_ODOMETER_MISSING)
+    readings = [
+        value for session in sessions if (value := _odometer(session, odometer_inputs)) is not None
+    ]
+    if readings and max(readings) - min(readings) > MERGE_MAX_ODOMETER_DEVIATION_KM + 1e-9:
+        violations.add(MERGE_VIOLATION_ODOMETER_DEVIATION)
+
+    for key, value_of in (
+        (MERGE_VIOLATION_VEHICLE, lambda session: session.vehicle_id),
+        (MERGE_VIOLATION_LOCATION, lambda session: session.location),
+        (MERGE_VIOLATION_CHARGE_TYPE, lambda session: session.charge_type),
+        (MERGE_VIOLATION_CARD, lambda session: session.card_uid),
+        (MERGE_VIOLATION_ADDRESS, lambda session: session.address),
+        (MERGE_VIOLATION_YEAR, local_year),
+    ):
+        if len({value_of(session) for session in sessions}) > 1:
+            violations.add(key)
+
+    ordered = tuple(key for key in MERGE_VIOLATIONS if key in violations)
+    return MergeCheck(violations=ordered, missing_odometer=missing)
+
+
+def _round_optional(value: float | None, digits: int) -> float | None:
+    """Round an optional value."""
+    return round(value, digits) if value is not None else None
+
+
+def merge_sessions(
+    sessions: Sequence[Session],
+    odometer_inputs: Mapping[str, float],
+    *,
+    local_year: Callable[[Session], int],
+    estimate_uncertain_threshold_pct: float,
+    modified_at: str,
+) -> Session:
+    """Form the single session that replaces the given stored sessions.
+
+    Raises MergeRejectedError if a condition is not met. Energy and cost are
+    sums of the stored values; nothing is measured or estimated anew. The
+    result carries the id of the session with the earliest plug_start, and
+    every field not named otherwise is taken from that session.
+    """
+    check = check_merge(sessions, odometer_inputs, local_year)
+    if not check.ok:
+        raise MergeRejectedError(check)
+
+    ordered = sorted(sessions, key=_plug_start_time)
+    earliest = ordered[0]
+    open_fields: list[str] = []
+
+    sums: dict[str, float | None] = {}
+    for name in _MERGE_SUM_FIELDS:
+        values = [getattr(session, name) for session in ordered]
+        present = [value for value in values if value is not None]
+        if len(present) == len(values):
+            sums[name] = round(sum(present), 4 if name == "cost" else 3)
+        else:
+            sums[name] = None
+            if present:
+                open_fields.append(name)
+
+    soc_starts = [s.soc_start for s in ordered if s.soc_start is not None]
+    soc_ends = [s.soc_end for s in ordered if s.soc_end is not None]
+    soc_start = min(soc_starts) if soc_starts else None
+    soc_end = max(soc_ends) if soc_ends else None
+    odometer_km = min(
+        value for session in ordered if (value := _odometer(session, odometer_inputs)) is not None
+    )
+
+    plug_end = max(
+        (s.plug_end for s in ordered if s.plug_end is not None),
+        key=datetime.fromisoformat,
+        default=None,
+    )
+    plug_duration = (
+        round(
+            (datetime.fromisoformat(plug_end) - _plug_start_time(earliest)).total_seconds() / 60,
+            1,
+        )
+        if plug_end is not None
+        else None
+    )
+    durations = [s.charge_duration_min for s in ordered if s.charge_duration_min is not None]
+    charge_duration = round(sum(durations), 1) if durations else None
+    pause_duration = (
+        round(plug_duration - charge_duration, 1)
+        if plug_duration is not None and charge_duration is not None
+        else None
+    )
+
+    energy_kwh = _round_optional(
+        derive_energy_kwh(
+            sums["energy_billed_kwh"],
+            sums["energy_measured_kwh"],
+            sums["energy_vehicle_kwh"],
+            sums["energy_estimated_kwh"],
+        ),
+        3,
+    )
+    power_avg = (
+        round(energy_kwh / (charge_duration / 60), 2)
+        if energy_kwh is not None and charge_duration
+        else None
+    )
+
+    phases = tuple(
+        sorted(
+            (phase for session in ordered for phase in session.phases),
+            key=lambda phase: datetime.fromisoformat(phase.start),
+        )
+    )
+    too_many_phases = len(phases) > MAX_PHASES
+    if too_many_phases:
+        phases = merge_shortest_pauses(phases, MAX_PHASES)
+
+    notes: list[str] = []
+    for session in ordered:
+        if session.note and session.note not in notes:
+            notes.append(session.note)
+
+    modified_fields: list[str] = []
+    for session in ordered:
+        for name in session.modified_fields:
+            if name not in modified_fields:
+                modified_fields.append(name)
+    if MERGE_MARKER not in modified_fields:
+        modified_fields.append(MERGE_MARKER)
+
+    merged = replace(
+        earliest,
+        plug_end=plug_end,
+        plug_duration_min=plug_duration,
+        charge_duration_min=charge_duration,
+        pause_duration_min=pause_duration,
+        phase_count=len(phases),
+        phases_recorded=all(session.phases_recorded for session in ordered),
+        phases=phases,
+        soc_start=soc_start,
+        soc_end=soc_end,
+        odometer_km=odometer_km,
+        energy_measured_kwh=sums["energy_measured_kwh"],
+        energy_measured_session_kwh=sums["energy_measured_session_kwh"],
+        energy_vehicle_kwh=sums["energy_vehicle_kwh"],
+        energy_raw_kwh=sums["energy_raw_kwh"],
+        energy_estimated_kwh=sums["energy_estimated_kwh"],
+        energy_billed_kwh=sums["energy_billed_kwh"],
+        energy_grid_kwh=sums["energy_grid_kwh"],
+        energy_solar_kwh=sums["energy_solar_kwh"],
+        energy_unallocated_kwh=round(sum(s.energy_unallocated_kwh for s in ordered), 3),
+        energy_kwh=energy_kwh,
+        estimate_uncertain=(
+            soc_start is not None
+            and soc_end is not None
+            and abs(soc_end - soc_start) < estimate_uncertain_threshold_pct
+        ),
+        cost=sums["cost"],
+        power_avg_kw=power_avg,
+        charge_error=any(s.charge_error for s in ordered),
+        identification_conflict=any(s.identification_conflict for s in ordered),
+        location_conflict=any(s.location_conflict for s in ordered),
+        note="\n".join(notes) if notes else None,
+        modified_at=modified_at,
+        modified_fields=tuple(modified_fields),
+    )
+
+    # Open fields of the sources that are still missing after the merge,
+    # then the sums that are missing because only some sessions held them.
+    carried: list[str] = []
+    for session in ordered:
+        for name in session.open_fields:
+            if name not in carried and getattr(merged, name, None) is None:
+                carried.append(name)
+    for name in ("soc_start", "soc_end"):
+        if getattr(merged, name) is None and name not in carried:
+            carried.append(name)
+    merged_open = (*carried, *(name for name in open_fields if name not in carried))
+
+    status = max((s.status for s in ordered), key=_STATUS_SEVERITY.index)
+    if too_many_phases:
+        status = SESSION_STATUS_FLAGGED
+    if status == SESSION_STATUS_COMPLETE and merged_open:
+        status = SESSION_STATUS_FOLLOWUP_OPEN
+    return replace(merged, open_fields=merged_open, status=status)

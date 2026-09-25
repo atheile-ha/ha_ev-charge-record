@@ -7,7 +7,7 @@ import os
 import re
 import shutil
 from asyncio import Lock
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -112,6 +112,41 @@ class SessionYearStore:
     async def async_save(self, sessions: list[Session]) -> None:
         """Replace the full session list of this year."""
         await self.async_update(lambda _current: list(sessions))
+
+
+class MissingSessionsError(LookupError):
+    """A session named for replacement is not in the year's list."""
+
+
+def replace_by_merged(
+    current: list[Session],
+    source_ids: Sequence[str],
+    build: Callable[[list[Session]], Session],
+) -> list[Session]:
+    """Return current with the source sessions replaced by the one build forms from them.
+
+    Meant to run inside SessionYearStore.async_update, so the sources are
+    read, removed and replaced in one locked step: afterwards either the
+    merged session exists and none of the sources, or, if build raises or a
+    source is missing, nothing was written at all. The merged session takes
+    the list position of the first source.
+    """
+    wanted = set(source_ids)
+    sources = [session for session in current if session.id in wanted]
+    missing = wanted - {session.id for session in sources}
+    if missing:
+        raise MissingSessionsError(", ".join(sorted(missing)))
+    merged = build(sources)
+
+    result: list[Session] = []
+    inserted = False
+    for session in current:
+        if session.id not in wanted:
+            result.append(session)
+        elif not inserted:
+            result.append(merged)
+            inserted = True
+    return result
 
 
 class RuntimeStore:

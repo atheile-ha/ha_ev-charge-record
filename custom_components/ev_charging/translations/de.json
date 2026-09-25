@@ -597,7 +597,28 @@
         "edit_delete_confirm": "Diesen Ladevorgang löschen? Das kann nicht rückgängig gemacht werden.",
         "edit_new_session": "Ladevorgang nachtragen",
         "edit_create": "Anlegen",
-        "edit_error": "Die Änderung konnte nicht gespeichert werden."
+        "edit_error": "Die Änderung konnte nicht gespeichert werden.",
+        "merge_select": "Zum Zusammenführen auswählen",
+        "merge_selected": "{count} ausgewählt",
+        "merge_action": "Zusammenführen",
+        "merge_clear": "Auswahl aufheben",
+        "merge_checking": "Die Auswahl wird geprüft …",
+        "merge_blocked": "Diese Ladevorgänge lassen sich nicht zusammenführen:",
+        "merge_odometer_prompt": "Kilometerstand für den Ladevorgang vom {date}",
+        "merge_preview_title": "Ergebnis des Zusammenführens",
+        "merge_warning": "Das Zusammenführen kann nicht rückgängig gemacht werden. Die ausgewählten Ladevorgänge werden durch diesen einen ersetzt.",
+        "merge_confirm": "Endgültig zusammenführen",
+        "merge_cancel": "Abbrechen",
+        "merge_error": "Die Ladevorgänge konnten nicht zusammengeführt werden.",
+        "merge_violation_too_few_sessions": "Mindestens zwei Ladevorgänge auswählen.",
+        "merge_violation_odometer_missing": "Ein Kilometerstand fehlt.",
+        "merge_violation_odometer_deviation": "Die Kilometerstände weichen um mehr als 1 km voneinander ab.",
+        "merge_violation_vehicle_differs": "Die Fahrzeuge unterscheiden sich.",
+        "merge_violation_location_differs": "Die Ladeorte unterscheiden sich.",
+        "merge_violation_charge_type_differs": "Die Ladearten unterscheiden sich.",
+        "merge_violation_card_differs": "Die Karten unterscheiden sich.",
+        "merge_violation_address_differs": "Die Adressen unterscheiden sich.",
+        "merge_violation_year_differs": "Die Ladevorgänge gehören zu verschiedenen Jahren."
       }
     }
   },
@@ -694,7 +715,29 @@
         "note": { "name": "Notiz", "description": "Ein Freitext-Vermerk." },
         "provider": { "name": "Anbieter", "description": "Der Name des Ladeanbieters." }
       }
+    },
+    "merge_sessions": {
+      "name": "Ladevorgänge zusammenführen",
+      "description": "Ersetzt die ausgewählten gespeicherten Ladevorgänge durch einen zusammengeführten. Das kann nicht rückgängig gemacht werden.",
+      "fields": {
+        "session_ids": { "name": "Ladevorgänge", "description": "Die IDs der zusammenzuführenden Ladevorgänge, mindestens zwei." },
+        "confirm": { "name": "Bestätigen", "description": "Muss auf true gesetzt werden. Das Zusammenführen kann nicht rückgängig gemacht werden." },
+        "odometer_km": { "name": "Kilometerstände", "description": "Kilometerstand in km je Ladevorgang-ID, nur für Ladevorgänge ohne Kilometerstand." }
+      }
     }
+  },
+  "exceptions": {
+    "merge_confirm_required": { "message": "merge_sessions verlangt confirm: true. Das Zusammenführen kann nicht rückgängig gemacht werden." },
+    "merge_session_not_found": { "message": "Kein Ladevorgang mit der ID {session_id}." },
+    "merge_too_few_sessions": { "message": "Mindestens zwei Ladevorgänge auswählen." },
+    "merge_odometer_missing": { "message": "Kein Kilometerstand für die Ladevorgänge {sessions}. Einen Wert über odometer_km angeben." },
+    "merge_odometer_deviation": { "message": "Die Kilometerstände weichen um mehr als 1 km voneinander ab." },
+    "merge_vehicle_differs": { "message": "Die Fahrzeuge unterscheiden sich." },
+    "merge_location_differs": { "message": "Die Ladeorte unterscheiden sich." },
+    "merge_charge_type_differs": { "message": "Die Ladearten unterscheiden sich." },
+    "merge_card_differs": { "message": "Die Karten unterscheiden sich." },
+    "merge_address_differs": { "message": "Die Adressen unterscheiden sich." },
+    "merge_year_differs": { "message": "Die Ladevorgänge gehören zu verschiedenen Jahren." }
   },
   "issues": {
     "role_entity_removed": {

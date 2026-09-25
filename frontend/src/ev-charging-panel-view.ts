@@ -10,6 +10,7 @@ import {
   listSessions,
   listVehicles,
   listYear,
+  mergeSessions,
   updateSession,
   type SessionCreate,
 } from "./api";
@@ -28,6 +29,12 @@ import {
 } from "./format";
 import { loadTranslate, makeTranslate, type TextKey, type Translate } from "./i18n";
 import { vehicleLabel } from "./labels";
+import {
+  odometerPayload,
+  pruneSelection,
+  sessionsWithoutOdometer,
+  toggleSelection,
+} from "./merge";
 import {
   EMPTY_FILTERS,
   NO_CARD,
@@ -65,6 +72,7 @@ import { sharedStyles } from "./styles";
 import type {
   ChargeType,
   HomeAssistant,
+  MergeResult,
   MonthStats,
   Session,
   SessionLocation,
@@ -133,6 +141,15 @@ export class EvChargingPanelView extends LitElement {
   @state() private _creating = false;
   @state() private _createValues: Record<string, string> = {};
 
+  @state() private _mergeSelection: string[] = [];
+  @state() private _mergeOdometer: Record<string, string> = {};
+  @state() private _mergeCheck?: MergeResult;
+  @state() private _mergeConfirming = false;
+  @state() private _mergeBusy = false;
+  @state() private _mergeFailed = false;
+  private _mergeYear?: number;
+  private _mergeRequest = 0;
+
   private _started = false;
   private _yearKey?: number;
   private _recentRequested = false;
@@ -179,6 +196,10 @@ export class EvChargingPanelView extends LitElement {
       return;
     }
     this._watchConnection(hass);
+    if (this._mergeYear !== state.year) {
+      this._mergeYear = state.year;
+      this._resetMerge();
+    }
     if (!this._started) {
       this._started = true;
       void this._loadShared(hass, false);
@@ -270,6 +291,12 @@ export class EvChargingPanelView extends LitElement {
       if (this._yearKey === year) {
         this._yearSessions = result.sessions;
         this._years = result.years;
+        const kept = pruneSelection(this._mergeSelection, result.sessions);
+        if (kept.length !== this._mergeSelection.length) {
+          this._mergeSelection = kept;
+          this._mergeConfirming = false;
+          void this._checkMerge();
+        }
       }
     } catch (error) {
       if (this._yearKey === year) {
@@ -825,6 +852,7 @@ export class EvChargingPanelView extends LitElement {
         </button>
       </div>
       ${this._creating ? this._renderCreateForm(t, reload) : nothing}
+      ${this._renderMergeBar(t, reload)}
       <p class="count muted">
         ${t("filter_count", { shown: visible.length, total: ofMonth.length })}
       </p>
@@ -866,6 +894,15 @@ export class EvChargingPanelView extends LitElement {
     return html`<div class="correction-item">
       ${this._renderSession(session, t)}
       <div class="edit-actions">
+        <label class="merge-select">
+          <input
+            type="checkbox"
+            .checked=${this._mergeSelection.includes(session.id)}
+            ?disabled=${this._mergeBusy}
+            @change=${() => this._toggleMerge(session.id)}
+          />
+          ${t("merge_select")}
+        </label>
         <button class="text" @click=${() => this._toggleEdit(session.id)}>
           ${t(editing ? "edit_cancel" : "edit_edit")}
         </button>
@@ -928,6 +965,174 @@ export class EvChargingPanelView extends LitElement {
             </button>`
           : nothing}
       </div>
+    </div>`;
+  }
+
+  // ------------------------------------------------------------------- merge
+
+  private _resetMerge(): void {
+    this._mergeRequest += 1;
+    this._mergeSelection = [];
+    this._mergeOdometer = {};
+    this._mergeCheck = undefined;
+    this._mergeConfirming = false;
+    this._mergeFailed = false;
+  }
+
+  private _toggleMerge(id: string): void {
+    this._mergeSelection = toggleSelection(this._mergeSelection, id);
+    this._mergeConfirming = false;
+    void this._checkMerge();
+  }
+
+  private _setMergeOdometer(id: string, value: string): void {
+    this._mergeOdometer = { ...this._mergeOdometer, [id]: value };
+    this._mergeConfirming = false;
+    void this._checkMerge();
+  }
+
+  private _mergeOdometerPayload(): Record<string, number> {
+    const missing = sessionsWithoutOdometer(this._mergeSelection, this._yearSessions ?? []);
+    return odometerPayload(missing, this._mergeOdometer);
+  }
+
+  // Asks the server whether the selection may be merged and what the result
+  // would be. Only the answer to the latest request is kept.
+  private async _checkMerge(): Promise<void> {
+    const request = ++this._mergeRequest;
+    this._mergeCheck = undefined;
+    this._mergeFailed = false;
+    if (this._mergeSelection.length === 0 || !this.hass) {
+      return;
+    }
+    try {
+      const result = await mergeSessions(
+        this.hass,
+        this._mergeSelection,
+        this._mergeOdometerPayload(),
+        true,
+      );
+      if (request === this._mergeRequest) {
+        this._mergeCheck = result;
+      }
+    } catch (error) {
+      console.error("ev_charging: checking the merge failed", error);
+      if (request === this._mergeRequest) {
+        this._mergeFailed = true;
+      }
+    }
+  }
+
+  private async _confirmMerge(reload: () => Promise<void>): Promise<void> {
+    this._mergeBusy = true;
+    try {
+      await mergeSessions(this.hass!, this._mergeSelection, this._mergeOdometerPayload(), false);
+      this._editingId = null;
+      this._resetMerge();
+      await reload();
+    } catch (error) {
+      console.error("ev_charging: merging failed", error);
+      this._mergeConfirming = false;
+      this._mergeFailed = true;
+    } finally {
+      this._mergeBusy = false;
+    }
+  }
+
+  private _renderMergeBar(
+    t: Translate,
+    reload: () => Promise<void>,
+  ): TemplateResult | typeof nothing {
+    const selection = this._mergeSelection;
+    if (selection.length === 0) {
+      return nothing;
+    }
+    const hass = this.hass!;
+    const locale = hass.locale.language;
+    const zone = hass.config.time_zone;
+    const missing = sessionsWithoutOdometer(selection, this._yearSessions ?? []);
+    const check = this._mergeCheck;
+    const preview = check && check.violations.length === 0 ? check.session : null;
+    const busy = this._mergeBusy;
+    return html`<div class="edit-form merge">
+      <div class="edit-actions">
+        <span>${t("merge_selected", { count: selection.length })}</span>
+        <button
+          class="text"
+          ?disabled=${busy || preview === null || this._mergeConfirming}
+          @click=${() => {
+            this._mergeConfirming = true;
+          }}
+        >
+          ${t("merge_action")}
+        </button>
+        <button class="text" ?disabled=${busy} @click=${() => this._resetMerge()}>
+          ${t("merge_clear")}
+        </button>
+        ${this._mergeFailed
+          ? html`<span class="edit-message error">${t("merge_error")}</span>`
+          : nothing}
+      </div>
+      ${missing.length > 0
+        ? html`<div class="edit-fields">
+            ${missing.map(
+              (session) => html`<label class="edit-row">
+                <span class="muted"
+                  >${t("merge_odometer_prompt", {
+                    date: formatDateTime(session.plug_start, locale, zone),
+                  })}</span
+                >
+                <input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  .value=${this._mergeOdometer[session.id] ?? ""}
+                  ?disabled=${busy}
+                  @input=${(event: Event) =>
+                    this._setMergeOdometer(session.id, (event.target as HTMLInputElement).value)}
+                />
+              </label>`,
+            )}
+          </div>`
+        : nothing}
+      ${check === undefined && !this._mergeFailed
+        ? html`<p class="muted">${t("merge_checking")}</p>`
+        : nothing}
+      ${check && check.violations.length > 0
+        ? html`<div class="merge-blocked" role="status">
+            <span>${t("merge_blocked")}</span>
+            <ul>
+              ${check.violations.map(
+                (violation) => html`<li>${t(`merge_violation_${violation}`)}</li>`,
+              )}
+            </ul>
+          </div>`
+        : nothing}
+      ${this._mergeConfirming && preview !== null
+        ? html`<div class="merge-preview">
+            <span class="muted">${t("merge_preview_title")}</span>
+            ${this._renderSession(preview, t, true)}
+            <p class="merge-warning" role="alert">${t("merge_warning")}</p>
+            <div class="edit-actions">
+              <button
+                class="text danger"
+                ?disabled=${busy}
+                @click=${() => this._confirmMerge(reload)}
+              >
+                ${t("merge_confirm")}
+              </button>
+              <button
+                class="text"
+                ?disabled=${busy}
+                @click=${() => {
+                  this._mergeConfirming = false;
+                }}
+              >
+                ${t("merge_cancel")}
+              </button>
+            </div>
+          </div>`
+        : nothing}
     </div>`;
   }
 
@@ -1114,12 +1319,12 @@ export class EvChargingPanelView extends LitElement {
     </div>`;
   }
 
-  private _renderSession(session: Session, t: Translate): TemplateResult {
+  private _renderSession(session: Session, t: Translate, open = false): TemplateResult {
     const hass = this.hass!;
     const locale = hass.locale.language;
     const zone = hass.config.time_zone;
     const unassigned = session.vehicle_id === null;
-    return html`<details class="session">
+    return html`<details class="session" ?open=${open}>
       <summary>
         <span class="c-date">${formatDateTime(session.plug_start, locale, zone)}</span>
         <span class=${classMap({ "c-vehicle": true, vehicle: true, unassigned })}
@@ -1494,6 +1699,35 @@ export class EvChargingPanelView extends LitElement {
         border: none;
         border-top: 1px solid var(--ev-line);
         border-radius: 0;
+      }
+
+      .merge-select {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-right: auto;
+      }
+
+      .merge-blocked ul {
+        margin: 4px 0 0;
+        padding-left: 20px;
+      }
+
+      .merge-blocked,
+      .merge-warning {
+        color: var(--error-color, #db4437);
+      }
+
+      .merge-preview {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .merge-preview details {
+        border: 1px solid var(--ev-line);
+        border-radius: var(--ev-radius);
+        overflow: hidden;
       }
 
       @media (max-width: 800px) {

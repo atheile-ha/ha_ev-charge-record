@@ -150,3 +150,17 @@ create_session:
     provider:
       selector:
         text:
+merge_sessions:
+  fields:
+    session_ids:
+      required: true
+      selector:
+        text:
+          multiple: true
+    confirm:
+      required: true
+      selector:
+        boolean:
+    odometer_km:
+      selector:
+        object:

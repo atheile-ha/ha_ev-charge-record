@@ -509,6 +509,8 @@ async def test_stats_count_open_followups_per_month(
         ("sessions/delete", {"session_id": "a"}),
         ("sessions/close_followup", {"session_id": "a"}),
         ("sessions/correct_vehicle", {"session_id": "a", "vehicle_id": "v001"}),
+        ("sessions/merge", {"session_ids": ["a", "b"]}),
+        ("sessions/merge", {"session_ids": ["a", "b"], "dry_run": True}),
         (
             "sessions/create",
             {

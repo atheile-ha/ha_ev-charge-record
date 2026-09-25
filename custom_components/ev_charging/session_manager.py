@@ -119,14 +119,23 @@ from .models import (
     Card,
     EntityRole,
     HubSettings,
+    MergeCheck,
+    MergeRejectedError,
     Phase,
     Session,
     Vehicle,
     Wallbox,
     derive_energy_kwh,
+    merge_sessions,
     merge_shortest_pauses,
 )
-from .store import RuntimeStore, SessionYearStore, async_list_session_years
+from .store import (
+    MissingSessionsError,
+    RuntimeStore,
+    SessionYearStore,
+    async_list_session_years,
+    replace_by_merged,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -3322,9 +3331,23 @@ class SessionOperationError(Exception):
 class SessionNotFoundError(SessionOperationError):
     """No stored session has the given id."""
 
+    def __init__(self, session_id: str) -> None:
+        """Keep the id that was not found."""
+        super().__init__(f"No session with id {session_id}")
+        self.session_id = session_id
+
 
 class SessionValidationError(SessionOperationError):
     """The requested change is not valid for this session."""
+
+
+class SessionMergeError(SessionValidationError):
+    """The selected sessions do not meet the conditions for merging."""
+
+    def __init__(self, check: MergeCheck) -> None:
+        """Keep the failed check, so the caller can name every unmet condition."""
+        super().__init__(f"Sessions cannot be merged: {', '.join(check.violations)}")
+        self.check = check
 
 
 def parse_offset_datetime(value: str) -> datetime:
@@ -3417,7 +3440,7 @@ async def async_find_stored_session(hass: HomeAssistant, session_id: str) -> tup
         for session in await SessionYearStore(hass, year).async_load():
             if session.id == session_id:
                 return year, session
-    raise SessionNotFoundError(f"No session with id {session_id}")
+    raise SessionNotFoundError(session_id)
 
 
 async def _async_replace_session(hass: HomeAssistant, year: int, updated: Session) -> None:
@@ -3626,6 +3649,67 @@ async def async_correct_vehicle(hass: HomeAssistant, session_id: str, vehicle_id
 def _now_iso() -> str:
     """Format the current moment as local ISO 8601 with offset, to the second."""
     return _iso(dt_util.utcnow())
+
+
+def _local_year(session: Session) -> int:
+    """Return the year a stored session belongs to: that of plug_start in local time."""
+    try:
+        return dt_util.as_local(parse_offset_datetime(session.plug_start)).year
+    except ValueError as err:
+        raise SessionValidationError(f"Session {session.id} has an unreadable plug_start") from err
+
+
+async def async_merge_sessions(
+    hass: HomeAssistant,
+    session_ids: Sequence[str],
+    odometer_inputs: dict[str, float],
+    *,
+    dry_run: bool = False,
+) -> Session:
+    """Replace the given stored sessions by one merged session.
+
+    Only ever runs on an explicit request. odometer_inputs holds entered
+    readings for sessions without odometer_km. Raises SessionNotFoundError
+    for an unknown id and SessionMergeError if a condition is not met. With
+    dry_run, the merged session is returned without writing anything.
+    """
+    ids = list(dict.fromkeys(session_ids))
+    located = [await async_find_stored_session(hass, session_id) for session_id in ids]
+    threshold = _estimate_uncertain_threshold(hass)
+    modified_at = _now_iso()
+
+    def _build(sources: list[Session]) -> Session:
+        try:
+            return merge_sessions(
+                sources,
+                odometer_inputs,
+                local_year=_local_year,
+                estimate_uncertain_threshold_pct=threshold,
+                modified_at=modified_at,
+            )
+        except MergeRejectedError as err:
+            raise SessionMergeError(err.check) from err
+
+    preview = _build([session for _, session in located])
+    if dry_run:
+        return preview
+
+    built: list[Session] = []
+
+    def _apply(current: list[Session]) -> list[Session]:
+        def _build_and_keep(sources: list[Session]) -> Session:
+            built.append(_build(sources))
+            return built[-1]
+
+        try:
+            return replace_by_merged(current, ids, _build_and_keep)
+        except MissingSessionsError as err:
+            raise SessionNotFoundError(str(err)) from err
+
+    await SessionYearStore(hass, located[0][0]).async_update(_apply)
+    await _async_refresh_followups(hass)
+    _LOGGER.info("Merged %s sessions into %s", len(ids), built[-1].id)
+    return built[-1]
 
 
 async def async_create_session(hass: HomeAssistant, fields: dict[str, Any]) -> Session:

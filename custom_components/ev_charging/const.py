@@ -309,9 +309,39 @@ SERVICE_DELETE_SESSION = "delete_session"
 SERVICE_CREATE_SESSION = "create_session"
 SERVICE_CLOSE_FOLLOWUP = "close_followup"
 SERVICE_CORRECT_VEHICLE = "correct_vehicle"
+SERVICE_MERGE_SESSIONS = "merge_sessions"
 ATTR_CONFIRM = "confirm"
 ATTR_SESSION_ID = "id"
+ATTR_SESSION_IDS = "session_ids"
+ATTR_ODOMETER_KM = "odometer_km"
 ATTR_VEHICLE_ID = "vehicle_id"
+
+# Merging stored sessions. The odometer readings of the selection may
+# differ by at most this much, largest minus smallest.
+MERGE_MAX_ODOMETER_DEVIATION_KM = 1.0
+# Entry added to modified_fields of a merged session.
+MERGE_MARKER = "merged"
+# Stable keys of the conditions a selection can violate, in reporting order.
+MERGE_VIOLATION_TOO_FEW_SESSIONS = "too_few_sessions"
+MERGE_VIOLATION_ODOMETER_MISSING = "odometer_missing"
+MERGE_VIOLATION_ODOMETER_DEVIATION = "odometer_deviation"
+MERGE_VIOLATION_VEHICLE = "vehicle_differs"
+MERGE_VIOLATION_LOCATION = "location_differs"
+MERGE_VIOLATION_CHARGE_TYPE = "charge_type_differs"
+MERGE_VIOLATION_CARD = "card_differs"
+MERGE_VIOLATION_ADDRESS = "address_differs"
+MERGE_VIOLATION_YEAR = "year_differs"
+MERGE_VIOLATIONS = (
+    MERGE_VIOLATION_TOO_FEW_SESSIONS,
+    MERGE_VIOLATION_ODOMETER_MISSING,
+    MERGE_VIOLATION_ODOMETER_DEVIATION,
+    MERGE_VIOLATION_VEHICLE,
+    MERGE_VIOLATION_LOCATION,
+    MERGE_VIOLATION_CHARGE_TYPE,
+    MERGE_VIOLATION_CARD,
+    MERGE_VIOLATION_ADDRESS,
+    MERGE_VIOLATION_YEAR,
+)
 
 # Fields update_session may change (10, 13, 15). vehicle_id runs exclusively
 # through correct_vehicle (7.8); location, plug_start, wallbox_id and every

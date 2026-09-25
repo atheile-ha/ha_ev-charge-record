@@ -17,7 +17,9 @@ from homeassistant.util import dt as dt_util
 from . import geocoding, session_manager
 from .const import (
     ATTR_CONFIRM,
+    ATTR_ODOMETER_KM,
     ATTR_SESSION_ID,
+    ATTR_SESSION_IDS,
     ATTR_VEHICLE_ID,
     CURRENT_TYPES,
     DOMAIN,
@@ -27,6 +29,7 @@ from .const import (
     SERVICE_CREATE_SESSION,
     SERVICE_DELETE_ALL_DATA,
     SERVICE_DELETE_SESSION,
+    SERVICE_MERGE_SESSIONS,
     SERVICE_RETRY_ADDRESS,
     SERVICE_UPDATE_SESSION,
     UPDATE_SESSION_FIELDS,
@@ -72,6 +75,13 @@ _DELETE_SESSION_SCHEMA = vol.Schema({vol.Required(ATTR_SESSION_ID): cv.string})
 _CLOSE_FOLLOWUP_SCHEMA = vol.Schema({vol.Required(ATTR_SESSION_ID): cv.string})
 _CORRECT_VEHICLE_SCHEMA = vol.Schema(
     {vol.Required(ATTR_SESSION_ID): cv.string, vol.Required(ATTR_VEHICLE_ID): cv.string}
+)
+_MERGE_SESSIONS_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_SESSION_IDS): vol.All(cv.ensure_list, [cv.string], vol.Length(min=1)),
+        vol.Required(ATTR_CONFIRM): cv.boolean,
+        vol.Optional(ATTR_ODOMETER_KM, default=dict): {cv.string: _NON_NEGATIVE},
+    }
 )
 _CREATE_SESSION_SCHEMA = vol.Schema(
     {
@@ -222,6 +232,34 @@ async def _async_handle_create_session(hass: HomeAssistant, call: ServiceCall) -
         raise ServiceValidationError(str(err)) from err
 
 
+async def _async_handle_merge_sessions(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Replace the selected sessions by one merged session, after admin check and confirmation."""
+    await _async_require_admin(hass, call, permission=SERVICE_MERGE_SESSIONS)
+    if not call.data.get(ATTR_CONFIRM):
+        raise ServiceValidationError(
+            translation_domain=DOMAIN, translation_key="merge_confirm_required"
+        )
+    try:
+        await session_manager.async_merge_sessions(
+            hass, call.data[ATTR_SESSION_IDS], dict(call.data[ATTR_ODOMETER_KM])
+        )
+    except session_manager.SessionMergeError as err:
+        first = err.check.violations[0]
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key=f"merge_{first}",
+            translation_placeholders={"sessions": ", ".join(err.check.missing_odometer)},
+        ) from err
+    except session_manager.SessionNotFoundError as err:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="merge_session_not_found",
+            translation_placeholders={"session_id": err.session_id},
+        ) from err
+    except session_manager.SessionOperationError as err:
+        raise ServiceValidationError(str(err)) from err
+
+
 @callback
 def async_setup_services(hass: HomeAssistant) -> None:
     """Register the domain's services, once per Home Assistant run."""
@@ -249,6 +287,9 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async def _create_session(call: ServiceCall) -> None:
         await _async_handle_create_session(hass, call)
 
+    async def _merge_sessions(call: ServiceCall) -> None:
+        await _async_handle_merge_sessions(hass, call)
+
     hass.services.async_register(
         DOMAIN, SERVICE_DELETE_ALL_DATA, _delete_all_data, schema=_DELETE_ALL_DATA_SCHEMA
     )
@@ -270,6 +311,9 @@ def async_setup_services(hass: HomeAssistant) -> None:
     hass.services.async_register(
         DOMAIN, SERVICE_CREATE_SESSION, _create_session, schema=_CREATE_SESSION_SCHEMA
     )
+    hass.services.async_register(
+        DOMAIN, SERVICE_MERGE_SESSIONS, _merge_sessions, schema=_MERGE_SESSIONS_SCHEMA
+    )
 
 
 @callback
@@ -282,3 +326,4 @@ def async_unload_services(hass: HomeAssistant) -> None:
     hass.services.async_remove(DOMAIN, SERVICE_CLOSE_FOLLOWUP)
     hass.services.async_remove(DOMAIN, SERVICE_CORRECT_VEHICLE)
     hass.services.async_remove(DOMAIN, SERVICE_CREATE_SESSION)
+    hass.services.async_remove(DOMAIN, SERVICE_MERGE_SESSIONS)
