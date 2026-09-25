@@ -11,10 +11,12 @@ import pytest
 from custom_components.ev_charging import problems
 from custom_components.ev_charging.const import (
     DOMAIN,
+    HOME_VEHICLE_START_DELAY_S,
     LOCATION_EXTERNAL,
     LOCATION_HOME_NO_WALLBOX,
     SESSION_STATE_CHARGING,
     SESSION_STATE_ERROR,
+    SESSION_STATE_PAUSED,
     SESSION_STATUS_FLAGGED,
     SUBENTRY_TYPE_VEHICLE,
     SUBENTRY_TYPE_WALLBOX,
@@ -3443,7 +3445,7 @@ async def test_external_session_location_is_home_no_wallbox_in_the_home_zone(
 
     await _set(hass, GLB_TRACKER, "home")
     await _set(hass, GLB_CHARGE, CHARGING_AC)
-    await _advance(hass, freezer, 1)
+    await _advance(hass, freezer, HOME_VEHICLE_START_DELAY_S)
 
     block = _external_block(manager, "v001")
     assert block is not None
@@ -3849,7 +3851,7 @@ async def test_a_vehicle_reporting_charging_long_after_the_wallbox_session_began
     await _advance(hass, freezer, 300)
 
     await _set(hass, GLB_CHARGE, CHARGING_AC)
-    await _advance(hass, freezer, 1)
+    await _advance(hass, freezer, HOME_VEHICLE_START_DELAY_S)
 
     block = _external_block(manager, "v001")
     assert block is not None
@@ -3872,7 +3874,7 @@ async def test_the_vehicle_power_tells_another_car_from_the_one_at_the_wallbox(
     await _start_charging(hass, freezer, power_kw=7.0)
 
     await _set(hass, GLB_CHARGE, CHARGING_AC)
-    await _advance(hass, freezer, 1)
+    await _advance(hass, freezer, HOME_VEHICLE_START_DELAY_S)
 
     assert (_external_block(manager, "v001") is not None) is external
 
@@ -3889,7 +3891,7 @@ async def test_a_vehicle_at_home_is_another_car_once_the_wallbox_names_a_differe
 
     await _set(hass, GLB_TRACKER, "home")
     await _set(hass, GLB_CHARGE, CHARGING_AC)
-    await _advance(hass, freezer, 1)
+    await _advance(hass, freezer, HOME_VEHICLE_START_DELAY_S)
 
     assert _external_block(manager, "v001") is not None
 
@@ -3929,7 +3931,7 @@ async def test_a_vehicle_of_an_ended_wallbox_session_begins_again_only_after_ano
     await _set(hass, GLB_CHARGE, CONNECTED_IDLE)
     await _advance(hass, freezer, 1)
     await _set(hass, GLB_CHARGE, CHARGING_AC)
-    await _advance(hass, freezer, 1)
+    await _advance(hass, freezer, HOME_VEHICLE_START_DELAY_S)
 
     block = _external_block(manager, "v001")
     assert block is not None
@@ -3950,7 +3952,7 @@ async def test_a_vehicle_that_was_not_charging_at_the_end_of_the_wallbox_session
     await _unplug(hass, freezer)
 
     await _set(hass, GLB_CHARGE, CHARGING_AC)
-    await _advance(hass, freezer, 1)
+    await _advance(hass, freezer, HOME_VEHICLE_START_DELAY_S)
 
     assert _external_block(manager, "v001") is not None
 
@@ -4042,3 +4044,126 @@ async def test_an_unusable_vehicle_plug_state_ends_nothing(
         await _advance(hass, freezer, 1)
 
     assert _external_block(manager, "v001") is not None
+
+
+# ------------------------- the vehicle reports before the wallbox, and ends beside it
+
+
+@pytest.mark.parametrize("vehicle", [_glb_unidentified, _glb_ext])
+async def test_a_wallbox_that_reports_the_plug_after_the_vehicle_still_claims_it(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, vehicle: Any
+) -> None:
+    """After re-plugging, the vehicle reports charging seconds before the wallbox plug."""
+    _entry, manager = await _setup(hass, vehicles=(vehicle(),))
+    await _set(hass, GLB_TRACKER, "home")
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 7)
+    assert _external_block(manager, "v001") is None
+
+    await _start_charging(hass, freezer)
+    await _advance(hass, freezer, HOME_VEHICLE_START_DELAY_S)
+
+    assert _external_block(manager, "v001") is None
+    assert len(manager.live_blocks()) == 1
+
+
+async def test_a_vehicle_at_home_without_the_wallbox_begins_at_its_report_after_the_wait(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """The held-back session starts at the report, with the readings of that moment."""
+    _entry, manager = await _setup(hass, vehicles=(_glb_ext(),))
+    await _set(hass, GLB_TRACKER, "home")
+    await _set(hass, GLB_SOC, "40", "%")
+    reported_at = dt_util.utcnow()
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 30)
+    await _set(hass, GLB_SOC, "41", "%")
+    assert _external_block(manager, "v001") is None
+
+    await _advance(hass, freezer, HOME_VEHICLE_START_DELAY_S - 30)
+
+    block = _external_block(manager, "v001")
+    assert block is not None
+    assert block["location"] == LOCATION_HOME_NO_WALLBOX
+    session = manager._vehicle_sessions["v001"]
+    assert session.start == reported_at
+    assert dt_util.parse_datetime(session.phases[0].start) == reported_at.replace(microsecond=0)
+    assert session.soc_start == 40
+
+
+@pytest.mark.parametrize(
+    ("entity_id", "value", "plug_role"),
+    [(GLB_CHARGE, DISCONNECTED, False), (GLB_PLUG, PLUG_VEHICLE_NOT, True)],
+)
+async def test_unplugging_during_the_wait_begins_no_session(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    entity_id: str,
+    value: str,
+    plug_role: bool,
+) -> None:
+    """A report of the unplugging within the waiting time drops the held-back start."""
+    overrides = {"plug_state": _role(GLB_PLUG)} if plug_role else {}
+    hass.states.async_set(GLB_PLUG, PLUG_VEHICLE)
+    _entry, manager = await _setup(hass, vehicles=(_glb_ext(**overrides),))
+    await _set(hass, GLB_TRACKER, "home")
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 30)
+
+    await _set(hass, entity_id, value)
+    await _advance(hass, freezer, HOME_VEHICLE_START_DELAY_S)
+
+    assert _external_block(manager, "v001") is None
+    assert await _stored(hass) == []
+
+
+async def _external_session_the_wallbox_then_names(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, **overrides: Any
+) -> SessionManager:
+    """A vehicle session begun away, then the wallbox session names the same vehicle."""
+    _entry, manager = await _setup(hass, vehicles=(_glb_ext(**overrides),))
+    await _set(hass, GLB_TRACKER, "not_home")
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 1)
+    assert _external_block(manager, "v001") is not None
+
+    await _set(hass, GLB_TRACKER, "home")
+    await _start_charging(hass, freezer)
+    await _advance(hass, freezer, 20)
+    assert manager.live_payload()["vehicle"]["id"] == "v001"
+    return manager
+
+
+async def test_a_vehicle_session_beside_a_wallbox_session_of_that_vehicle_follows_and_ends(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """The vehicle's own session pauses and ends although the wallbox names the vehicle."""
+    manager = await _external_session_the_wallbox_then_names(hass, freezer)
+
+    await _set(hass, GLB_CHARGE, CONNECTED_IDLE)
+    await _advance(hass, freezer, 1)
+    assert _external_block(manager, "v001")["state"] == SESSION_STATE_PAUSED
+
+    await _set(hass, GLB_CHARGE, DISCONNECTED)
+    await _advance(hass, freezer, 1)
+
+    assert _external_block(manager, "v001") is None
+    (stored,) = await _stored(hass)
+    assert stored.wallbox_id is None
+    assert manager.live_payload()["state"] == SESSION_STATE_CHARGING
+
+
+async def test_the_vehicle_plug_state_ends_its_session_beside_a_wallbox_session_of_it(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """Not connected ends the vehicle's own session also while the wallbox names it."""
+    hass.states.async_set(GLB_PLUG, PLUG_VEHICLE)
+    manager = await _external_session_the_wallbox_then_names(
+        hass, freezer, plug_state=_role(GLB_PLUG)
+    )
+
+    await _set(hass, GLB_PLUG, PLUG_VEHICLE_NOT)
+    await _advance(hass, freezer, 1)
+
+    assert _external_block(manager, "v001") is None
+    assert len(await _stored(hass)) == 1

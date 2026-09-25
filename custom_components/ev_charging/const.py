@@ -89,6 +89,10 @@ SAME_VEHICLE_WINDOW_S = 120
 SAME_VEHICLE_POWER_TOLERANCE_RATIO = 0.25
 SAME_VEHICLE_POWER_TOLERANCE_MIN_KW = 1.5
 
+# A vehicle at home that reports charging begins its own session only after
+# this many seconds, dated back to the report, unless the wallbox claimed it.
+HOME_VEHICLE_START_DELAY_S = 90
+
 # Geocoding (7.7). At most one request per this many seconds, serialized
 # through one queue shared by every lookup.
 GEOCODING_MIN_INTERVAL_S = 1.0

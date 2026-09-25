@@ -5,21 +5,24 @@ import { EvChargingPanelCard } from "./ev-charging-panel-card";
 import { EvChargingPanelView } from "./ev-charging-panel-view";
 import { EvChargingRecentCard, EvChargingRecentCardEditor } from "./ev-charging-recent-card";
 import { EvChargingSessionList } from "./ev-charging-session-list";
+import { keepDefined } from "./registry";
 
-function defineOnce(name: string, constructor: CustomElementConstructor): void {
-  if (!customElements.get(name)) {
-    customElements.define(name, constructor);
-  }
-}
-
-defineOnce("ev-charging-panel-view", EvChargingPanelView);
-defineOnce("ev-charging-session-list", EvChargingSessionList);
-defineOnce("ev-charging-panel", EvChargingPanel);
-defineOnce("ev-charging-panel-card", EvChargingPanelCard);
-defineOnce("ev-charging-recent-card", EvChargingRecentCard);
-defineOnce("ev-charging-recent-card-editor", EvChargingRecentCardEditor);
-defineOnce("ev-charging-live-card", EvChargingLiveCard);
-defineOnce("ev-charging-month-card", EvChargingMonthCard);
+keepDefined(
+  [
+    ["ev-charging-panel-view", EvChargingPanelView],
+    ["ev-charging-session-list", EvChargingSessionList],
+    ["ev-charging-panel", EvChargingPanel],
+    ["ev-charging-panel-card", EvChargingPanelCard],
+    ["ev-charging-recent-card", EvChargingRecentCard],
+    ["ev-charging-recent-card-editor", EvChargingRecentCardEditor],
+    ["ev-charging-live-card", EvChargingLiveCard],
+    ["ev-charging-month-card", EvChargingMonthCard],
+  ],
+  {
+    onIncomplete: () =>
+      console.warn("ev_charging: the element registry of this page refuses the cards"),
+  },
+);
 
 // Makes the cards appear in the dashboard card picker. The picker reads the
 // name before any translation is available, so it shows the card type.

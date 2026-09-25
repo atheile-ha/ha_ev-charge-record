@@ -61,6 +61,7 @@ from .const import (
     ERROR_DEBOUNCE_S,
     FINAL_VALUES_GRACE_S,
     GRID_POWER_WINDOW_S,
+    HOME_VEHICLE_START_DELAY_S,
     IDENTIFICATION_SOURCE_MANUAL,
     IDENTIFICATION_SOURCE_UNRESOLVED,
     IDENTIFICATION_SOURCE_VEHICLE_API,
@@ -664,6 +665,15 @@ class VehicleContext:
 
 
 @dataclass(frozen=True, slots=True)
+class _PendingVehicleStart:
+    """A charging report at home whose session start waits for the wallbox."""
+
+    reported_at: datetime
+    soc: float | None
+    odometer_km: float | None
+
+
+@dataclass(frozen=True, slots=True)
 class WallboxSnapshot:
     """What the entities publish. Rebuilt at every state change and at the publish interval."""
 
@@ -737,6 +747,7 @@ class SessionManager:
         self._vehicle_charge_class: dict[str, str | None] = {}
         self._vehicle_plug_class: dict[str, str | None] = {}
         self._vehicle_rearm: set[str] = set()
+        self._vehicle_pending: dict[str, _PendingVehicleStart] = {}
         self._units_seen: dict[str, str | None] = {}
         self._counter_detection: dict[str, str] | None = None
         self._open_followups = 0
@@ -2014,12 +2025,17 @@ class SessionManager:
             self._cancel_timer(self._vehicle_stale_timer_name(vehicle_id))
 
     def _start_vehicle_session(
-        self, context: VehicleContext, now: datetime
+        self,
+        context: VehicleContext,
+        now: datetime,
+        *,
+        pending: _PendingVehicleStart | None = None,
     ) -> RunningVehicleSession:
         """Begin a vehicle's own session, deciding its location once from the tracker (7.4).
 
         Home-zone means home_no_wallbox; anything else, including an unusable
-        tracker, means external, with coordinates captured for geocoding.
+        tracker, means external, with coordinates captured for geocoding. A
+        held-back start brings the readings taken at the report.
         """
         location = (
             LOCATION_HOME_NO_WALLBOX
@@ -2033,9 +2049,15 @@ class SessionManager:
             state=SESSION_STATE_CHARGING,
             state_since=now,
             last_valid=now,
-            soc_start=self._read_vehicle_number(context, ROLE_SOC, None),
-            odometer_km=self._read_vehicle_number(
-                context, ROLE_ODOMETER, DISTANCE_UNIT_FACTORS_TO_KM
+            soc_start=(
+                pending.soc
+                if pending is not None
+                else self._read_vehicle_number(context, ROLE_SOC, None)
+            ),
+            odometer_km=(
+                pending.odometer_km
+                if pending is not None
+                else self._read_vehicle_number(context, ROLE_ODOMETER, DISTANCE_UNIT_FACTORS_TO_KM)
             ),
         )
         if location == LOCATION_EXTERNAL:
@@ -2057,17 +2079,17 @@ class SessionManager:
     def _drive_vehicle_session(self, context: VehicleContext, klass: str, now: datetime) -> None:
         """Move a vehicle's own session according to its charge state class (4.7, 7.4, 7.5).
 
-        Takes no part while the wallbox already claims this vehicle: the
-        wallbox is the authoritative source of location for it either way
-        (7.4). Only the charging class begins a session; connected_idle and
-        error only ever continue one that already exists. A session does
-        not begin for the car at the wallbox, nor for a vehicle that has
-        reported charging since its wallbox session ended until it has reported
-        anything else.
+        Only the charging class begins a session; connected_idle and error
+        only ever continue one that already exists, and disconnected always
+        ends it, also while the wallbox session names this vehicle. A session
+        does not begin for a vehicle the wallbox session names, for the car at
+        the wallbox, nor for a vehicle that has reported charging since its
+        wallbox session ended until it has reported anything else. A vehicle
+        at home begins its session only after a waiting time, so a wallbox
+        that reports the plug later than the vehicle reports charging still
+        claims it.
         """
         vehicle_id = context.vehicle.id
-        if self._session is not None and self._session.vehicle_id == vehicle_id:
-            return
         session = self._vehicle_sessions.get(vehicle_id)
         if session is not None and session.state == SESSION_STATE_AWAITING_FINAL:
             return
@@ -2075,13 +2097,17 @@ class SessionManager:
             self._vehicle_rearm.discard(vehicle_id)
             self._persist()
         if klass == CHARGE_STATE_DISCONNECTED:
+            self._cancel_vehicle_pending(vehicle_id)
             if session is not None:
                 self._end_vehicle_session(context, session, now)
             return
         if session is None:
-            if klass != CHARGE_STATE_CHARGING:
+            if klass != CHARGE_STATE_CHARGING or vehicle_id in self._vehicle_pending:
                 return
-            if vehicle_id in self._vehicle_rearm or self._wallbox_covers_vehicle(context, now):
+            if self._vehicle_start_suppressed(context, now):
+                return
+            if self._vehicle_location(context) == TRACKER_STATE_HOME:
+                self._begin_vehicle_pending(context, now)
                 return
             session = self._start_vehicle_session(context, now)
 
@@ -2108,15 +2134,84 @@ class SessionManager:
             session.charge_error = True
             self._enter_vehicle_state(session, SESSION_STATE_ERROR)
 
+    def _vehicle_start_suppressed(self, context: VehicleContext, reported_at: datetime) -> bool:
+        """Whether a charging report, made at the given moment, must not begin a session."""
+        vehicle_id = context.vehicle.id
+        if self._session is not None and self._session.vehicle_id == vehicle_id:
+            return True
+        return vehicle_id in self._vehicle_rearm or self._wallbox_covers_vehicle(
+            context, reported_at
+        )
+
+    def _vehicle_pending_timer_name(self, vehicle_id: str) -> str:
+        """Return the timer name for the delayed start of a vehicle's own session at home."""
+        return f"vehicle_pending_{vehicle_id}"
+
+    def _begin_vehicle_pending(self, context: VehicleContext, now: datetime) -> None:
+        """Hold back the start of a vehicle's session at home for the waiting time.
+
+        The moment of the report and the readings of that moment are kept, so
+        a session that begins after the waiting time starts at the report.
+        """
+        vehicle_id = context.vehicle.id
+        self._vehicle_pending[vehicle_id] = _PendingVehicleStart(
+            reported_at=now,
+            soc=self._read_vehicle_number(context, ROLE_SOC, None),
+            odometer_km=self._read_vehicle_number(
+                context, ROLE_ODOMETER, DISTANCE_UNIT_FACTORS_TO_KM
+            ),
+        )
+        self._set_timer(
+            self._vehicle_pending_timer_name(vehicle_id),
+            HOME_VEHICLE_START_DELAY_S,
+            callback(lambda _now, c=context: self._on_vehicle_pending_timer(c)),
+        )
+        _LOGGER.debug(
+            "Vehicle %s reports charging at home; its own session waits %d s for the wallbox",
+            vehicle_id,
+            HOME_VEHICLE_START_DELAY_S,
+        )
+
+    def _cancel_vehicle_pending(self, vehicle_id: str) -> None:
+        """Drop a held-back start of a vehicle's session."""
+        self._cancel_timer(self._vehicle_pending_timer_name(vehicle_id))
+        self._vehicle_pending.pop(vehicle_id, None)
+
+    @callback
+    def _on_vehicle_pending_timer(self, context: VehicleContext) -> None:
+        """Begin the held-back session unless the wallbox claimed the vehicle meanwhile."""
+        vehicle_id = context.vehicle.id
+        self._timers.pop(self._vehicle_pending_timer_name(vehicle_id), None)
+        pending = self._vehicle_pending.pop(vehicle_id, None)
+        if pending is None or vehicle_id in self._vehicle_sessions:
+            return
+        klass = self._vehicle_charge_class.get(vehicle_id)
+        if klass in (None, CHARGE_STATE_DISCONNECTED):
+            return
+        now = self._now()
+        if self._vehicle_start_suppressed(
+            context, pending.reported_at
+        ) or self._vehicle_start_suppressed(context, now):
+            _LOGGER.debug("Vehicle %s is the car at the wallbox; no own session", vehicle_id)
+            return
+        session = self._start_vehicle_session(context, pending.reported_at, pending=pending)
+        self._open_vehicle_phase(session, pending.reported_at)
+        self._enter_vehicle_state(session, SESSION_STATE_CHARGING)
+        if klass != CHARGE_STATE_CHARGING:
+            self._drive_vehicle_session(context, klass, now)
+        self._touch_live()
+
     def _wallbox_covers_vehicle(self, context: VehicleContext, now: datetime) -> bool:
         """Whether the wallbox session already accounts for a vehicle that reports charging.
 
         Only a vehicle at home can be at the wallbox. Once the wallbox session
         names another vehicle, this one is a different car. While it names
         none, the vehicle counts as the car at the wallbox when its charging
-        report falls in the window of the wallbox session and its power does
-        not contradict the wallbox power. The verdict holds until that session
-        ends. It assigns nothing: the wallbox session stays as it is.
+        report, made at the given moment, falls in the window of the wallbox
+        session and its power does not contradict the wallbox power. A wallbox
+        session that began after the report is in the window. The verdict
+        holds until that session ends. It assigns nothing: the wallbox session
+        stays as it is.
         """
         session = self._session
         vehicle_id = context.vehicle.id
@@ -2185,13 +2280,10 @@ class SessionManager:
         if klass is not None:
             self._vehicle_plug_class[vehicle_id] = klass
         session = self._vehicle_sessions.get(vehicle_id)
-        if (
-            klass == PLUG_STATE_NOT_CONNECTED
-            and session is not None
-            and session.state != SESSION_STATE_AWAITING_FINAL
-            and not (self._session is not None and self._session.vehicle_id == vehicle_id)
-        ):
-            self._end_vehicle_session(context, session, self._now())
+        if klass == PLUG_STATE_NOT_CONNECTED:
+            self._cancel_vehicle_pending(vehicle_id)
+            if session is not None and session.state != SESSION_STATE_AWAITING_FINAL:
+                self._end_vehicle_session(context, session, self._now())
         self._touch_live()
 
     def _enter_vehicle_state(self, session: RunningVehicleSession, state: str) -> None:

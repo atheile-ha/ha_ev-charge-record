@@ -1,5 +1,6 @@
 """Tests for the ev_charging config flow."""
 
+from collections.abc import AsyncGenerator
 from typing import Any
 
 import pytest
@@ -10,7 +11,7 @@ from custom_components.ev_charging.const import (
     SUBENTRY_TYPE_WALLBOX,
     TITLE,
 )
-from homeassistant.config_entries import SOURCE_RECONFIGURE, SOURCE_USER
+from homeassistant.config_entries import SOURCE_RECONFIGURE, SOURCE_USER, ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import entity_registry as er
@@ -87,6 +88,17 @@ def _source_entities(hass: HomeAssistant) -> None:
     hass.states.async_set("sensor.vehicle_charge_type", "13")
     hass.states.async_set("device_tracker.vehicle", "home")
     hass.states.async_set("sensor.grid_power", "500", {"unit_of_measurement": "W"})
+
+
+@pytest.fixture(autouse=True)
+async def _unload_entries(hass: HomeAssistant) -> AsyncGenerator[None]:
+    """Let reloads scheduled by the flows finish, then unload what is still loaded."""
+    yield
+    await hass.async_block_till_done()
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if entry.state is ConfigEntryState.LOADED:
+            await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
 
 
 @pytest.fixture(autouse=True)
@@ -1237,6 +1249,7 @@ async def test_the_direct_read_settings_can_be_changed_without_a_new_wallbox(
     assert data["unit_id"] == 1
     assert data["identification_from_register"] is True
 
+    await hass.async_block_till_done()
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
 
@@ -1260,6 +1273,7 @@ async def test_changing_to_a_device_without_a_register_drops_the_register_choice
     data = entry.subentries[subentry.subentry_id].data
     assert data["identification_from_register"] is False
 
+    await hass.async_block_till_done()
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
 

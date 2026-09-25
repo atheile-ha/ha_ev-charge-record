@@ -174,7 +174,7 @@ def test_the_bundle_is_a_single_file_that_defines_every_element_of_the_sources()
     assert shipped == [FRONTEND_BUNDLE_FILENAME]
 
     main = (FRONTEND_SOURCES / "main.ts").read_text(encoding="utf-8")
-    elements = re.findall(r'defineOnce\("([a-z-]+)"', main)
+    elements = re.findall(r'\["(ev-charging-[a-z-]+)",', main)
     assert PANEL_WEBCOMPONENT in elements
     assert {"ev-charging-panel-card", "ev-charging-recent-card"} <= set(elements)
 

@@ -4,6 +4,17 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.5.3] - 2026-09-25
+
+### Geändert
+
+- Meldet ein Fahrzeug zu Hause einen Ladevorgang, beginnt seine eigene Session erst nach 90 Sekunden, datiert auf die Meldung, und nur, wenn die Wallbox das Fahrzeug bis dahin nicht erfasst
+
+### Behoben
+
+- Eine Fahrzeugsession endet beim Abstecken, auch wenn das Fahrzeug das Abstecken vor der Wallbox meldet
+- Die Karten zeigen nicht mehr zeitweise „Custom element doesn't exist“
+
 ## [0.5.2] - 2026-09-24
 
 ### Geändert
