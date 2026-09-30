@@ -668,6 +668,22 @@ export class EvChargingPanelView extends LitElement {
     return next;
   }
 
+  // After a write, the data cached for the views that are not shown is out
+  // of date; each is loaded again the next time it is opened. The shown
+  // view is reloaded by the caller.
+  private _markOtherViewsStale(): void {
+    const view = this._state?.view;
+    if (view !== "recent") {
+      this._recentRequested = false;
+    }
+    if (view !== "followup") {
+      this._openRequested = false;
+    }
+    if (view === "recent" || view === "followup") {
+      this._yearKey = undefined;
+    }
+  }
+
   private async _run(
     id: string,
     action: () => Promise<unknown>,
@@ -678,6 +694,7 @@ export class EvChargingPanelView extends LitElement {
       await action();
       this._editValues = EvChargingPanelView._omit(this._editValues, id);
       this._editError = EvChargingPanelView._omit(this._editError, id);
+      this._markOtherViewsStale();
       await reload();
     } catch (error) {
       console.error("ev_charging: session correction failed", error);
@@ -1029,6 +1046,7 @@ export class EvChargingPanelView extends LitElement {
       await mergeSessions(this.hass!, this._mergeSelection, this._mergeOdometerPayload(), false);
       this._editingId = null;
       this._resetMerge();
+      this._markOtherViewsStale();
       await reload();
     } catch (error) {
       console.error("ev_charging: merging failed", error);

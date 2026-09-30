@@ -6,6 +6,7 @@ import logging
 import os
 from datetime import timedelta
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from custom_components.ev_charging import problems
@@ -37,7 +38,7 @@ from custom_components.ev_charging.session_manager import (
 )
 from custom_components.ev_charging.store import SessionYearStore
 from freezegun.api import FrozenDateTimeFactory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
@@ -2850,6 +2851,35 @@ async def test_a_card_read_after_the_decision_assigns_an_unassigned_session(
     assert session.energy_measured_kwh == pytest.approx(0.05)
     assert not _direct_read_issue(hass, entry, "direct_read_unreachable")
     assert not _direct_read_issue(hass, entry, "direct_read_invalid_value")
+
+
+async def test_a_card_read_after_the_decision_takes_the_start_values_from_the_recorder(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A vehicle assigned by a late card gets its start values as of the session start."""
+    recorded = {
+        GLB_SOC: State(GLB_SOC, "54", {"unit_of_measurement": "%"}),
+        GLB_ODO: State(GLB_ODO, "10517", {"unit_of_measurement": "km"}),
+    }
+
+    def _history(
+        hass: HomeAssistant, start: Any, end: Any, entity_id: str, **kwargs: Any
+    ) -> dict[str, list[State]]:
+        return {entity_id: [recorded[entity_id]]} if entity_id in recorded else {}
+
+    with patch(
+        "custom_components.ev_charging.session_manager.history.state_changes_during_period",
+        side_effect=_history,
+    ):
+        session, _ = await _run_late_card(
+            hass, freezer, monkeypatch, GLB_REPORTED, vehicles=(_glb(), _eqb())
+        )
+
+    assert session.vehicle_id == "v001"
+    assert session.soc_start == pytest.approx(54.0)
+    assert session.odometer_km == pytest.approx(10517.0)
+    assert "soc_start" not in session.open_fields
+    assert "odometer_km" not in session.open_fields
 
 
 async def test_a_late_card_of_the_vehicle_the_report_chose_only_changes_the_source(

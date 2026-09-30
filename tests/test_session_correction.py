@@ -193,6 +193,86 @@ async def test_update_session_fills_a_missing_field_and_closes_the_followup(
     assert stored.soc_end == 80
 
 
+async def test_update_session_closes_an_open_field_that_now_holds_a_value(
+    hass: HomeAssistant,
+) -> None:
+    """An open raw estimate that a correction of the state of charge fills is closed."""
+    await _store_year(
+        hass,
+        2026,
+        [
+            _session(
+                soc_start=None,
+                soc_end=78,
+                odometer_km=10517,
+                energy_raw_kwh=None,
+                open_fields=("soc_start", "energy_raw_kwh"),
+                status="followup_open",
+            )
+        ],
+    )
+
+    updated = await session_manager.async_update_session(hass, SESSION_ID, {"soc_start": 54})
+
+    assert updated.energy_raw_kwh == pytest.approx(20.4)
+    assert updated.open_fields == ()
+    assert updated.status == "complete"
+
+
+def _external(session_id: str, **overrides: Any) -> Session:
+    day = session_id[:19]
+    fields: dict[str, Any] = {
+        "id": session_id,
+        "plug_start": f"{day}+02:00",
+        "location": "external",
+        "wallbox_id": None,
+        "energy_measured_kwh": None,
+        "energy_kwh": None,
+        "soc_start": None,
+        "soc_end": 78,
+        "open_fields": ("soc_start", "energy_kwh"),
+        "status": "followup_open",
+    }
+    fields.update(overrides)
+    return _session(**fields)
+
+
+async def test_update_session_estimates_energy_only_without_a_measurement(
+    hass: HomeAssistant,
+) -> None:
+    """With measured energy no estimate is formed; without it one is formed or updated."""
+    external_new = "2026-06-02T10:00:00_v001"
+    external_kept = "2026-06-03T10:00:00_v001"
+    await _store_year(
+        hass,
+        2026,
+        [
+            _session(
+                soc_start=None, soc_end=78, open_fields=("soc_start",), status="followup_open"
+            ),
+            _external(external_new),
+            _external(
+                external_kept, energy_estimated_kwh=5.0, energy_kwh=5.0, open_fields=("soc_start",)
+            ),
+        ],
+    )
+
+    home = await session_manager.async_update_session(hass, SESSION_ID, {"soc_start": 54})
+    created = await session_manager.async_update_session(hass, external_new, {"soc_start": 54})
+    kept = await session_manager.async_update_session(hass, external_kept, {"soc_start": 54})
+
+    assert home.energy_raw_kwh == pytest.approx(20.4)
+    assert home.energy_estimated_kwh is None
+    assert home.energy_kwh == pytest.approx(10.0)
+    assert home.status == "complete"
+    for updated in (created, kept):
+        assert updated.energy_raw_kwh == pytest.approx(20.4)
+        assert updated.energy_estimated_kwh == pytest.approx(20.4)
+        assert updated.energy_kwh == pytest.approx(20.4)
+        assert updated.open_fields == ()
+        assert updated.status == "complete"
+
+
 async def test_update_session_never_touches_the_measured_energy_fields(hass: HomeAssistant) -> None:
     """I2: the measured and vehicle-reported energy fields are never overwritten."""
     await _store_year(
@@ -441,6 +521,35 @@ async def test_correct_vehicle_reads_start_values_from_the_recorder(hass: HomeAs
     assert updated.odometer_km == pytest.approx(12345.0)
     assert updated.soc_end == 90.0  # not re-determined, per 7.8's correction table
     assert updated.status == "complete"
+    assert updated.energy_raw_kwh == pytest.approx(24.675)
+    assert updated.energy_estimated_kwh is None
+    assert updated.energy_kwh == pytest.approx(10.0)
+
+
+async def test_correct_vehicle_updates_the_estimate_of_a_session_without_measurement(
+    hass: HomeAssistant,
+) -> None:
+    """Without measured energy, the estimate follows the new vehicle's capacity."""
+    _add_vehicle(
+        hass,
+        Vehicle(
+            id="v002",
+            name="EQB",
+            capacity_kwh=70.5,
+            soc=EntityRole(entity_id="sensor.eqb_soc"),
+        ),
+    )
+    await _store_year(
+        hass,
+        2026,
+        [_session(location="external", wallbox_id=None, energy_measured_kwh=None, soc_end=90.0)],
+    )
+
+    with _mock_history({"sensor.eqb_soc": ("55", "%")}):
+        updated = await session_manager.async_correct_vehicle(hass, SESSION_ID, "v002")
+
+    assert updated.energy_estimated_kwh == pytest.approx(24.675)
+    assert updated.energy_kwh == pytest.approx(24.675)
 
 
 async def test_correct_vehicle_never_raises_when_the_recorder_is_unavailable(

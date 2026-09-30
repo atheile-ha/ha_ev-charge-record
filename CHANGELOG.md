@@ -4,6 +4,15 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.5.5] - 2026-09-30
+
+### Behoben
+
+- Wird eine Session erst durch eine nachträglich gelesene Kennung einem Fahrzeug zugeordnet, werden Start-SOC und Kilometerstand aus der Recorder-Historie zum Sessionbeginn übernommen
+- Eine Korrektur entfernt jedes offene Feld aus der Nacherfassung, das danach einen Wert hat
+- Nacherfassung und Fahrzeugkorrektur bilden `energy_estimated_kwh` nur bei Sessions ohne gemessene Energie und berechnen einen vorhandenen Wert neu; `energy_kwh` folgt der Rangfolge abgerechnet, gemessen, vom Fahrzeug gemeldet, geschätzt
+- Nach dem Speichern in der Nacherfassung, der Korrektur oder nach dem Zusammenführen zeigen die übrigen Ansichten des Panels beim nächsten Öffnen den aktuellen Stand
+
 ## [0.5.4] - 2026-09-25
 
 ### Hinzugefügt

@@ -1836,7 +1836,8 @@ class SessionManager:
 
         Only the assignment changes: energy, cost and phases stay as they are.
         A vehicle that is newly assigned or replaced loses the start values
-        that were taken for another vehicle, and they stay open.
+        that were taken for another vehicle; they are looked up from the
+        recorder at the session start, and stay open if it has no answer.
         """
         assert self._card_reader is not None
         session = self._session
@@ -1862,10 +1863,12 @@ class SessionManager:
         session.unknown_card = result.unknown_card
         session.identification_source = result.source
         if result.vehicle_id != session.vehicle_id and result.vehicle_id is not None:
-            self._assign_vehicle(session, self._vehicles[result.vehicle_id], capture_start=False)
+            context = self._vehicles[result.vehicle_id]
+            self._assign_vehicle(session, context, capture_start=False)
             session.soc_start = None
             session.odometer_km = None
             session.location_conflict = False
+            self._start_late_history(context, session.start)
         if result.conflict:
             session.identification_conflict = True
             session.flagged = True
@@ -3482,6 +3485,14 @@ def _sync_open_fields(session: Session, candidates: tuple[str, ...]) -> Session:
     return replace(session, open_fields=(*ordered, *extra))
 
 
+def _drop_filled_open_fields(session: Session) -> Session:
+    """Remove every open_fields entry whose field now holds a value."""
+    remaining = tuple(name for name in session.open_fields if getattr(session, name, None) is None)
+    if remaining == session.open_fields:
+        return session
+    return replace(session, open_fields=remaining)
+
+
 def _recompute_status(session: Session) -> Session:
     """Promote followup_open to complete once nothing is missing; flagged always persists."""
     if session.status == SESSION_STATUS_FLAGGED:
@@ -3493,12 +3504,20 @@ def _recompute_status(session: Session) -> Session:
 def _recompute_energy(session: Session, *, threshold_pct: float) -> Session:
     """Recompute the fields derived from soc_start, soc_end, capacity_kwh and energy_billed_kwh.
 
-    No efficiency factor exists yet (Kapitel 9 is a later stage); the raw
-    estimate stands in for it unfactored, the same as the live capture.
+    No efficiency factor exists yet; the estimate is the raw value
+    unfactored, the same as the live capture. An estimate is formed for a
+    session without measured energy, and an existing one is always
+    updated; a session with measured energy never gains one. energy_kwh
+    follows the ranking billed, measured, vehicle, estimated.
     """
-    raw = energy_raw_kwh(session.soc_start, session.soc_end, session.capacity_kwh)
+    raw = _round(energy_raw_kwh(session.soc_start, session.soc_end, session.capacity_kwh), 3)
+    keeps_estimate = session.energy_measured_kwh is None or session.energy_estimated_kwh is not None
+    estimated = raw if keeps_estimate else None
     energy_kwh = derive_energy_kwh(
-        session.energy_billed_kwh, session.energy_measured_kwh, session.energy_vehicle_kwh, raw
+        session.energy_billed_kwh,
+        session.energy_measured_kwh,
+        session.energy_vehicle_kwh,
+        estimated,
     )
     power_avg = (
         round(energy_kwh / (session.charge_duration_min / 60), 2)
@@ -3512,8 +3531,8 @@ def _recompute_energy(session: Session, *, threshold_pct: float) -> Session:
     )
     return replace(
         session,
-        energy_raw_kwh=_round(raw, 3),
-        energy_estimated_kwh=_round(raw, 3),
+        energy_raw_kwh=raw,
+        energy_estimated_kwh=estimated,
         energy_kwh=_round(energy_kwh, 3),
         power_avg_kw=power_avg,
         estimate_uncertain=uncertain,
@@ -3568,6 +3587,7 @@ async def async_update_session(
         updated = _recompute_energy(updated, threshold_pct=_estimate_uncertain_threshold(hass))
         open_candidates.add("energy_kwh")
     updated = _sync_open_fields(updated, tuple(open_candidates))
+    updated = _drop_filled_open_fields(updated)
     updated = _recompute_status(updated)
 
     await _async_replace_session(hass, year, updated)
@@ -3639,6 +3659,7 @@ async def async_correct_vehicle(hass: HomeAssistant, session_id: str, vehicle_id
     updated = _add_modified(updated, "vehicle_id", "capacity_kwh", "soc_start", "odometer_km")
     updated = _recompute_energy(updated, threshold_pct=_estimate_uncertain_threshold(hass))
     updated = _sync_open_fields(updated, ("vehicle_id", "soc_start", "odometer_km", "energy_kwh"))
+    updated = _drop_filled_open_fields(updated)
     updated = _recompute_status(updated)
 
     await _async_replace_session(hass, year, updated)
