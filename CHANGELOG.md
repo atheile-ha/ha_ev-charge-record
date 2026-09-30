@@ -4,6 +4,12 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.5.6] - 2026-09-30
+
+### Geändert
+
+- Abhängigkeit `pymodbus` als Mindestversion `>=3.13.1` statt fester Fassung
+
 ## [0.5.5] - 2026-09-30
 
 ### Behoben
