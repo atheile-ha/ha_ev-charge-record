@@ -167,6 +167,7 @@ _NOTIFICATION_SWITCHES = (
     "persistent_on_error",
 )
 _NOTIFICATION_OCCASIONS = (
+    "notify_on_session_start",
     "notify_on_session_end",
     "notify_on_external_start",
     "notify_on_external_end",
@@ -240,7 +241,7 @@ async def _async_notify_target_options(
 class EvChargingConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for ev_charging."""
 
-    VERSION = 6
+    VERSION = 7
     MINOR_VERSION = 1
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:

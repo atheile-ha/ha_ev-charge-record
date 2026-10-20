@@ -26,6 +26,7 @@ from tests.test_session_manager import (
     ERROR_CODE,
     GLB_CARD,
     GLB_CHARGE,
+    GLB_TRACKER,
     NEUTRAL_MISSING,
     PLUG,
     PLUGGED,
@@ -506,9 +507,11 @@ async def test_a_finished_wallbox_session_is_summarized(
     assert "Grid: " in message
     assert "Cost: " in message
     assert "Net charging time:" in message
-    assert len(entity_calls) == 1
-    assert entity_calls[0].data["title"] == "Charging finished"
-    assert len(service_calls) == 1
+    assert [call.data["title"] for call in entity_calls] == [
+        "Charging started",
+        "Charging finished",
+    ]
+    assert len(service_calls) == 2
 
 
 async def test_the_summary_uses_the_number_format_of_the_language(
@@ -548,7 +551,12 @@ async def test_an_open_followup_is_reported_to_the_targets_when_switched_on(
 ) -> None:
     """An unassigned session waits for values; the targets learn of it only when asked to."""
     entity_calls, _service_calls = _targets(hass)
-    await _setup(hass, hub=_hub_with_targets(notify_on_followup=True, notify_on_session_end=False))
+    await _setup(
+        hass,
+        hub=_hub_with_targets(
+            notify_on_followup=True, notify_on_session_end=False, notify_on_session_start=False
+        ),
+    )
     await _start_charging(hass, freezer)
     await _advance(hass, freezer, 600)
     await _set(hass, TOTAL, "101.0", "kWh")
@@ -706,6 +714,7 @@ async def test_the_dialog_stores_targets_with_their_form_and_the_switches(
                 "persistent_on_error": True,
                 "notify_target_1": f"service:notify.{PHONE}",
                 "notify_target_2": f"entity:{SPEAKER}",
+                "notify_on_session_start": False,
                 "notify_on_session_end": True,
                 "notify_on_external_start": False,
                 "notify_on_external_end": True,
@@ -721,6 +730,7 @@ async def test_the_dialog_stores_targets_with_their_form_and_the_switches(
     assert entry.data["notify_target_2"] == {"kind": "entity", "target": SPEAKER}
     assert entry.data["persistent_on_session_end"] is False
     assert entry.data["notify_on_external_start"] is False
+    assert entry.data["notify_on_session_start"] is False
     assert entry.data["notify_on_followup"] is True
 
 
@@ -774,7 +784,85 @@ async def test_an_entry_of_version_5_gains_the_notification_settings(hass: HomeA
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert entry.version == 6
+    assert entry.version == 7
     assert entry.data["persistent_enabled"] is True
     assert entry.data["notify_on_followup"] is False
     assert entry.data["notify_target_1"] is None
+
+
+# ------------------------------------------------------------ session start
+
+
+async def test_a_wallbox_session_is_reported_once_its_vehicle_is_recognized(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, persistent: MagicMock
+) -> None:
+    """The start names the vehicle, its state of charge and odometer, only to the targets."""
+    entity_calls, service_calls = _targets(hass)
+    await _setup(hass, vehicles=(_glb(),), hub=_hub_with_targets())
+    await _set(hass, CARD, GLB_CARD)
+
+    await _start_charging(hass, freezer)
+    await _advance(hass, freezer, 5)
+    assert entity_calls == []
+    await _advance(hass, freezer, 15)
+
+    assert [call.data["title"] for call in entity_calls] == ["Charging started"]
+    lines = entity_calls[0].data["message"].splitlines()
+    assert lines[0].startswith("GLB, home (wallbox), since ")
+    assert "State of charge: 40 %" in lines
+    assert "Odometer: 7699 km" in lines
+    assert len(service_calls) == 1
+    assert persistent.call_count == 0
+
+    await _advance(hass, freezer, 600)
+    assert len(entity_calls) == 1
+
+
+async def test_an_unassigned_wallbox_session_is_reported_as_such(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, persistent: MagicMock
+) -> None:
+    """Without a recognized vehicle the start says so and carries no readings."""
+    entity_calls, _service_calls = _targets(hass)
+    hass.config.language = "de"
+    await _setup(hass, hub=_hub_with_targets())
+
+    await _start_charging(hass, freezer)
+    await _advance(hass, freezer, 20)
+
+    assert [call.data["title"] for call in entity_calls] == ["Ladevorgang begonnen"]
+    message = entity_calls[0].data["message"]
+    assert message.startswith("Nicht zugeordnetes Fahrzeug, zu Hause (Wallbox), seit ")
+    assert len(message.splitlines()) == 1
+
+
+async def test_the_start_at_home_can_be_switched_off(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, persistent: MagicMock
+) -> None:
+    entity_calls, service_calls = _targets(hass)
+    await _setup(hass, vehicles=(_glb(),), hub=_hub_with_targets(notify_on_session_start=False))
+    await _set(hass, CARD, GLB_CARD)
+
+    await _start_charging(hass, freezer)
+    await _advance(hass, freezer, 20)
+
+    assert entity_calls == []
+    assert service_calls == []
+
+
+async def test_a_session_at_home_without_the_wallbox_is_reported_at_its_start(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, persistent: MagicMock
+) -> None:
+    """A vehicle charging at home without the wallbox is reported once its session begins."""
+    entity_calls, _service_calls = _targets(hass)
+    await _setup(hass, vehicles=(_glb_ext(),), hub=_hub_with_targets())
+    await _set(hass, GLB_TRACKER, "home")
+
+    await _set(hass, GLB_CHARGE, CHARGING_DC)
+    await _advance(hass, freezer, 60)
+    assert entity_calls == []
+    await _advance(hass, freezer, 40)
+
+    assert [call.data["title"] for call in entity_calls] == ["Charging started"]
+    lines = entity_calls[0].data["message"].splitlines()
+    assert lines[0].startswith("GLB, home (no wallbox), since ")
+    assert "Odometer: 7699 km" in lines

@@ -4,6 +4,13 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.6.1] - 2026-10-20
+
+### Hinzugefügt
+
+- Meldung zum Beginn eines Ladevorgangs zu Hause an die Ziele, sobald das Fahrzeug zugeordnet ist, mit Fahrzeug, Ladestand und Kilometerstand bei Beginn; Anlass „Ladevorgang begonnen“, einzeln abschaltbar
+- Schemaversion 7 des Config Entry mit dem Schalter für diesen Anlass
+
 ## [0.6.0] - 2026-10-20
 
 ### Hinzugefügt

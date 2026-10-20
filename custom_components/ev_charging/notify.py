@@ -308,6 +308,41 @@ class Notifier:
         self._followup(session)
 
     @callback
+    def session_started(
+        self,
+        vehicle_name: str | None,
+        location: str,
+        start: datetime,
+        soc: float | None,
+        odometer_km: float | None,
+    ) -> None:
+        """Report the beginning of a session at home: the vehicle, its state of charge and odometer.
+
+        vehicle_name is None for a session no vehicle was assigned to.
+        """
+
+        def _build(texts: Texts) -> tuple[str, str]:
+            lines = [
+                texts.get(
+                    "session_start",
+                    vehicle=vehicle_name or texts.raw("unassigned"),
+                    location=texts.location(location),
+                    start=texts.moment(start),
+                )
+            ]
+            if soc is not None:
+                lines.append(texts.get("external_start_soc", soc=texts.number(soc, 0)))
+            if odometer_km is not None:
+                lines.append(
+                    texts.get("session_start_odometer", odometer=texts.number(odometer_km, 0))
+                )
+            return texts.raw("title_session_start"), "\n".join(lines)
+
+        self._dispatch(
+            persistent=False, targets=self._settings.notify_on_session_start, build=_build
+        )
+
+    @callback
     def external_started(self, vehicle_name: str, start: datetime, soc: float | None) -> None:
         """Report the beginning of an external charging session."""
 

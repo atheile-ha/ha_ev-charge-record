@@ -1955,8 +1955,22 @@ class SessionManager:
         self._update_unknown_card_issue(result.unknown_card)
         self._evaluate_location_conflict()
         self._resolve_late()
+        self._notify_wallbox_start(session)
         self._persist()
         self._publish()
+
+    def _notify_wallbox_start(self, session: RunningSession) -> None:
+        """Report the wallbox session once its vehicle is decided, assigned or not."""
+        if self._notifier is None:
+            return
+        context = self._vehicles.get(session.vehicle_id) if session.vehicle_id else None
+        self._notifier.session_started(
+            context.vehicle.name if context is not None else None,
+            LOCATION_HOME,
+            session.start,
+            session.soc_start,
+            session.odometer_km,
+        )
 
     def _assign_late_card(self) -> None:
         """Apply a card that was read after the cascade had decided.
@@ -2213,6 +2227,10 @@ class SessionManager:
                 self._start_geocode(context.vehicle.id, session.start)
             if self._notifier is not None:
                 self._notifier.external_started(context.vehicle.name, now, session.soc_start)
+        elif self._notifier is not None:
+            self._notifier.session_started(
+                context.vehicle.name, location, now, session.soc_start, session.odometer_km
+            )
         self._vehicle_sessions[context.vehicle.id] = session
         _LOGGER.debug(
             "An external session begins for vehicle %s, location %s", context.vehicle.id, location

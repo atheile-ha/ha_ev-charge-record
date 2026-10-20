@@ -22,6 +22,7 @@ from .const import (
     DEFAULT_NOTIFY_ON_EXTERNAL_START,
     DEFAULT_NOTIFY_ON_FOLLOWUP,
     DEFAULT_NOTIFY_ON_SESSION_END,
+    DEFAULT_NOTIFY_ON_SESSION_START,
     DEFAULT_PERSISTENT_ENABLED,
     DEFAULT_PERSISTENT_ON_ERROR,
     DEFAULT_PERSISTENT_ON_SESSION_END,
@@ -363,6 +364,7 @@ class HubSettings:
     persistent_on_error: bool = DEFAULT_PERSISTENT_ON_ERROR
     notify_target_1: NotifyTarget | None = None
     notify_target_2: NotifyTarget | None = None
+    notify_on_session_start: bool = DEFAULT_NOTIFY_ON_SESSION_START
     notify_on_session_end: bool = DEFAULT_NOTIFY_ON_SESSION_END
     notify_on_external_start: bool = DEFAULT_NOTIFY_ON_EXTERNAL_START
     notify_on_external_end: bool = DEFAULT_NOTIFY_ON_EXTERNAL_END
@@ -400,6 +402,7 @@ class HubSettings:
             "notify_target_2": (
                 self.notify_target_2.to_dict() if self.notify_target_2 is not None else None
             ),
+            "notify_on_session_start": self.notify_on_session_start,
             "notify_on_session_end": self.notify_on_session_end,
             "notify_on_external_start": self.notify_on_external_start,
             "notify_on_external_end": self.notify_on_external_end,
@@ -434,6 +437,9 @@ class HubSettings:
             persistent_on_error=data.get("persistent_on_error", DEFAULT_PERSISTENT_ON_ERROR),
             notify_target_1=NotifyTarget.from_dict(data.get("notify_target_1")),
             notify_target_2=NotifyTarget.from_dict(data.get("notify_target_2")),
+            notify_on_session_start=data.get(
+                "notify_on_session_start", DEFAULT_NOTIFY_ON_SESSION_START
+            ),
             notify_on_session_end=data.get("notify_on_session_end", DEFAULT_NOTIFY_ON_SESSION_END),
             notify_on_external_start=data.get(
                 "notify_on_external_start", DEFAULT_NOTIFY_ON_EXTERNAL_START

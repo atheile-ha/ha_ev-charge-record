@@ -75,6 +75,7 @@ EXPECTED_HUB_SETTINGS: dict[str, Any] = {
     "persistent_on_error": True,
     "notify_target_1": None,
     "notify_target_2": None,
+    "notify_on_session_start": True,
     "notify_on_session_end": True,
     "notify_on_external_start": True,
     "notify_on_external_end": True,

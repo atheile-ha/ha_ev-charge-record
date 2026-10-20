@@ -384,4 +384,15 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             entry.entry_id,
             from_version,
         )
+
+    if entry.version == 6:
+        from_version = f"{entry.version}.{entry.minor_version}"
+        data = {**entry.data, **HubSettings.from_dict(entry.data).to_dict()}
+        hass.config_entries.async_update_entry(entry, data=data, version=7, minor_version=1)
+        _LOGGER.info(
+            "Migrated ev_charging config entry %s from version %s to 7.1, adding the "
+            "notification of a session start at its default",
+            entry.entry_id,
+            from_version,
+        )
     return True
