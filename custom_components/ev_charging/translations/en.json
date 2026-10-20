@@ -41,6 +41,36 @@
           "price_grid_fixed": "Fixed grid price in €/kWh. Alternative to an entity",
           "price_feed_in": "Entity reporting the feed-in tariff in €/kWh. Alternative to a fixed price",
           "price_feed_in_fixed": "Fixed feed-in tariff in €/kWh. Alternative to an entity"
+        },
+        "sections": {
+          "notifications": {
+            "name": "Notifications",
+            "description": "Persistent notifications in Home Assistant and up to two notification targets. Each occasion can be switched off separately.",
+            "data": {
+              "persistent_enabled": "Persistent notifications",
+              "persistent_on_session_end": "Persistent: summary after each charging session",
+              "persistent_on_error": "Persistent: charging errors",
+              "notify_target_1": "Notification target 1",
+              "notify_target_2": "Notification target 2",
+              "notify_on_session_end": "Targets: charging session finished",
+              "notify_on_external_start": "Targets: external charging started",
+              "notify_on_external_end": "Targets: external charging finished",
+              "notify_on_error": "Targets: charging errors",
+              "notify_on_followup": "Targets: open follow-up"
+            },
+            "data_description": {
+              "persistent_enabled": "Show notifications in Home Assistant. They rotate through five ids, so the five most recent stay available",
+              "persistent_on_session_end": "Summary with vehicle, location, state of charge, energy, grid and solar share, cost, net charging time and phases",
+              "persistent_on_error": "Charging errors of the wallbox or a vehicle, and charging sessions closed after their source was unavailable for 12 hours",
+              "notify_target_1": "A notify entity or a classic notify service, for example a mobile app",
+              "notify_target_2": "Optional second target",
+              "notify_on_session_end": "Summary after a charging session at home, with or without the wallbox",
+              "notify_on_external_start": "When a vehicle starts charging away from home",
+              "notify_on_external_end": "Summary after an external charging session",
+              "notify_on_error": "Charging errors, and charging sessions closed after their source was unavailable for 12 hours",
+              "notify_on_followup": "When a finished charging session still lacks values"
+            }
+          }
         }
       }
     },
@@ -49,7 +79,8 @@
       "geocoding_contact_required": "A contact is required while geocoding is enabled.",
       "estimate_uncertain_threshold_out_of_range": "Must be greater than 0 and at most 100.",
       "grid_source_conflict": "Grid power and grid import/export are alternatives; set only one.",
-      "price_source_conflict": "Choose either an entity or a fixed value, not both."
+      "price_source_conflict": "Choose either an entity or a fixed value, not both.",
+      "notify_target_duplicate": "Choose two different notification targets."
     }
   },
   "config_subentries": {
@@ -393,6 +424,41 @@
     }
   },
   "selector": {
+    "notify_target_kind": {
+      "options": {
+        "entity": "entity",
+        "service": "service"
+      }
+    },
+    "notification": {
+      "options": {
+        "title_session_end": "Charging finished",
+        "title_external_start": "External charging started",
+        "title_external_end": "External charging finished",
+        "title_error": "Charging error",
+        "title_stale": "Charging session closed",
+        "title_followup": "Follow-up open",
+        "summary_vehicle": "{vehicle}, {location}",
+        "summary_soc": "State of charge: {soc_start} % → {soc_end} %",
+        "summary_energy": "Energy: {energy} kWh",
+        "summary_split": "Grid: {grid} kWh, solar: {solar} kWh",
+        "summary_cost": "Cost: {cost} {currency}",
+        "summary_duration": "Net charging time: {duration} min in {phases} phases",
+        "summary_followup": "Some values are missing and can be added in the follow-up view.",
+        "external_start": "{vehicle} started charging at {start}.",
+        "external_start_soc": "State of charge: {soc} %",
+        "error": "Source: {source}\nError: {error}\nSince: {since}",
+        "stale": "The charging session of {vehicle} was closed because {source} reported no usable state for {hours} hours. Its end is set to {end}; the session is flagged for review.",
+        "followup": "{vehicle}, {location}, {start}: {count} values are missing.",
+        "unassigned": "Unassigned vehicle",
+        "not_available": "unknown",
+        "decimal_separator": ".",
+        "datetime_format": "%Y-%m-%d %H:%M",
+        "location_home": "home (wallbox)",
+        "location_home_no_wallbox": "home (no wallbox)",
+        "location_external": "external"
+      }
+    },
     "vehicle_mapping_id": {
       "options": {
         "none": "Vehicle without online connection"
@@ -441,7 +507,6 @@
         "menu_toggle": "Toggle sidebar",
         "view_overview": "Overview",
         "view_detail": "Detail list",
-        "view_recent": "Last 5",
         "period_month": "Month",
         "period_year": "Year",
         "period_previous": "Previous month",
@@ -487,6 +552,8 @@
         "flag_location_conflict": "Location conflict",
         "flag_identification_conflict": "Identification conflict",
         "flag_charge_error": "Charging error reported",
+        "flag_charge_error_wallbox": "Charging error reported by the wallbox",
+        "flag_charge_error_vehicle": "Charging error reported by the vehicle",
         "flag_unallocated_energy": "Energy not allocated",
         "detail_plug_start": "Plugged in",
         "detail_plug_end": "Unplugged",
@@ -737,6 +804,10 @@
     "merge_year_differs": { "message": "The sessions belong to different years." }
   },
   "issues": {
+    "notify_target_missing": {
+      "title": "Notification target missing",
+      "description": "The notification target \"{target}\" no longer exists in Home Assistant. Notifications continue to the other target and as persistent notifications. Restore the target, or choose another one in the notifications of the global settings."
+    },
     "role_entity_removed": {
       "title": "Assigned entity removed",
       "description": "The entity assigned to the {role} role of \"{subentry_title}\" was removed from the entity registry. Assign a new entity to this role."
@@ -867,6 +938,21 @@
       }
     },
     "binary_sensor": {
+      "problem": {
+        "name": "{title} problem",
+        "state_attributes": {
+          "source": {
+            "name": "Source",
+            "state": {
+              "wallbox": "Wallbox",
+              "vehicle": "Vehicle"
+            }
+          },
+          "vehicle_id": {
+            "name": "Vehicle ID"
+          }
+        }
+      },
       "wallbox_session": {
         "name": "{wallbox} Wallbox session"
       },

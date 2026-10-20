@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { onConnectionReady } from "../src/connection";
+import { onConnectionReady, reconnectPlan } from "../src/connection";
 import type { HomeAssistant } from "../src/types";
 
 function fakeHass(): { hass: HomeAssistant; fire: () => void } {
@@ -55,5 +55,33 @@ describe("onConnectionReady", () => {
       hass.connection.addEventListener as unknown as { mock: { calls: [string, () => void][] } }
     ).mock.calls[0];
     expect(hass.connection.removeEventListener).toHaveBeenCalledWith(type, listener);
+  });
+});
+
+describe("reconnectPlan", () => {
+  const loaded = { started: true, failed: false, open: false };
+
+  it("starts a failed view over", () => {
+    expect(reconnectPlan({ ...loaded, failed: true, year: 2026 })).toEqual({ kind: "retry" });
+  });
+
+  it("does nothing before the first load", () => {
+    expect(reconnectPlan({ ...loaded, started: false })).toEqual({ kind: "none" });
+  });
+
+  it("reloads the shown year and every view cached before", () => {
+    expect(reconnectPlan({ ...loaded, year: 2026, open: true })).toEqual({
+      kind: "reload",
+      year: 2026,
+      open: true,
+    });
+  });
+
+  it("reloads only what was loaded", () => {
+    expect(reconnectPlan({ ...loaded, year: 2025 })).toEqual({
+      kind: "reload",
+      year: 2025,
+      open: false,
+    });
   });
 });

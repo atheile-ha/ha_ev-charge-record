@@ -5,6 +5,7 @@ import { makeTranslate } from "../src/i18n";
 import {
   assignmentText,
   blockTitleText,
+  chargeErrorText,
   chargeEndText,
   chargeTypeText,
   counterText,
@@ -87,6 +88,7 @@ function live(overrides: Partial<LiveBlock> = {}): LiveBlock {
     sources: { grid_balance: true, grid_price: true },
     flagged: false,
     charge_error: false,
+    charge_error_source: null,
     location_conflict: false,
     ...overrides,
   };
@@ -549,5 +551,22 @@ describe("texts of the live card", () => {
     for (const key of keys) {
       expect(Object.keys(de.selector.panel.options)).toContain(key);
     }
+  });
+});
+
+describe("chargeErrorText", () => {
+  it("names the source of an error reported right now", () => {
+    const atWallbox = live({ charge_error: true, charge_error_source: "wallbox" });
+    const atVehicle = external({ charge_error: true, charge_error_source: "vehicle" });
+    expect(chargeErrorText(atWallbox, tDe)).toBe("Ladefehler der Wallbox");
+    expect(chargeErrorText(atVehicle, tEn)).toBe("Charging error reported by the vehicle");
+  });
+
+  it("keeps the plain marking for an error that has ended", () => {
+    expect(chargeErrorText(live({ charge_error: true }), tDe)).toBe("Ladefehler gemeldet");
+  });
+
+  it("shows nothing without an error", () => {
+    expect(chargeErrorText(live(), tEn)).toBeNull();
   });
 });

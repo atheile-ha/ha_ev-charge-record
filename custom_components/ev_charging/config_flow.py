@@ -58,6 +58,11 @@ from .const import (
     MIN_START_DEBOUNCE_S,
     MIN_UPDATE_INTERVAL_S,
     NO_VEHICLE_INTEGRATION,
+    NOTIFY_DOMAIN,
+    NOTIFY_SERVICES_EXCLUDED,
+    NOTIFY_TARGET_ENTITY,
+    NOTIFY_TARGET_KINDS,
+    NOTIFY_TARGET_SERVICE,
     ROLE_IDENTIFICATION,
     SOLAR_VALUATIONS,
     SUBENTRY_TYPE_VEHICLE,
@@ -66,7 +71,15 @@ from .const import (
     VEHICLE_ID_PREFIX,
     WALLBOX_ID_PREFIX,
 )
-from .models import Card, EntityRole, HubSettings, Vehicle, Wallbox, normalize_card_uid
+from .models import (
+    Card,
+    EntityRole,
+    HubSettings,
+    NotifyTarget,
+    Vehicle,
+    Wallbox,
+    normalize_card_uid,
+)
 
 # Shown in the vehicle dialog's identification hint when no value can be read.
 NO_IDENTIFICATION_HINT = "-"
@@ -147,10 +160,87 @@ async def _async_no_vehicle_integration_label(hass: HomeAssistant) -> str:
     return translations[f"component.{DOMAIN}.selector.vehicle_mapping_id.options.none"]
 
 
+# Fields of the notifications section of the global settings, in dialog order.
+_NOTIFICATION_SWITCHES = (
+    "persistent_enabled",
+    "persistent_on_session_end",
+    "persistent_on_error",
+)
+_NOTIFICATION_OCCASIONS = (
+    "notify_on_session_end",
+    "notify_on_external_start",
+    "notify_on_external_end",
+    "notify_on_error",
+    "notify_on_followup",
+)
+_NOTIFY_TARGET_FIELDS = ("notify_target_1", "notify_target_2")
+
+
+def _notify_target_value(target: NotifyTarget) -> str:
+    """Return the selector value of a notification target, which carries its kind."""
+    return f"{target.kind}:{target.target}"
+
+
+def _notify_target_from_value(value: str | None) -> NotifyTarget | None:
+    """Return the notification target a selector value stands for."""
+    if not value:
+        return None
+    kind, _, target = value.partition(":")
+    if kind not in NOTIFY_TARGET_KINDS or not target:
+        return None
+    return NotifyTarget(kind=kind, target=target)
+
+
+async def _async_notify_target_options(
+    hass: HomeAssistant, current: tuple[NotifyTarget | None, ...]
+) -> list[SelectOptionDict]:
+    """Offer every notify entity and every classic notify service in one list.
+
+    A target that is configured but no longer exists stays selectable, so
+    saving the dialog never drops it silently.
+    """
+    translations = await _async_selector_translations(hass)
+    kind_labels = {
+        kind: translations.get(
+            f"component.{DOMAIN}.selector.notify_target_kind.options.{kind}", kind
+        )
+        for kind in NOTIFY_TARGET_KINDS
+    }
+    options: list[SelectOptionDict] = []
+    for state in sorted(hass.states.async_all(NOTIFY_DOMAIN), key=lambda item: item.entity_id):
+        target = NotifyTarget(kind=NOTIFY_TARGET_ENTITY, target=state.entity_id)
+        options.append(
+            SelectOptionDict(
+                value=_notify_target_value(target),
+                label=f"{state.name} ({state.entity_id}, {kind_labels[NOTIFY_TARGET_ENTITY]})",
+            )
+        )
+    for name in sorted(hass.services.async_services_for_domain(NOTIFY_DOMAIN)):
+        if name in NOTIFY_SERVICES_EXCLUDED:
+            continue
+        target = NotifyTarget(kind=NOTIFY_TARGET_SERVICE, target=f"{NOTIFY_DOMAIN}.{name}")
+        options.append(
+            SelectOptionDict(
+                value=_notify_target_value(target),
+                label=f"{target.target} ({kind_labels[NOTIFY_TARGET_SERVICE]})",
+            )
+        )
+    offered = {option["value"] for option in options}
+    for target in current:
+        if target is not None and _notify_target_value(target) not in offered:
+            options.append(
+                SelectOptionDict(
+                    value=_notify_target_value(target),
+                    label=f"{target.target} ({kind_labels[target.kind]})",
+                )
+            )
+    return options
+
+
 class EvChargingConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for ev_charging."""
 
-    VERSION = 5
+    VERSION = 6
     MINOR_VERSION = 1
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
@@ -175,6 +265,12 @@ class EvChargingConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             errors = self._validate_settings(user_input)
+            notifications = user_input.get("notifications", {})
+            targets = [
+                _notify_target_from_value(notifications.get(name)) for name in _NOTIFY_TARGET_FIELDS
+            ]
+            if targets[0] is not None and targets[0] == targets[1]:
+                errors["base"] = "notify_target_duplicate"
             if not errors:
                 settings = HubSettings(
                     update_interval_s=user_input["update_interval_s"],
@@ -197,14 +293,21 @@ class EvChargingConfigFlow(ConfigFlow, domain=DOMAIN):
                         self.hass, user_input.get("price_feed_in") or None
                     ),
                     price_feed_in_fixed=user_input.get("price_feed_in_fixed"),
+                    notify_target_1=targets[0],
+                    notify_target_2=targets[1],
+                    **{
+                        name: bool(notifications.get(name, getattr(defaults, name)))
+                        for name in (*_NOTIFICATION_SWITCHES, *_NOTIFICATION_OCCASIONS)
+                    },
                 )
                 return self.async_update_reload_and_abort(
                     entry, data={**entry.data, **settings.to_dict()}
                 )
 
+        target_options = await _async_notify_target_options(self.hass, defaults.notify_targets)
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=self._settings_schema(defaults=defaults),
+            data_schema=self._settings_schema(defaults=defaults, target_options=target_options),
             errors=errors,
         )
 
@@ -226,8 +329,24 @@ class EvChargingConfigFlow(ConfigFlow, domain=DOMAIN):
             errors["price_feed_in"] = "price_source_conflict"
         return errors
 
-    def _settings_schema(self, *, defaults: HubSettings) -> vol.Schema:
+    def _settings_schema(
+        self, *, defaults: HubSettings, target_options: list[SelectOptionDict]
+    ) -> vol.Schema:
         d = defaults
+        target_selector = SelectSelector(
+            SelectSelectorConfig(options=target_options, mode=SelectSelectorMode.DROPDOWN)
+        )
+        notifications: dict[Any, Any] = {
+            vol.Required(name, default=getattr(d, name)): bool for name in _NOTIFICATION_SWITCHES
+        }
+        for name, target in zip(_NOTIFY_TARGET_FIELDS, d.notify_targets, strict=True):
+            suggested = _notify_target_value(target) if target is not None else None
+            notifications[vol.Optional(name, description={"suggested_value": suggested})] = (
+                target_selector
+            )
+        notifications.update(
+            {vol.Required(name, default=getattr(d, name)): bool for name in _NOTIFICATION_OCCASIONS}
+        )
         return vol.Schema(
             {
                 vol.Required("update_interval_s", default=d.update_interval_s): vol.Coerce(int),
@@ -267,6 +386,9 @@ class EvChargingConfigFlow(ConfigFlow, domain=DOMAIN):
                 ): vol.Any(None, EntitySelector()),
                 vol.Optional("price_feed_in_fixed", default=d.price_feed_in_fixed): vol.Any(
                     None, vol.Coerce(float)
+                ),
+                vol.Required("notifications"): section(
+                    vol.Schema(notifications), SectionConfig(collapsed=True)
                 ),
             }
         )

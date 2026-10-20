@@ -7,15 +7,13 @@ import {
   createSession,
   deleteSession,
   listOpenSessions,
-  listSessions,
   listVehicles,
   listYear,
   mergeSessions,
   updateSession,
   type SessionCreate,
 } from "./api";
-import { onConnectionReady } from "./connection";
-import "./ev-charging-session-list";
+import { onConnectionReady, reconnectPlan } from "./connection";
 import {
   EMPTY,
   formatCost,
@@ -47,7 +45,6 @@ import {
   monthlySummaries,
   sessionsOfMonth,
   shiftMonth,
-  summarizeSessions,
   summarizeYear,
   vehicleOptions,
   yearOptions,
@@ -83,7 +80,6 @@ import type {
 } from "./types";
 
 const REFRESH_INTERVAL_MS = 10 * 60 * 1000;
-const RECENT_COUNT = 5;
 
 // Pseudo id under which the create-session form tracks its own busy and
 // error state, alongside the per-session ids used by the other actions.
@@ -94,9 +90,7 @@ const CHEVRON_RIGHT = "M8.59,16.58L13.17,12L8.59,7.42L10,6L16,12L10,18L8.59,16.5
 
 const VIEWS: { id: ViewId; label: TextKey }[] = [
   { id: "overview", label: "view_overview" },
-  { id: "recent", label: "view_recent" },
   { id: "detail", label: "view_detail" },
-  { id: "followup", label: "view_followup" },
   { id: "correction", label: "view_correction" },
 ];
 const LOCATIONS: SessionLocation[] = ["home", "home_no_wallbox", "external"];
@@ -127,7 +121,6 @@ export class EvChargingPanelView extends LitElement {
   @state() private _t?: Translate;
   @state() private _yearSessions?: Session[];
   @state() private _years: number[] = [];
-  @state() private _recent?: Session[];
   @state() private _vehicles: Vehicle[] = [];
   @state() private _failed = false;
   @state() private _metric: Metric = "energy";
@@ -152,7 +145,6 @@ export class EvChargingPanelView extends LitElement {
 
   private _started = false;
   private _yearKey?: number;
-  private _recentRequested = false;
   private _openRequested = false;
   private _timer?: number;
   private _connectionUnsub?: () => void;
@@ -204,20 +196,12 @@ export class EvChargingPanelView extends LitElement {
       this._started = true;
       void this._loadShared(hass, false);
     }
-    if (
-      state.view !== "recent" &&
-      state.view !== "followup" &&
-      this._yearKey !== state.year
-    ) {
+    if (this._yearKey !== state.year) {
       this._yearKey = state.year;
       this._yearSessions = undefined;
       void this._loadYear(hass, state.year, false);
     }
-    if (state.view === "recent" && !this._recentRequested) {
-      this._recentRequested = true;
-      void this._loadRecent(hass, false);
-    }
-    if (state.view === "followup" && !this._openRequested) {
+    if (state.view === "correction" && !this._openRequested) {
       this._openRequested = true;
       void this._loadOpenSessions(hass, false);
     }
@@ -230,13 +214,8 @@ export class EvChargingPanelView extends LitElement {
       return;
     }
     void this._loadShared(hass, true);
-    if (state.view !== "recent" && state.view !== "followup") {
-      void this._loadYear(hass, state.year, true);
-    }
-    if (state.view === "recent") {
-      void this._loadRecent(hass, true);
-    }
-    if (state.view === "followup") {
+    void this._loadYear(hass, state.year, true);
+    if (state.view === "correction") {
       void this._loadOpenSessions(hass, true);
     }
   }
@@ -252,22 +231,41 @@ export class EvChargingPanelView extends LitElement {
     this._failed = false;
     this._started = false;
     this._yearKey = undefined;
-    this._recentRequested = false;
     this._openRequested = false;
     this.requestUpdate();
   }
 
-  // A load that raced a reconnect leaves the view failed; retry once the
-  // connection is back instead of waiting only for a manual click.
+  // Once the connection is back, a failed view starts over and every other
+  // view loads its data again, the shown one and those cached before.
   private _watchConnection(hass: HomeAssistant): void {
     if (this._connectionUnsub) {
       return;
     }
-    this._connectionUnsub = onConnectionReady(hass, () => {
-      if (this._failed) {
-        this._retry();
-      }
+    this._connectionUnsub = onConnectionReady(hass, () => this._onReconnect());
+  }
+
+  private _onReconnect(): void {
+    const hass = this.hass;
+    const plan = reconnectPlan({
+      started: this._started,
+      failed: this._failed,
+      year: this._yearKey,
+      open: this._openRequested,
     });
+    if (plan.kind === "retry") {
+      this._retry();
+      return;
+    }
+    if (plan.kind === "none" || !hass) {
+      return;
+    }
+    void this._loadShared(hass, true);
+    if (plan.year !== undefined) {
+      void this._loadYear(hass, plan.year, true);
+    }
+    if (plan.open) {
+      void this._loadOpenSessions(hass, true);
+    }
   }
 
   private async _loadShared(hass: HomeAssistant, silent: boolean): Promise<void> {
@@ -302,14 +300,6 @@ export class EvChargingPanelView extends LitElement {
       if (this._yearKey === year) {
         this._fail(error, silent);
       }
-    }
-  }
-
-  private async _loadRecent(hass: HomeAssistant, silent: boolean): Promise<void> {
-    try {
-      this._recent = await listSessions(hass, { limit: RECENT_COUNT });
-    } catch (error) {
-      this._fail(error, silent);
     }
   }
 
@@ -353,21 +343,16 @@ export class EvChargingPanelView extends LitElement {
     if (!t) {
       return html`<div class="spinner" role="progressbar"></div>`;
     }
-    const withPeriod = state.view === "overview" || state.view === "detail" || state.view === "correction";
     return html`
       <div class="view">
         ${this._renderTabs(t, state)}
-        ${withPeriod ? this._renderFilters(t, state) : nothing}
-        ${withPeriod ? this._renderPeriod(t, state) : nothing}
+        ${this._renderFilters(t, state)}
+        ${this._renderPeriod(t, state)}
         ${state.view === "overview"
           ? this._renderOverview(t, state)
           : state.view === "detail"
             ? this._renderDetail(t, state)
-            : state.view === "followup"
-              ? this._renderFollowup(t)
-              : state.view === "correction"
-                ? this._renderCorrection(t, state)
-                : this._renderRecent(t)}
+            : this._renderCorrection(t, state)}
         <p class="hint muted">${t("multi_day_hint")} ${t("estimate_hint")}</p>
       </div>
     `;
@@ -626,7 +611,6 @@ export class EvChargingPanelView extends LitElement {
     const ofMonth = sessionsOfMonth(this._yearSessions, state.month, zone);
     const visible = applyFilters(ofMonth, state.filters);
     return html`
-      ${this._renderTiles(t, summarizeSessions(visible))}
       <p class="count muted">
         ${t("filter_count", { shown: visible.length, total: ofMonth.length })}
       </p>
@@ -636,20 +620,6 @@ export class EvChargingPanelView extends LitElement {
           </div>`
         : this._renderTable(visible, t)}
     `;
-  }
-
-  private _renderRecent(t: Translate): TemplateResult {
-    const sessions = this._recent;
-    if (!sessions) {
-      return html`<div class="spinner" role="progressbar"></div>`;
-    }
-    return sessions.length === 0
-      ? html`<div class="message">${t("no_sessions")}</div>`
-      : html`<ev-charging-session-list
-          .hass=${this.hass}
-          .t=${t}
-          .sessions=${sessions}
-        ></ev-charging-session-list>`;
   }
 
   // ----------------------------------------------------------- nacherfassung
@@ -668,22 +638,6 @@ export class EvChargingPanelView extends LitElement {
     return next;
   }
 
-  // After a write, the data cached for the views that are not shown is out
-  // of date; each is loaded again the next time it is opened. The shown
-  // view is reloaded by the caller.
-  private _markOtherViewsStale(): void {
-    const view = this._state?.view;
-    if (view !== "recent") {
-      this._recentRequested = false;
-    }
-    if (view !== "followup") {
-      this._openRequested = false;
-    }
-    if (view === "recent" || view === "followup") {
-      this._yearKey = undefined;
-    }
-  }
-
   private async _run(
     id: string,
     action: () => Promise<unknown>,
@@ -694,7 +648,6 @@ export class EvChargingPanelView extends LitElement {
       await action();
       this._editValues = EvChargingPanelView._omit(this._editValues, id);
       this._editError = EvChargingPanelView._omit(this._editError, id);
-      this._markOtherViewsStale();
       await reload();
     } catch (error) {
       console.error("ev_charging: session correction failed", error);
@@ -738,18 +691,20 @@ export class EvChargingPanelView extends LitElement {
     );
   }
 
-  private _renderFollowup(t: Translate): TemplateResult {
+  // The open follow-ups over all years, independent of the chosen month and
+  // the filters, at the top of the correction view.
+  private _renderFollowup(t: Translate, reload: () => Promise<void>): TemplateResult {
     const sessions = this._openSessions;
-    if (!sessions) {
-      return html`<div class="spinner" role="progressbar"></div>`;
-    }
-    if (sessions.length === 0) {
-      return html`<div class="message">${t("followup_empty")}</div>`;
-    }
-    const reload = () => this._loadOpenSessions(this.hass!, true);
-    return html`<div class="followup-list">
-      ${sessions.map((session) => this._renderFollowupRow(session, t, reload))}
-    </div>`;
+    return html`<section class="followup-section">
+      <h3>${t("view_followup")}</h3>
+      ${!sessions
+        ? html`<div class="spinner" role="progressbar"></div>`
+        : sessions.length === 0
+          ? html`<div class="message">${t("followup_empty")}</div>`
+          : html`<div class="followup-list">
+              ${sessions.map((session) => this._renderFollowupRow(session, t, reload))}
+            </div>`}
+    </section>`;
   }
 
   private _renderFollowupRow(
@@ -861,8 +816,15 @@ export class EvChargingPanelView extends LitElement {
     const zone = this.hass!.config.time_zone;
     const ofMonth = sessionsOfMonth(this._yearSessions, state.month, zone);
     const visible = applyFilters(ofMonth, state.filters);
-    const reload = () => this._loadYear(this.hass!, state.year, true);
+    // A change can affect both lists: the follow-ups and the sessions of the month.
+    const reload = async (): Promise<void> => {
+      await Promise.all([
+        this._loadOpenSessions(this.hass!, true),
+        this._loadYear(this.hass!, state.year, true),
+      ]);
+    };
     return html`
+      ${this._renderFollowup(t, reload)}
       <div class="edit-actions">
         <button class="text" @click=${() => this._toggleCreate()}>
           ${t("edit_new_session")}
@@ -1046,7 +1008,6 @@ export class EvChargingPanelView extends LitElement {
       await mergeSessions(this.hass!, this._mergeSelection, this._mergeOdometerPayload(), false);
       this._editingId = null;
       this._resetMerge();
-      this._markOtherViewsStale();
       await reload();
     } catch (error) {
       console.error("ev_charging: merging failed", error);
@@ -1670,6 +1631,21 @@ export class EvChargingPanelView extends LitElement {
       .hint {
         margin: 0;
         font-size: 0.85em;
+      }
+
+      .followup-section {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding-bottom: 16px;
+        margin-bottom: 16px;
+        border-bottom: 1px solid var(--ev-line);
+      }
+
+      .followup-section h3 {
+        margin: 0;
+        font-size: 1em;
+        font-weight: 500;
       }
 
       .followup-list {

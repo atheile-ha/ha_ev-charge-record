@@ -41,6 +41,36 @@
           "price_grid_fixed": "Fester Netzstrompreis in €/kWh. Alternative zu einer Entität",
           "price_feed_in": "Entität mit der Einspeisevergütung in €/kWh. Alternative zu einem festen Wert",
           "price_feed_in_fixed": "Feste Einspeisevergütung in €/kWh. Alternative zu einer Entität"
+        },
+        "sections": {
+          "notifications": {
+            "name": "Benachrichtigungen",
+            "description": "Persistente Benachrichtigungen in Home Assistant und bis zu zwei Benachrichtigungsziele. Jeder Anlass lässt sich einzeln abschalten.",
+            "data": {
+              "persistent_enabled": "Persistente Benachrichtigungen",
+              "persistent_on_session_end": "Persistent: Zusammenfassung nach jedem Ladevorgang",
+              "persistent_on_error": "Persistent: Ladefehler",
+              "notify_target_1": "Benachrichtigungsziel 1",
+              "notify_target_2": "Benachrichtigungsziel 2",
+              "notify_on_session_end": "Ziele: Ladevorgang beendet",
+              "notify_on_external_start": "Ziele: externer Ladevorgang begonnen",
+              "notify_on_external_end": "Ziele: externer Ladevorgang beendet",
+              "notify_on_error": "Ziele: Ladefehler",
+              "notify_on_followup": "Ziele: offene Nacherfassung"
+            },
+            "data_description": {
+              "persistent_enabled": "Benachrichtigungen in Home Assistant anzeigen. Sie wechseln reihum zwischen fünf Kennungen, die jüngsten fünf bleiben stehen",
+              "persistent_on_session_end": "Zusammenfassung mit Fahrzeug, Ladeort, Ladestand, Energie, Netz- und Sonnenanteil, Kosten, Netto-Ladedauer und Phasen",
+              "persistent_on_error": "Ladefehler der Wallbox oder eines Fahrzeugs sowie Ladevorgänge, die nach 12 Stunden ohne verfügbare Quelle geschlossen wurden",
+              "notify_target_1": "Eine Entität der Domäne notify oder ein klassischer Benachrichtigungsdienst, etwa eine Mobile App",
+              "notify_target_2": "Optionales zweites Ziel",
+              "notify_on_session_end": "Zusammenfassung nach einem Ladevorgang zu Hause, mit oder ohne Wallbox",
+              "notify_on_external_start": "Wenn ein Fahrzeug außerhalb zu laden beginnt",
+              "notify_on_external_end": "Zusammenfassung nach einem externen Ladevorgang",
+              "notify_on_error": "Ladefehler sowie Ladevorgänge, die nach 12 Stunden ohne verfügbare Quelle geschlossen wurden",
+              "notify_on_followup": "Wenn einem beendeten Ladevorgang noch Werte fehlen"
+            }
+          }
         }
       }
     },
@@ -49,7 +79,8 @@
       "geocoding_contact_required": "Solange Geocoding aktiv ist, ist eine Kontaktangabe erforderlich.",
       "estimate_uncertain_threshold_out_of_range": "Muss größer als 0 und höchstens 100 sein.",
       "grid_source_conflict": "Netzsaldo und Netzbezug/Netzeinspeisung sind Alternativen; nur eines davon angeben.",
-      "price_source_conflict": "Entweder eine Entität oder einen festen Wert angeben, nicht beides."
+      "price_source_conflict": "Entweder eine Entität oder einen festen Wert angeben, nicht beides.",
+      "notify_target_duplicate": "Zwei verschiedene Benachrichtigungsziele wählen."
     }
   },
   "config_subentries": {
@@ -393,6 +424,41 @@
     }
   },
   "selector": {
+    "notify_target_kind": {
+      "options": {
+        "entity": "Entität",
+        "service": "Dienst"
+      }
+    },
+    "notification": {
+      "options": {
+        "title_session_end": "Ladevorgang beendet",
+        "title_external_start": "Externer Ladevorgang begonnen",
+        "title_external_end": "Externer Ladevorgang beendet",
+        "title_error": "Ladefehler",
+        "title_stale": "Ladevorgang geschlossen",
+        "title_followup": "Nacherfassung offen",
+        "summary_vehicle": "{vehicle}, {location}",
+        "summary_soc": "Ladestand: {soc_start} % → {soc_end} %",
+        "summary_energy": "Energie: {energy} kWh",
+        "summary_split": "Netz: {grid} kWh, Sonne: {solar} kWh",
+        "summary_cost": "Kosten: {cost} {currency}",
+        "summary_duration": "Netto-Ladedauer: {duration} min in {phases} Phasen",
+        "summary_followup": "Einige Werte fehlen und lassen sich in der Nacherfassung ergänzen.",
+        "external_start": "{vehicle} lädt seit {start}.",
+        "external_start_soc": "Ladestand: {soc} %",
+        "error": "Quelle: {source}\nFehler: {error}\nSeit: {since}",
+        "stale": "Der Ladevorgang von {vehicle} wurde geschlossen, weil {source} {hours} Stunden lang keinen verwertbaren Zustand gemeldet hat. Sein Ende ist auf {end} gesetzt, der Ladevorgang ist zur Prüfung markiert.",
+        "followup": "{vehicle}, {location}, {start}: {count} Werte fehlen.",
+        "unassigned": "Nicht zugeordnetes Fahrzeug",
+        "not_available": "unbekannt",
+        "decimal_separator": ",",
+        "datetime_format": "%d.%m.%Y %H:%M",
+        "location_home": "zu Hause (Wallbox)",
+        "location_home_no_wallbox": "zu Hause (ohne Wallbox)",
+        "location_external": "extern"
+      }
+    },
     "vehicle_mapping_id": {
       "options": {
         "none": "Fahrzeug ohne Online-Anbindung"
@@ -441,7 +507,6 @@
         "menu_toggle": "Seitenleiste umschalten",
         "view_overview": "Übersicht",
         "view_detail": "Detailliste",
-        "view_recent": "Letzte 5",
         "period_month": "Monat",
         "period_year": "Jahr",
         "period_previous": "Vorheriger Monat",
@@ -487,6 +552,8 @@
         "flag_location_conflict": "Standortwiderspruch",
         "flag_identification_conflict": "Widerspruch bei der Zuordnung",
         "flag_charge_error": "Ladefehler gemeldet",
+        "flag_charge_error_wallbox": "Ladefehler der Wallbox",
+        "flag_charge_error_vehicle": "Ladefehler des Fahrzeugs",
         "flag_unallocated_energy": "Energie nicht aufgeteilt",
         "detail_plug_start": "Angesteckt",
         "detail_plug_end": "Abgesteckt",
@@ -740,6 +807,10 @@
     "merge_year_differs": { "message": "Die Ladevorgänge gehören zu verschiedenen Jahren." }
   },
   "issues": {
+    "notify_target_missing": {
+      "title": "Benachrichtigungsziel fehlt",
+      "description": "Das Benachrichtigungsziel „{target}“ existiert in Home Assistant nicht mehr. Benachrichtigungen gehen weiter an das andere Ziel und als persistente Benachrichtigung. Das Ziel wiederherstellen oder in den Benachrichtigungen der globalen Einstellungen ein anderes wählen."
+    },
     "role_entity_removed": {
       "title": "Zugeordnete Entität entfernt",
       "description": "Die der Rolle {role} von \"{subentry_title}\" zugeordnete Entität wurde aus der Entity Registry entfernt. Der Rolle eine neue Entität zuordnen."
@@ -870,6 +941,21 @@
       }
     },
     "binary_sensor": {
+      "problem": {
+        "name": "{title} Problem",
+        "state_attributes": {
+          "source": {
+            "name": "Quelle",
+            "state": {
+              "wallbox": "Wallbox",
+              "vehicle": "Fahrzeug"
+            }
+          },
+          "vehicle_id": {
+            "name": "Fahrzeug-ID"
+          }
+        }
+      },
       "wallbox_session": {
         "name": "{wallbox} Wallbox-Ladevorgang"
       },

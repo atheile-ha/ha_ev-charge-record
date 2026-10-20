@@ -2098,6 +2098,10 @@ async def test_the_entities_of_the_wallbox_belong_to_its_subentry_without_a_devi
 
     assert _devices(hass, entry) == []
     entities = er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+    problem = next(entity for entity in entities if entity.config_subentry_id is None)
+    assert problem.entity_id == "binary_sensor.ev_charging_problem"
+    assert problem.device_id is None
+    entities = [entity for entity in entities if entity is not problem]
     assert len(entities) == len(SENSORS) + 1
     for entity in entities:
         assert entity.device_id is None, entity.entity_id
@@ -3536,7 +3540,7 @@ async def test_an_unmapped_value_during_an_external_session_stays_open_and_flags
     assert issue is not None
 
     await _set(hass, GLB_CHARGE, ERROR_CODE)
-    await _advance(hass, freezer, 1)
+    await _advance(hass, freezer, 6)
     block = _external_block(manager, "v001")
     assert block is not None
     assert block["state"] == SESSION_STATE_ERROR

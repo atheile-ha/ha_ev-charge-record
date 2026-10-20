@@ -1,4 +1,4 @@
-"""Repair issues for source entity problems (4.8, 5.3, 4.7, 12.3)."""
+"""Repair issues for source entity problems and missing notification targets."""
 
 from __future__ import annotations
 
@@ -11,10 +11,12 @@ from .const import (
     ISSUE_DIRECT_READ_INVALID_VALUE,
     ISSUE_DIRECT_READ_UNREACHABLE,
     ISSUE_MAPPING_SOURCE_BELOW_MIN_VERSION,
+    ISSUE_NOTIFY_TARGET_MISSING,
     ISSUE_ROLE_ENTITY_REMOVED,
     ISSUE_ROLE_UNIT_CHANGED,
     ISSUE_UNKNOWN_CARD,
     ISSUE_UNKNOWN_MAPPING_VALUE,
+    MAX_NOTIFY_TARGETS,
     READ_FAILURE_INVALID_VALUE,
     READ_FAILURE_UNREACHABLE,
 )
@@ -212,3 +214,32 @@ def check_direct_read(
         translation_key=issue,
         translation_placeholders={"wallbox_title": wallbox_title},
     )
+
+
+def notify_target_missing_issue_id(number: int) -> str:
+    """Return the stable issue id for a notification target, counted from 1."""
+    return f"{ISSUE_NOTIFY_TARGET_MISSING}_{number}"
+
+
+def check_notify_target(hass: HomeAssistant, *, number: int, target: str, present: bool) -> None:
+    """Create or clear the repair issue for a notification target that no longer exists."""
+    issue_id = notify_target_missing_issue_id(number)
+    if present:
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
+        return
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        issue_id,
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key=ISSUE_NOTIFY_TARGET_MISSING,
+        translation_placeholders={"target": target},
+    )
+
+
+def async_clear_notify_target_issues(hass: HomeAssistant, *, numbers: list[int]) -> None:
+    """Clear the repair issues of the given notification target numbers, counted from 1."""
+    for number in numbers:
+        if 1 <= number <= MAX_NOTIFY_TARGETS:
+            ir.async_delete_issue(hass, DOMAIN, notify_target_missing_issue_id(number))

@@ -17,6 +17,14 @@ from .const import (
     DEFAULT_GEOCODING_ENABLED,
     DEFAULT_GEOCODING_URL,
     DEFAULT_IDENTIFICATION_WINDOW_S,
+    DEFAULT_NOTIFY_ON_ERROR,
+    DEFAULT_NOTIFY_ON_EXTERNAL_END,
+    DEFAULT_NOTIFY_ON_EXTERNAL_START,
+    DEFAULT_NOTIFY_ON_FOLLOWUP,
+    DEFAULT_NOTIFY_ON_SESSION_END,
+    DEFAULT_PERSISTENT_ENABLED,
+    DEFAULT_PERSISTENT_ON_ERROR,
+    DEFAULT_PERSISTENT_ON_SESSION_END,
     DEFAULT_POWER_THRESHOLD_KW,
     DEFAULT_START_DEBOUNCE_S,
     DEFAULT_UPDATE_INTERVAL_S,
@@ -33,6 +41,7 @@ from .const import (
     MERGE_VIOLATION_VEHICLE,
     MERGE_VIOLATION_YEAR,
     MERGE_VIOLATIONS,
+    NOTIFY_TARGET_KINDS,
     SESSION_STATUS_COMPLETE,
     SESSION_STATUS_FLAGGED,
     SESSION_STATUS_FOLLOWUP_OPEN,
@@ -302,6 +311,30 @@ class Vehicle:
 
 
 @dataclass(frozen=True, slots=True)
+class NotifyTarget:
+    """A notification target and how it is addressed.
+
+    kind is entity for an entity of the notify domain, sent to through
+    notify.send_message, or service for a classic notify service, called by
+    its own name. target is the entity id or the service as notify.<name>.
+    """
+
+    kind: str
+    target: str
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a plain dict."""
+        return {"kind": self.kind, "target": self.target}
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any] | None) -> NotifyTarget | None:
+        """Deserialize from a plain dict; anything unreadable is no target."""
+        if not data or data.get("kind") not in NOTIFY_TARGET_KINDS or not data.get("target"):
+            return None
+        return cls(kind=data["kind"], target=data["target"])
+
+
+@dataclass(frozen=True, slots=True)
 class HubSettings:
     """Global settings held on the hub config entry (4.2)."""
 
@@ -323,6 +356,23 @@ class HubSettings:
     price_grid_fixed: float | None = None
     price_feed_in: EntityRole | None = None
     price_feed_in_fixed: float | None = None
+    # Notifications. Persistent notifications are switched as a whole and
+    # per occasion; each target occasion is switched for both targets at once.
+    persistent_enabled: bool = DEFAULT_PERSISTENT_ENABLED
+    persistent_on_session_end: bool = DEFAULT_PERSISTENT_ON_SESSION_END
+    persistent_on_error: bool = DEFAULT_PERSISTENT_ON_ERROR
+    notify_target_1: NotifyTarget | None = None
+    notify_target_2: NotifyTarget | None = None
+    notify_on_session_end: bool = DEFAULT_NOTIFY_ON_SESSION_END
+    notify_on_external_start: bool = DEFAULT_NOTIFY_ON_EXTERNAL_START
+    notify_on_external_end: bool = DEFAULT_NOTIFY_ON_EXTERNAL_END
+    notify_on_error: bool = DEFAULT_NOTIFY_ON_ERROR
+    notify_on_followup: bool = DEFAULT_NOTIFY_ON_FOLLOWUP
+
+    @property
+    def notify_targets(self) -> tuple[NotifyTarget | None, NotifyTarget | None]:
+        """Return both target slots in order, empty ones as None."""
+        return (self.notify_target_1, self.notify_target_2)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict."""
@@ -341,6 +391,20 @@ class HubSettings:
             "price_grid_fixed": self.price_grid_fixed,
             "price_feed_in": _role_to_dict(self.price_feed_in),
             "price_feed_in_fixed": self.price_feed_in_fixed,
+            "persistent_enabled": self.persistent_enabled,
+            "persistent_on_session_end": self.persistent_on_session_end,
+            "persistent_on_error": self.persistent_on_error,
+            "notify_target_1": (
+                self.notify_target_1.to_dict() if self.notify_target_1 is not None else None
+            ),
+            "notify_target_2": (
+                self.notify_target_2.to_dict() if self.notify_target_2 is not None else None
+            ),
+            "notify_on_session_end": self.notify_on_session_end,
+            "notify_on_external_start": self.notify_on_external_start,
+            "notify_on_external_end": self.notify_on_external_end,
+            "notify_on_error": self.notify_on_error,
+            "notify_on_followup": self.notify_on_followup,
         }
 
     @classmethod
@@ -363,6 +427,22 @@ class HubSettings:
             price_grid_fixed=data.get("price_grid_fixed"),
             price_feed_in=_role_from_dict(data.get("price_feed_in")),
             price_feed_in_fixed=data.get("price_feed_in_fixed"),
+            persistent_enabled=data.get("persistent_enabled", DEFAULT_PERSISTENT_ENABLED),
+            persistent_on_session_end=data.get(
+                "persistent_on_session_end", DEFAULT_PERSISTENT_ON_SESSION_END
+            ),
+            persistent_on_error=data.get("persistent_on_error", DEFAULT_PERSISTENT_ON_ERROR),
+            notify_target_1=NotifyTarget.from_dict(data.get("notify_target_1")),
+            notify_target_2=NotifyTarget.from_dict(data.get("notify_target_2")),
+            notify_on_session_end=data.get("notify_on_session_end", DEFAULT_NOTIFY_ON_SESSION_END),
+            notify_on_external_start=data.get(
+                "notify_on_external_start", DEFAULT_NOTIFY_ON_EXTERNAL_START
+            ),
+            notify_on_external_end=data.get(
+                "notify_on_external_end", DEFAULT_NOTIFY_ON_EXTERNAL_END
+            ),
+            notify_on_error=data.get("notify_on_error", DEFAULT_NOTIFY_ON_ERROR),
+            notify_on_followup=data.get("notify_on_followup", DEFAULT_NOTIFY_ON_FOLLOWUP),
         )
 
 

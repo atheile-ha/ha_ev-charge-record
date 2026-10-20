@@ -77,13 +77,37 @@ Lädt die Wallbox, entsteht für das Fahrzeug an der Wallbox kein zweiter Ladevo
 
 Der Ladeort ist `home_no_wallbox`, wenn der Standort-Tracker des Fahrzeugs beim Beginn die Heimzone meldet, sonst `external`. Bei `external` werden Koordinaten und Zeitpunkt der letzten Standortmeldung übernommen und eine Adresse ermittelt, erneut beim Ende, sofern die erste Ermittlung fehlschlug, und beim Start der Integration für jeden noch offenen Fall; manuell über `ev_charging.retry_address`. Die Ladeart übernimmt die erste eindeutige Meldung der Rolle `charge_type` und ändert sich danach nicht mehr; ohne eine solche Meldung wird sie am Ende aus der mittleren Ladeleistung geschätzt (Schwelle 25 kW für Gleichstrom). Die geladene Energie ist die von der Rolle `energy_session` gemeldete Menge, sonst eine aus der Ladestandsänderung geschätzte und entsprechend gekennzeichnete Menge. Kosten werden für diese Ladevorgänge nicht ermittelt und bleiben zur Nacherfassung offen.
 
+## Ladefehler und Benachrichtigungen
+
+Ein Ladefehler ist nur, was als Fehler gemeldet wird. Ausbleibende Ladeleistung ist kein Fehler.
+
+- Wallbox: die Rolle `error`, als `binary_sensor` mit `device_class: problem` oder als Zustandsentität mit mitgeliefertem Mapping. Bei einer Zustandsentität ist nur die Klasse `error` ein Fehler, bei der KEBA P40 der Ladezustand `error`; `charging_is_temporarily_interrupted` und `undefined` sind keiner.
+- Fahrzeug: die Klasse `error` der Rolle `charge_state`, bei Mercedes me der Code `4`, nicht der Wert `error`. Das gilt an der Wallbox, zu Hause ohne Wallbox und extern.
+
+Ein Fehler gilt, wenn er 5 Sekunden lang ansteht, auch ohne laufenden Ladevorgang. Ein laufender Ladevorgang geht dann in den Zustand `error`: der Ladevorgang der Wallbox bei einem Fehler der Wallbox oder des ihm zugeordneten Fahrzeugs, der eigene Ladevorgang eines Fahrzeugs bei dessen Fehler. Der Ladevorgang bleibt offen und kehrt zurück, sobald der Fehler nicht mehr gemeldet wird.
+
+| Entität | Inhalt |
+|---|---|
+| `binary_sensor.ev_charging_problem` | an, solange die Wallbox oder ein Fahrzeug einen Ladefehler meldet. Attribute `source` (`wallbox` oder `vehicle`) und `vehicle_id` des zuletzt eingetretenen, noch bestehenden Fehlers |
+
+Die Entität gehört zum Haupteintrag der Integration.
+
+Benachrichtigungen werden in den globalen Einstellungen im Abschnitt „Benachrichtigungen“ eingerichtet:
+
+- Persistente Benachrichtigungen in Home Assistant, insgesamt und je Anlass abschaltbar: Zusammenfassung nach jedem gespeicherten Ladevorgang und Ladefehler. Sie verwenden reihum die Kennungen `ev_charging_1` bis `ev_charging_5`, die sechste Meldung ersetzt wieder die erste. Die Reihenfolge bleibt über einen Neustart erhalten.
+- Bis zu zwei Benachrichtigungsziele: eine Entität der Domäne `notify`, angesprochen über `notify.send_message`, oder ein klassischer Benachrichtigungsdienst wie `notify.mobile_app_<gerät>`, angesprochen über den gleichnamigen Dienst. Beide stehen in einer gemeinsamen Auswahl. Je Anlass abschaltbar: Ladevorgang beendet (zu Hause, mit oder ohne Wallbox), externer Ladevorgang begonnen, externer Ladevorgang beendet, Ladefehler, offene Nacherfassung. Die Meldung zur offenen Nacherfassung ist standardmäßig aus.
+
+Die Zusammenfassung nennt Fahrzeug, Ladeort, Ladestand von und bis, Energie, Netz- und Sonnenanteil, Kosten, Netto-Ladedauer und Zahl der Phasen; Angaben ohne Wert entfallen. Die Fehlermeldung nennt Quelle, gemeldeten Wert und Beginn. Ein Ladevorgang, der nach 12 Stunden ohne verwertbaren Zustand geschlossen wird, wird statt mit der Zusammenfassung mit einer eigenen Meldung über den Anlass Ladefehler gemeldet. Ein verworfener Ladevorgang wird nicht gemeldet. Die Texte folgen der Sprache von Home Assistant, Zahlen mit deren Dezimaltrennzeichen.
+
+Verschwindet ein Benachrichtigungsziel, entsteht eine Repair Issue; das andere Ziel und die persistenten Benachrichtigungen werden weiter bedient. Die Integration legt keine Automationen an und führt bei einem Fehler keine Wiederherstellung aus.
+
 ## Panel und Karten
 
-Nach dem Einrichten erscheint in der Seitenleiste das Panel „EV Charging“. Es zeigt die erfassten Ladevorgänge und ist für alle angemeldeten Benutzer lesbar.
+Nach dem Einrichten erscheint in der Seitenleiste das Panel „EV Charging“. Es zeigt die erfassten Ladevorgänge und ist für alle angemeldeten Benutzer lesbar. Nach einer wiederhergestellten Verbindung zu Home Assistant, etwa nach einem Neustart, lädt es die angezeigte und die zuvor geladenen Ansichten neu.
 
 - Übersicht: Filter für Fahrzeug, Ladeort, Ladeart, Karte und Status, die auf alle Werte der Übersicht wirken, Monatsauswahl, Monatssummen für Energie, Kosten, Ladedauer, Ladevorgänge und offene Nacherfassungen, Monatsbalken über das Jahr mit dem auf ganze Zahlen gerundeten Wert jedes Monats, darunter die gerundete Jahreszusammenfassung gesamt, intern und extern
-- Letzte 5: die jüngsten fünf Ladevorgänge über alle Jahre, aufklappbar für alle Details
-- Detailliste: dieselben Filter, darunter die Summen der gefilterten Ladevorgänge und die Ladevorgänge des Monats als Tabelle. Jeder Eintrag lässt sich aufklappen und zeigt Zeiten, Ladestand, Kilometerstand, Netz- und Sonnenanteil, die Ladephasen und einen Link zu Google Maps. Ein Ladevorgang ohne Ladephase weist das aus
+- Detailliste: dieselben Filter, darunter die Ladevorgänge des Monats als Tabelle. Jeder Eintrag lässt sich aufklappen und zeigt Zeiten, Ladestand, Kilometerstand, Netz- und Sonnenanteil, die Ladephasen und einen Link zu Google Maps. Ein Ladevorgang ohne Ladephase weist das aus
+- Korrektur, nur für Administratoren: oben die offenen Nacherfassungen über alle Jahre mit direkter Eingabe, unabhängig von Monat und Filtern; darunter die Ladevorgänge des gewählten Monats zum Bearbeiten, Löschen, Zuordnen eines Fahrzeugs und Zusammenführen sowie das Nachtragen eines Ladevorgangs
 
 Energie wird mit drei Nachkommastellen angezeigt. Intern sind Ladevorgänge zu Hause, mit und ohne Wallbox. Ladevorgänge ohne Fahrzeug werden als „Nicht zugeordnet“ geführt und zählen in die Summen. Ladevorgänge über mehrere Tage werden dem Monat des Ansteckens zugeordnet. Geschätzte Werte sind mit ~ gekennzeichnet.
 
@@ -93,7 +117,7 @@ In der Kartenauswahl eines Dashboards stehen vier Karten zur Verfügung, sie ers
 |---|---|
 | `ev-charging-panel-card` | dieselben Ansichten wie das Panel, für eine Dashboard-Ansicht vom Typ Panel |
 | `ev-charging-recent-card` | die letzten Ladevorgänge, aufklappbar. Die Anzahl `count` (1 bis 20, Standard 3) lässt sich im Kartendialog oder in YAML einstellen |
-| `ev-charging-live-card` | ein Block je laufendem Ladevorgang: der der Wallbox immer zuerst, auch ohne Fahrzeug, danach die externen Ladevorgänge in der Reihenfolge ihres Beginns. Die Überschrift eines Blocks nennt den Namen der Wallbox oder „Extern“. Jeder Block zeigt Fahrzeug mit Kilometerstand bei Beginn sowie Ladestand von, bis und Ziel in einer Zeile darunter, Zustand mit Grund und Beginn und Zahl der bisherigen Phasen, Herkunft der Zuordnung, Leistung, Energie und Ladezeit. Der Block der Wallbox zeigt zusätzlich Steckerzustand, Stand des Lesens der Kennung, Netz- und Sonnenanteil, Kosten, Preis je kWh, voraussichtliches Ende, das ohne Ladeleistung als nicht verfügbar erscheint, den maßgeblichen Energiezähler und nicht zugeordnete Energie. Ein externer Block zeigt zusätzlich Adresse, Ladeart, Reichweite und restliche Ladezeit. Ohne Ladevorgang an der Wallbox steht dort der Grund, etwa dass kein Fahrzeug verbunden oder der Steckerzustand nicht verfügbar ist. Fehlt eine Angabe, weil kein Netzsaldo oder kein Netzpreis eingerichtet ist, steht der Grund da. Sie folgt den Quellentitäten und ist nicht an `update_interval_s` gebunden |
+| `ev-charging-live-card` | ein Block je laufendem Ladevorgang: der der Wallbox immer zuerst, auch ohne Fahrzeug, danach die externen Ladevorgänge in der Reihenfolge ihres Beginns. Die Überschrift eines Blocks nennt den Namen der Wallbox oder „Extern“. Jeder Block zeigt Fahrzeug mit Kilometerstand bei Beginn sowie Ladestand von, bis und Ziel in einer Zeile darunter, Zustand mit Grund und Beginn und Zahl der bisherigen Phasen, Herkunft der Zuordnung, Leistung, Energie und Ladezeit. Der Block der Wallbox zeigt zusätzlich Steckerzustand, Stand des Lesens der Kennung, Netz- und Sonnenanteil, Kosten, Preis je kWh, voraussichtliches Ende, das ohne Ladeleistung als nicht verfügbar erscheint, den maßgeblichen Energiezähler und nicht zugeordnete Energie. Ein externer Block zeigt zusätzlich Adresse, Ladeart, Reichweite und restliche Ladezeit. Ohne Ladevorgang an der Wallbox steht dort der Grund, etwa dass kein Fahrzeug verbunden oder der Steckerzustand nicht verfügbar ist. Fehlt eine Angabe, weil kein Netzsaldo oder kein Netzpreis eingerichtet ist, steht der Grund da. Ein gemeldeter Ladefehler erscheint als Hinweis, solange er besteht mit seiner Quelle, Wallbox oder Fahrzeug. Sie folgt den Quellentitäten und ist nicht an `update_interval_s` gebunden |
 | `ev-charging-month-card` | Energie, Kosten und Sonnenanteil des aktuellen Monats. Der Sonnenanteil zählt die Ladevorgänge, für die Netz- und Sonnenanteil erfasst sind |
 
 ## Kennungen (RFID/eMAID)

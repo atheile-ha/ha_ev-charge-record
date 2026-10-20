@@ -4,6 +4,27 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.6.0] - 2026-10-20
+
+### Hinzugefügt
+
+- Entität `binary_sensor.ev_charging_problem` mit den Attributen `source` und `vehicle_id`, an, solange die Wallbox oder ein Fahrzeug einen Ladefehler meldet
+- Benachrichtigungen: persistente Benachrichtigungen auf den rollierenden Kennungen `ev_charging_1` bis `ev_charging_5` sowie bis zu zwei Benachrichtigungsziele, als Entität der Domäne `notify` oder als klassischer Benachrichtigungsdienst
+- Anlässe Ladevorgang beendet, externer Ladevorgang begonnen, externer Ladevorgang beendet, Ladefehler und offene Nacherfassung, je einzeln abschaltbar, im neuen Abschnitt „Benachrichtigungen“ der globalen Einstellungen
+- Meldung, wenn ein Ladevorgang nach 12 Stunden ohne verwertbaren Zustand der Quelle geschlossen wird
+- Repair Issue für ein nicht mehr vorhandenes Benachrichtigungsziel
+- Schemaversion 6 des Config Entry mit den Benachrichtigungseinstellungen
+
+### Geändert
+
+- Ein Ladefehler der Wallbox gilt auch ohne laufenden Ladevorgang, sobald er 5 Sekunden ansteht
+- Ein Ladefehler eines Fahrzeugs wird wie der der Wallbox 5 Sekunden entprellt und gilt an jedem Ladeort; der Ladevorgang der Wallbox geht in den Zustand `error`, wenn das ihm zugeordnete Fahrzeug einen Ladefehler meldet
+- Die Live-Karte nennt bei einem bestehenden Ladefehler die Quelle, Wallbox oder Fahrzeug; `ev_charging/live/subscribe` liefert dafür je Block `charge_error_source`
+- Panel und `ev-charging-panel-card`: der Reiter „Letzte 5“ entfällt, die letzten Ladevorgänge zeigt weiterhin `ev-charging-recent-card`
+- Panel und `ev-charging-panel-card`: die Nacherfassung steht oben in der Ansicht „Korrektur“ statt in einem eigenen Reiter
+- Panel und `ev-charging-panel-card`: die Detailliste zeigt keine Monatssummen mehr über der Tabelle
+- Panel und `ev-charging-panel-card` laden nach einer wiederhergestellten Verbindung die angezeigte und die zuvor geladenen Ansichten neu
+
 ## [0.5.6] - 2026-09-30
 
 ### Geändert

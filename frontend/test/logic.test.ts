@@ -74,11 +74,11 @@ describe("state in the address", () => {
   });
 
   it("accepts the view with the last sessions", () => {
-    expect(parseState("/recent", "")).toEqual({ view: "recent" });
+    expect(parseState("/recent", "")).toEqual({});
   });
 
   it("accepts the follow-up and correction views", () => {
-    expect(parseState("/followup", "")).toEqual({ view: "followup" });
+    expect(parseState("/followup", "")).toEqual({ view: "correction" });
     expect(parseState("/correction", "")).toEqual({ view: "correction" });
   });
 

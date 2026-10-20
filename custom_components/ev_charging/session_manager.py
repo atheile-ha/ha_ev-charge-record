@@ -27,7 +27,7 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.util import dt as dt_util
 
-from . import allocation, geocoding, problems, resolver
+from . import allocation, geocoding, notify, problems, resolver
 from .const import (
     ACTIVE_VEHICLE_GUEST,
     ACTIVE_VEHICLE_NONE,
@@ -80,6 +80,8 @@ from .const import (
     PLUG_STATE_NOT_CONNECTED,
     POWER_TOLERANCE_FACTOR,
     POWER_UNIT_FACTORS_TO_KW,
+    PROBLEM_SOURCE_VEHICLE,
+    PROBLEM_SOURCE_WALLBOX,
     ROLE_CHARGE_POWER,
     ROLE_CHARGE_STATE,
     ROLE_CHARGE_TYPE,
@@ -121,6 +123,7 @@ from .models import (
     HubSettings,
     MergeCheck,
     MergeRejectedError,
+    NotifyTarget,
     Phase,
     Session,
     Vehicle,
@@ -593,6 +596,8 @@ class RunningVehicleSession:
     longitude: float | None = None
     location_reported_at: datetime | None = None
     address_retry_pending: bool = False
+    # Closed because the charge state gave no usable value for the whole timeout.
+    closed_stale: bool = False
 
     def open_phase(self) -> Phase | None:
         """Return the phase that is still open, if any."""
@@ -629,6 +634,7 @@ class RunningVehicleSession:
                 self.location_reported_at.isoformat() if self.location_reported_at else None
             ),
             "address_retry_pending": self.address_retry_pending,
+            "closed_stale": self.closed_stale,
         }
 
     @classmethod
@@ -660,6 +666,7 @@ class RunningVehicleSession:
             longitude=data.get("longitude"),
             location_reported_at=_parse(data.get("location_reported_at")),
             address_retry_pending=data.get("address_retry_pending", False),
+            closed_stale=data.get("closed_stale", False),
         )
 
 
@@ -683,6 +690,40 @@ class _PendingVehicleStart:
 
 
 @dataclass(frozen=True, slots=True)
+class ReportedProblem:
+    """A charging error that held for the debounce time and is still reported."""
+
+    source: str
+    vehicle_id: str | None
+    since: datetime
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize for the runtime store."""
+        return {"source": self.source, "vehicle_id": self.vehicle_id, "since": _iso(self.since)}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ReportedProblem:
+        """Deserialize from the runtime store."""
+        since = _parse(data.get("since"))
+        if since is None or data.get("source") not in (
+            PROBLEM_SOURCE_WALLBOX,
+            PROBLEM_SOURCE_VEHICLE,
+        ):
+            raise ValueError("stored problem is unreadable")
+        return cls(source=data["source"], vehicle_id=data.get("vehicle_id"), since=since)
+
+
+def _problem_key(source: str, vehicle_id: str | None) -> str:
+    """Return the key under which a reported problem is kept."""
+    return PROBLEM_SOURCE_WALLBOX if source == PROBLEM_SOURCE_WALLBOX else f"vehicle:{vehicle_id}"
+
+
+def latest_problem(reported: Collection[ReportedProblem]) -> ReportedProblem | None:
+    """Return the problem that arose last, which names the source of the problem entity."""
+    return max(reported, key=lambda problem: problem.since, default=None)
+
+
+@dataclass(frozen=True, slots=True)
 class WallboxSnapshot:
     """What the entities publish. Rebuilt at every state change and at the publish interval."""
 
@@ -703,6 +744,7 @@ class WallboxSnapshot:
     vehicle_charge_state: str | None
     vehicle_charge_end: datetime | None
     open_followups: int
+    problem: ReportedProblem | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -753,6 +795,12 @@ class SessionManager:
         self._plug_class: str | None = None
         self._plug_usable = False
         self._error_class: str | None = None
+        # The raw value and moment of an error report still within its debounce time.
+        self._error_report: tuple[str, datetime] | None = None
+        self._vehicle_error_report: dict[str, tuple[str, datetime]] = {}
+        self._problems: dict[str, ReportedProblem] = {}
+        self._notifier: notify.Notifier | None = None
+        self._notification_slot = 0
         self._vehicle_charge_class: dict[str, str | None] = {}
         self._vehicle_plug_class: dict[str, str | None] = {}
         self._vehicle_rearm: set[str] = set()
@@ -821,6 +869,8 @@ class SessionManager:
         stored = await RuntimeStore(self._hass).async_load()
         self._counter_detection = stored.get("counter_detection")
         self._vehicle_rearm = set(stored.get("vehicle_rearm", []))
+        self._notification_slot = int(stored.get("notification_slot", 0) or 0)
+        self._restore_problems(stored.get("problems", {}))
         if stored.get("session"):
             try:
                 self._session = RunningSession.from_dict(stored["session"])
@@ -834,6 +884,7 @@ class SessionManager:
                     "The stored external session of a vehicle could not be restored and is dropped"
                 )
         self._open_followups = await self._async_count_followups()
+        self._start_notifier()
 
         self._subscribe_sources()
         self._unsubs.append(
@@ -866,6 +917,8 @@ class SessionManager:
             self._cancel_timer(name)
         if self._card_reader is not None:
             self._card_reader.cancel()
+        if self._notifier is not None:
+            self._notifier.stop()
         self._listeners.clear()
         self._live_listeners.clear()
         if self._session is not None or self._vehicle_sessions:
@@ -1136,17 +1189,14 @@ class SessionManager:
         else:
             klass = previous
         self._error_class = klass
-        session = self._session
-        if klass == ERROR_CLASS_ERROR and previous != ERROR_CLASS_ERROR:
-            if session is not None and session.state in (
-                SESSION_STATE_CHARGING,
-                SESSION_STATE_PAUSED,
-            ):
-                self._set_timer("error", ERROR_DEBOUNCE_S, self._on_error_timer)
-        elif klass != ERROR_CLASS_ERROR:
-            self._cancel_timer("error")
-            if session is not None and session.state == SESSION_STATE_ERROR:
-                self._leave_error(self._now())
+        if klass == ERROR_CLASS_ERROR:
+            if previous != ERROR_CLASS_ERROR and PROBLEM_SOURCE_WALLBOX not in self._problems:
+                self._error_report = (raw, self._now())
+                self._set_timer("wallbox_error", ERROR_DEBOUNCE_S, self._on_wallbox_error_timer)
+        elif klass is not None:
+            self._error_report = None
+            self._cancel_timer("wallbox_error")
+            self._clear_problem(PROBLEM_SOURCE_WALLBOX, None)
         self._touch_live()
 
     @callback
@@ -1268,11 +1318,12 @@ class SessionManager:
             self._vehicle_source_unavailable(context, now)
             return
         mapping = context.mapping.role_values(ROLE_CHARGE_STATE) if context.mapping else {}
+        previous = self._vehicle_charge_class.get(context.vehicle.id)
         klass, found = resolver.classify_with_neutral(
             raw,
             mapping,
             default=CHARGE_STATE_DEFAULT,
-            last_class=self._vehicle_charge_class.get(context.vehicle.id),
+            last_class=previous,
         )
         problems.check_unknown_mapping_value(
             self._hass,
@@ -1284,10 +1335,60 @@ class SessionManager:
         )
         self._vehicle_charge_class[context.vehicle.id] = klass
         self._vehicle_source_available(context.vehicle.id, now)
+        self._track_vehicle_error(context, klass, previous, raw, now)
         if klass is not None:
             self._drive_vehicle_session(context, klass, now)
         self._resolve_late()
         self._touch_live()
+
+    def _vehicle_error_timer_name(self, vehicle_id: str) -> str:
+        """Return the timer name for the debounce of a vehicle's charging error."""
+        return f"vehicle_error_{vehicle_id}"
+
+    def _track_vehicle_error(
+        self,
+        context: VehicleContext,
+        klass: str | None,
+        previous: str | None,
+        raw: str,
+        now: datetime,
+    ) -> None:
+        """Follow the error class of a vehicle's charge state, wherever the vehicle is.
+
+        An error is taken up once it has held for the debounce time. Any other
+        class ends it; a neutral value without a class before changes nothing.
+        """
+        vehicle_id = context.vehicle.id
+        key = _problem_key(PROBLEM_SOURCE_VEHICLE, vehicle_id)
+        name = self._vehicle_error_timer_name(vehicle_id)
+        if klass == CHARGE_STATE_ERROR:
+            if previous != CHARGE_STATE_ERROR and key not in self._problems:
+                self._vehicle_error_report[vehicle_id] = (raw, now)
+                self._set_timer(
+                    name,
+                    ERROR_DEBOUNCE_S,
+                    callback(lambda _now, c=context: self._on_vehicle_error_timer(c)),
+                )
+        elif klass is not None:
+            self._vehicle_error_report.pop(vehicle_id, None)
+            self._cancel_timer(name)
+            self._clear_problem(PROBLEM_SOURCE_VEHICLE, vehicle_id)
+
+    def _on_vehicle_error_timer(self, context: VehicleContext) -> None:
+        """Take up a vehicle's charging error once it has held for the debounce time."""
+        vehicle_id = context.vehicle.id
+        self._timers.pop(self._vehicle_error_timer_name(vehicle_id), None)
+        report = self._vehicle_error_report.pop(vehicle_id, None)
+        if self._vehicle_charge_class.get(vehicle_id) != CHARGE_STATE_ERROR or report is None:
+            return
+        raw, since = report
+        self._raise_problem(
+            ReportedProblem(source=PROBLEM_SOURCE_VEHICLE, vehicle_id=vehicle_id, since=since),
+            source_name=context.vehicle.name,
+            error=raw,
+        )
+        if vehicle_id in self._vehicle_sessions:
+            self._drive_vehicle_session(context, CHARGE_STATE_ERROR, self._now())
 
     @callback
     def _on_vehicle_location(self) -> None:
@@ -1398,7 +1499,6 @@ class SessionManager:
             "debounce",
             "identification",
             "pause",
-            "error",
             "final",
             "stale",
             "counter_check",
@@ -1462,8 +1562,7 @@ class SessionManager:
             self._enter(SESSION_STATE_CHARGING)
         else:
             self._enter(SESSION_STATE_PAUSED)
-        if self._error_class == ERROR_CLASS_ERROR:
-            self._set_timer("error", ERROR_DEBOUNCE_S, self._on_error_timer)
+        self._sync_session_error()
 
     def _discard_candidate(self) -> None:
         """Drop a candidate that did not last."""
@@ -1531,24 +1630,52 @@ class SessionManager:
         )
 
     @callback
-    def _on_error_timer(self, _now: datetime) -> None:
-        """Enter the error state once the reported error has held for the debounce time."""
-        self._timers.pop("error", None)
-        session = self._session
-        if session is None or self._error_class != ERROR_CLASS_ERROR:
+    def _on_wallbox_error_timer(self, _now: datetime) -> None:
+        """Take up the wallbox error once it has held for the debounce time."""
+        self._timers.pop("wallbox_error", None)
+        report, self._error_report = self._error_report, None
+        if self._error_class != ERROR_CLASS_ERROR or report is None:
             return
-        if session.state not in (SESSION_STATE_CHARGING, SESSION_STATE_PAUSED):
-            return
-        end = (
-            session.pause_since
-            if session.state == SESSION_STATE_PAUSED and session.pause_since
-            else self._now()
+        assert self.wallbox is not None
+        raw, since = report
+        self._raise_problem(
+            ReportedProblem(source=PROBLEM_SOURCE_WALLBOX, vehicle_id=None, since=since),
+            source_name=self.wallbox.name,
+            error=raw,
         )
-        self._cancel_timer("pause")
-        self._close_phase(session, end)
-        session.pause_since = None
-        session.charge_error = True
-        self._enter(SESSION_STATE_ERROR)
+
+    def _session_has_problem(self, session: RunningSession) -> bool:
+        """Whether the wallbox, or the vehicle the session names, reports a charging error."""
+        if PROBLEM_SOURCE_WALLBOX in self._problems:
+            return True
+        return (
+            session.vehicle_id is not None
+            and _problem_key(PROBLEM_SOURCE_VEHICLE, session.vehicle_id) in self._problems
+        )
+
+    def _sync_session_error(self) -> None:
+        """Put the wallbox session in the error state, or take it out, after the problems changed.
+
+        A running session enters the error state while the wallbox or the
+        vehicle it names reports an error, and leaves it once neither does.
+        """
+        session = self._session
+        if session is None:
+            return
+        erroring = self._session_has_problem(session)
+        if erroring and session.state in (SESSION_STATE_CHARGING, SESSION_STATE_PAUSED):
+            end = (
+                session.pause_since
+                if session.state == SESSION_STATE_PAUSED and session.pause_since
+                else self._now()
+            )
+            self._cancel_timer("pause")
+            self._close_phase(session, end)
+            session.pause_since = None
+            session.charge_error = True
+            self._enter(SESSION_STATE_ERROR)
+        elif not erroring and session.state == SESSION_STATE_ERROR:
+            self._leave_error(self._now())
 
     def _leave_error(self, now: datetime) -> None:
         """Go back to charging or paused once the error is no longer reported."""
@@ -1569,7 +1696,7 @@ class SessionManager:
         if session.state == SESSION_STATE_CANDIDATE:
             self._discard_candidate()
             return
-        for name in ("debounce", "pause", "error", "stale"):
+        for name in ("debounce", "pause", "stale"):
             self._cancel_timer(name)
         if self._card_reader is not None:
             self._card_reader.stop()
@@ -1590,7 +1717,7 @@ class SessionManager:
         session = self._session
         if session is None or session.state not in _SESSION_STATES:
             return
-        for name in ("debounce", "pause", "error", "final"):
+        for name in ("debounce", "pause", "final"):
             self._cancel_timer(name)
         if self._card_reader is not None:
             self._card_reader.stop()
@@ -1906,6 +2033,8 @@ class SessionManager:
             session.odometer_km = self._read_vehicle_number(
                 context, ROLE_ODOMETER, DISTANCE_UNIT_FACTORS_TO_KM
             )
+        if session is self._session:
+            self._sync_session_error()
 
     def _read_vehicle_number(
         self, context: VehicleContext, role_name: str, factors: dict[str, float] | None
@@ -2082,6 +2211,8 @@ class SessionManager:
             if session.latitude is not None and session.longitude is not None:
                 session.address_retry_pending = True
                 self._start_geocode(context.vehicle.id, session.start)
+            if self._notifier is not None:
+                self._notifier.external_started(context.vehicle.name, now, session.soc_start)
         self._vehicle_sessions[context.vehicle.id] = session
         _LOGGER.debug(
             "An external session begins for vehicle %s, location %s", context.vehicle.id, location
@@ -2138,7 +2269,11 @@ class SessionManager:
                     callback(lambda _now, c=context: self._on_vehicle_pause_timer(c)),
                 )
                 self._enter_vehicle_state(session, SESSION_STATE_PAUSED)
-        elif klass == CHARGE_STATE_ERROR and session.state != SESSION_STATE_ERROR:
+        elif (
+            klass == CHARGE_STATE_ERROR
+            and session.state != SESSION_STATE_ERROR
+            and _problem_key(PROBLEM_SOURCE_VEHICLE, vehicle_id) in self._problems
+        ):
             self._cancel_timer(self._vehicle_pause_timer_name(vehicle_id))
             end = session.pause_since if session.state == SESSION_STATE_PAUSED else now
             self._close_vehicle_phase(session, end)
@@ -2368,6 +2503,7 @@ class SessionManager:
         self._close_vehicle_phase(session, end)
         session.plug_end = end
         session.flagged = True
+        session.closed_stale = True
         session.state = SESSION_STATE_AWAITING_FINAL
         session.state_since = self._now()
         self._persist()
@@ -2545,6 +2681,11 @@ class SessionManager:
         self._session = None
         if not empty:
             self._open_followups = await self._async_count_followups()
+            if self._notifier is not None and self.wallbox is not None:
+                if stale:
+                    self._notifier.session_closed_stale(stored, self.wallbox.name)
+                else:
+                    self._notifier.session_ended(stored)
         await self._async_persist()
         self._publish()
         self._maybe_start_candidate(self._now())
@@ -2741,6 +2882,11 @@ class SessionManager:
             return
         del self._vehicle_sessions[vehicle_id]
         self._open_followups = await self._async_count_followups()
+        if self._notifier is not None:
+            if session.closed_stale:
+                self._notifier.session_closed_stale(stored, context.vehicle.name)
+            else:
+                self._notifier.session_ended(stored)
         await self._async_persist()
         self._publish()
 
@@ -2862,6 +3008,88 @@ class SessionManager:
         self._open_followups = await self._async_count_followups()
         self._publish()
 
+    # ------------------------------------------------- problems, notifications
+
+    def _restore_problems(self, data: dict[str, Any]) -> None:
+        """Take up the charging errors reported before a restart, for sources still configured.
+
+        A restored error is not reported again; the first value of its source
+        after the restart ends it if it is no longer an error.
+        """
+        assert self.wallbox is not None
+        for item in (data or {}).values():
+            try:
+                problem = ReportedProblem.from_dict(item)
+            except ValueError, TypeError, AttributeError:
+                continue
+            if problem.source == PROBLEM_SOURCE_WALLBOX:
+                if self.wallbox.error is None:
+                    continue
+            else:
+                context = self._vehicles.get(problem.vehicle_id or "")
+                if (
+                    context is None
+                    or not context.vehicle.active
+                    or context.vehicle.charge_state is None
+                ):
+                    continue
+            self._problems[_problem_key(problem.source, problem.vehicle_id)] = problem
+
+    def _raise_problem(self, problem: ReportedProblem, *, source_name: str, error: str) -> None:
+        """Take up a charging error that held for the debounce time, and report it."""
+        self._problems[_problem_key(problem.source, problem.vehicle_id)] = problem
+        _LOGGER.debug("A charging error is reported by the %s", problem.source)
+        if self._notifier is not None:
+            self._notifier.error_reported(source_name, error, problem.since)
+        self._sync_session_error()
+        self._persist()
+        self._publish()
+
+    def _clear_problem(self, source: str, vehicle_id: str | None) -> None:
+        """End a charging error once its source reports anything else.
+
+        Without a reported error the session is still brought in line, so a
+        session stored in the error state leaves it once nothing reports one.
+        """
+        if self._problems.pop(_problem_key(source, vehicle_id), None) is None:
+            self._sync_session_error()
+            return
+        _LOGGER.debug("The charging error of the %s has ended", source)
+        self._sync_session_error()
+        self._persist()
+        self._publish()
+
+    def _start_notifier(self) -> None:
+        """Prepare the notifications and watch the configured targets."""
+        settings = self._settings
+        problems.async_clear_notify_target_issues(
+            self._hass,
+            numbers=[
+                number
+                for number, target in enumerate(settings.notify_targets, start=1)
+                if target is None
+            ],
+        )
+        self._notifier = notify.Notifier(
+            self._hass,
+            settings,
+            next_slot=self._notification_slot,
+            on_slot_change=self._on_notification_slot,
+            on_target_check=self._on_notify_target_check,
+        )
+        self._notifier.async_start()
+
+    def _on_notification_slot(self, slot: int) -> None:
+        """Keep the next persistent notification slot across restarts."""
+        self._notification_slot = slot
+        self._persist()
+
+    def _on_notify_target_check(self, number: int, target: NotifyTarget, present: bool) -> None:
+        """Raise or clear the repair issue of a notification target."""
+        problems.check_notify_target(
+            self._hass, number=number, target=target.target, present=present
+        )
+
     # ------------------------------------------------------------ persistence
 
     def _payload(self) -> dict[str, Any]:
@@ -2877,6 +3105,11 @@ class SessionManager:
             payload["counter_detection"] = self._counter_detection
         if self._vehicle_rearm:
             payload["vehicle_rearm"] = sorted(self._vehicle_rearm)
+        if self._problems:
+            payload["problems"] = {
+                key: problem.to_dict() for key, problem in self._problems.items()
+            }
+        payload["notification_slot"] = self._notification_slot
         return payload
 
     def _persist(self) -> None:
@@ -3065,6 +3298,7 @@ class SessionManager:
             vehicle_charge_state=charge_state,
             vehicle_charge_end=charge_end,
             open_followups=self._open_followups,
+            problem=latest_problem(self._problems.values()),
         )
 
     def _vehicle_session_energy(
@@ -3172,6 +3406,7 @@ class SessionManager:
         ):
             charge_end = None
             charge_end_missing = CHARGE_END_MISSING_NO_POWER
+        error_source = self._wallbox_error_source()
         return {
             "kind": LIVE_BLOCK_WALLBOX,
             "state": snapshot.state,
@@ -3236,9 +3471,27 @@ class SessionManager:
                 "grid_price": self._prices_configured(),
             },
             "flagged": bool(session and session.flagged),
-            "charge_error": bool(session and session.charge_error),
+            "charge_error": bool(session and session.charge_error) or error_source is not None,
+            "charge_error_source": error_source,
             "location_conflict": bool(session and session.location_conflict),
         }
+
+    def _wallbox_error_source(self) -> str | None:
+        """Return the source of an error reported now for the wallbox block, if any.
+
+        The wallbox's own error comes first, then that of the vehicle the
+        session names.
+        """
+        if PROBLEM_SOURCE_WALLBOX in self._problems:
+            return PROBLEM_SOURCE_WALLBOX
+        session = self._session
+        if (
+            session is not None
+            and session.vehicle_id is not None
+            and _problem_key(PROBLEM_SOURCE_VEHICLE, session.vehicle_id) in self._problems
+        ):
+            return PROBLEM_SOURCE_VEHICLE
+        return None
 
     def _vehicle_block(
         self, context: VehicleContext, session: RunningVehicleSession
@@ -3254,6 +3507,7 @@ class SessionManager:
         )
         charge_end = self._vehicle_charge_end(context)
         energy, energy_is_estimate = self._vehicle_session_energy(context, session)
+        vehicle_error = _problem_key(PROBLEM_SOURCE_VEHICLE, vehicle.id) in self._problems
         return {
             "kind": LIVE_BLOCK_EXTERNAL,
             "state": session.state,
@@ -3297,7 +3551,8 @@ class SessionManager:
             "counter": None,
             "sources": None,
             "flagged": session.flagged,
-            "charge_error": session.charge_error,
+            "charge_error": session.charge_error or vehicle_error,
+            "charge_error_source": PROBLEM_SOURCE_VEHICLE if vehicle_error else None,
             "location_conflict": False,
         }
 

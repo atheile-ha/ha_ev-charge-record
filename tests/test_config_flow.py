@@ -70,6 +70,16 @@ EXPECTED_HUB_SETTINGS: dict[str, Any] = {
     "price_grid_fixed": None,
     "price_feed_in": None,
     "price_feed_in_fixed": None,
+    "persistent_enabled": True,
+    "persistent_on_session_end": True,
+    "persistent_on_error": True,
+    "notify_target_1": None,
+    "notify_target_2": None,
+    "notify_on_session_end": True,
+    "notify_on_external_start": True,
+    "notify_on_external_end": True,
+    "notify_on_error": True,
+    "notify_on_followup": False,
 }
 
 
@@ -887,6 +897,7 @@ async def test_reconfigure_updates_global_settings(hass: HomeAssistant) -> None:
             "geocoding_contact": "test@example.invalid",
             "estimate_uncertain_threshold_pct": 10,
             "grid_power_inverted": False,
+            "notifications": {},
         },
     )
     await hass.async_block_till_done()
@@ -919,6 +930,7 @@ async def test_reconfigure_stores_grid_and_price_roles(hass: HomeAssistant) -> N
             "grid_power": "sensor.grid_power",
             "grid_power_inverted": True,
             "price_feed_in_fixed": 0.08,
+            "notifications": {},
         },
     )
     await hass.async_block_till_done()
@@ -949,6 +961,7 @@ async def test_reconfigure_rejects_grid_power_and_grid_import_together(
             "grid_power": "sensor.grid_power",
             "grid_power_inverted": False,
             "grid_import": "sensor.grid_power",
+            "notifications": {},
         },
     )
 
@@ -976,6 +989,7 @@ async def test_reconfigure_rejects_price_entity_and_fixed_value_together(
             "grid_power_inverted": False,
             "price_grid": "sensor.grid_power",
             "price_grid_fixed": 0.30,
+            "notifications": {},
         },
     )
 
@@ -1001,6 +1015,7 @@ async def test_reconfigure_requires_a_contact_when_geocoding_is_enabled(
             "geocoding_url": "https://nominatim.openstreetmap.org/reverse",
             "estimate_uncertain_threshold_pct": 5,
             "grid_power_inverted": False,
+            "notifications": {},
         },
     )
 
@@ -1024,6 +1039,7 @@ async def test_reconfigure_rejects_update_interval_out_of_range(hass: HomeAssist
             "geocoding_url": "https://nominatim.openstreetmap.org/reverse",
             "estimate_uncertain_threshold_pct": 5,
             "grid_power_inverted": False,
+            "notifications": {},
         },
     )
 

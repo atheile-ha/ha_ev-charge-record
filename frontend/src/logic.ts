@@ -1,6 +1,6 @@
 import type { MonthStats, Session, Summary, Vehicle, VehicleCard, YearSummary } from "./types";
 
-export type ViewId = "overview" | "detail" | "recent" | "followup" | "correction";
+export type ViewId = "overview" | "detail" | "correction";
 
 export const UNASSIGNED = "__unassigned__";
 export const NO_CARD = "__none__";
@@ -73,14 +73,11 @@ export function serializeState(state: PanelState): string {
 export function parseState(path: string, search: string): Partial<PanelState> {
   const result: Partial<PanelState> = {};
   const segment = path.split("/").filter((part) => part !== "")[0];
-  if (
-    segment === "overview" ||
-    segment === "detail" ||
-    segment === "recent" ||
-    segment === "followup" ||
-    segment === "correction"
-  ) {
+  if (segment === "overview" || segment === "detail" || segment === "correction") {
     result.view = segment;
+  } else if (segment === "followup") {
+    // The follow-ups are part of the correction view.
+    result.view = "correction";
   }
   const params = new URLSearchParams(search);
   const year = Number(params.get("year"));

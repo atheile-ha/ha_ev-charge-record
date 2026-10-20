@@ -89,6 +89,9 @@ export interface LiveBlock {
   sources: LiveSources | null;
   flagged: boolean;
   charge_error: boolean;
+  // Where a charging error reported right now comes from; null without one,
+  // also when the session only had an error earlier.
+  charge_error_source: "wallbox" | "vehicle" | null;
   location_conflict: boolean;
 }
 
@@ -383,4 +386,18 @@ export function dataGaps(live: LiveBlock, t: Translate): LiveGaps {
       live.energy_grid_kwh === null && !live.sources.grid_balance ? t("live_missing_split") : null,
     cost: live.cost === null && !live.sources.grid_price ? t("live_missing_cost") : null,
   };
+}
+
+// The charging error marking, with its source while the error is still reported.
+export function chargeErrorText(live: LiveBlock, t: Translate): string | null {
+  if (!live.charge_error) {
+    return null;
+  }
+  if (live.charge_error_source === "wallbox") {
+    return t("flag_charge_error_wallbox");
+  }
+  if (live.charge_error_source === "vehicle") {
+    return t("flag_charge_error_vehicle");
+  }
+  return t("flag_charge_error");
 }

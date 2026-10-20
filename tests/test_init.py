@@ -38,6 +38,16 @@ CURRENT_DATA = {
     "price_grid_fixed": None,
     "price_feed_in": None,
     "price_feed_in_fixed": None,
+    "persistent_enabled": True,
+    "persistent_on_session_end": True,
+    "persistent_on_error": True,
+    "notify_target_1": None,
+    "notify_target_2": None,
+    "notify_on_session_end": True,
+    "notify_on_external_start": True,
+    "notify_on_external_end": True,
+    "notify_on_error": True,
+    "notify_on_followup": False,
 }
 
 
@@ -82,7 +92,7 @@ async def test_migrate_entry_adds_hub_settings(hass: HomeAssistant) -> None:
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert entry.version == 5
+    assert entry.version == 6
     assert entry.minor_version == 1
     assert entry.data == CURRENT_DATA
 
@@ -105,7 +115,7 @@ async def test_migrate_entry_v2_adds_grid_and_price_roles(hass: HomeAssistant) -
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert entry.version == 5
+    assert entry.version == 6
     assert entry.data == CURRENT_DATA
 
 
@@ -327,7 +337,7 @@ async def test_migrate_entry_discards_stored_state_mappings(hass: HomeAssistant)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert entry.version == 5
+    assert entry.version == 6
     wallbox_data = next(
         sub.data for sub in entry.subentries.values() if sub.subentry_type == SUBENTRY_TYPE_WALLBOX
     )
@@ -383,7 +393,7 @@ async def test_migrate_entry_v4_adds_the_direct_read_settings_once(
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert entry.version == 5
+    assert entry.version == 6
     wallbox_data = next(
         sub.data for sub in entry.subentries.values() if sub.subentry_type == SUBENTRY_TYPE_WALLBOX
     )

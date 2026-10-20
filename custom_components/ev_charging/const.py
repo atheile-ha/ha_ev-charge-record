@@ -74,6 +74,34 @@ DEFAULT_GEOCODING_ENABLED = True
 DEFAULT_GEOCODING_URL = "https://nominatim.openstreetmap.org/reverse"
 DEFAULT_ESTIMATE_UNCERTAIN_THRESHOLD_PCT = 5
 
+# Notification settings of the hub entry.
+DEFAULT_PERSISTENT_ENABLED = True
+DEFAULT_PERSISTENT_ON_SESSION_END = True
+DEFAULT_PERSISTENT_ON_ERROR = True
+DEFAULT_NOTIFY_ON_SESSION_END = True
+DEFAULT_NOTIFY_ON_EXTERNAL_START = True
+DEFAULT_NOTIFY_ON_EXTERNAL_END = True
+DEFAULT_NOTIFY_ON_ERROR = True
+DEFAULT_NOTIFY_ON_FOLLOWUP = False
+# Up to this many notification targets besides the persistent notifications.
+MAX_NOTIFY_TARGETS = 2
+# How a notification target is addressed: a notify entity through
+# notify.send_message, or a classic notify service called by its own name.
+NOTIFY_TARGET_ENTITY = "entity"
+NOTIFY_TARGET_SERVICE = "service"
+NOTIFY_TARGET_KINDS = (NOTIFY_TARGET_ENTITY, NOTIFY_TARGET_SERVICE)
+NOTIFY_DOMAIN = "notify"
+NOTIFY_SERVICE_SEND_MESSAGE = "send_message"
+# Services of the notify domain that are never offered as a target.
+NOTIFY_SERVICES_EXCLUDED = frozenset({NOTIFY_SERVICE_SEND_MESSAGE, "persistent_notification"})
+# Persistent notifications rotate through this many ids, ev_charging_1 to ev_charging_5.
+PERSISTENT_NOTIFICATION_SLOTS = 5
+PERSISTENT_NOTIFICATION_ID_PREFIX = "ev_charging_"
+
+# Where a reported charging error comes from.
+PROBLEM_SOURCE_WALLBOX = "wallbox"
+PROBLEM_SOURCE_VEHICLE = "vehicle"
+
 # Fixed, not user-configurable. Not part of the wallbox subentry schema.
 MIN_PAUSE_MIN = 15
 IDENTIFICATION_MAX_AGE_MIN = 5
@@ -388,3 +416,4 @@ ISSUE_UNKNOWN_CARD = "unknown_card"
 ISSUE_COUNTER_SWITCHED = "energy_counter_switched"
 ISSUE_DIRECT_READ_UNREACHABLE = "direct_read_unreachable"
 ISSUE_DIRECT_READ_INVALID_VALUE = "direct_read_invalid_value"
+ISSUE_NOTIFY_TARGET_MISSING = "notify_target_missing"

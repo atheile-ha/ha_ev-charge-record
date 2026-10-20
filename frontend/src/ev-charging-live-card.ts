@@ -17,6 +17,7 @@ import {
   chargeTypeText,
   counterText,
   dataGaps,
+  chargeErrorText,
   idleText,
   netDurationMinutes,
   phasesText,
@@ -237,8 +238,9 @@ export class EvChargingLiveCard extends LitElement {
 
   private _flags(live: LiveBlock, t: Translate): TemplateResult | typeof nothing {
     const flags: TemplateResult[] = [];
-    if (live.charge_error) {
-      flags.push(html`<span class="chip alert">${t("flag_charge_error")}</span>`);
+    const chargeError = chargeErrorText(live, t);
+    if (chargeError !== null) {
+      flags.push(html`<span class="chip alert">${chargeError}</span>`);
     }
     if (live.location_conflict) {
       flags.push(html`<span class="chip warn">${t("flag_location_conflict")}</span>`);
