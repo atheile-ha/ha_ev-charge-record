@@ -111,7 +111,7 @@ class Texts:
 
     def currency(self, code: str) -> str:
         """Return the symbol of a currency, or its code without one."""
-        key = f"currency_{code}"
+        key = f"currency_{code.lower()}"
         symbol = self.raw(key)
         return code if symbol == key else symbol
 

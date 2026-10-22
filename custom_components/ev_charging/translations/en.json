@@ -463,7 +463,7 @@
         "decimal_separator": ".",
         "datetime_format": "%Y-%m-%d %H:%M",
         "time_format": "%H:%M",
-        "currency_EUR": "€",
+        "currency_eur": "€",
         "charge_error": "Charging error ({origin})",
         "error_source_wallbox": "wallbox",
         "error_source_vehicle": "vehicle",

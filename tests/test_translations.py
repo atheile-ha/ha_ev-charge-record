@@ -1,10 +1,13 @@
 """Tests for the translation files."""
 
 import json
+import re
 from pathlib import Path
 
 COMPONENT = Path(__file__).parent.parent / "custom_components" / "ev_charging"
 LANGUAGES = ("en", "de")
+# Option keys Home Assistant accepts: lower case, digits, "-" and "_", not at either end.
+OPTION_KEY = re.compile(r"^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$")
 
 
 def _keys(value, prefix=""):
@@ -60,3 +63,14 @@ def test_no_text_contains_an_unresolved_key_reference():
                 stack.extend(item.values())
             else:
                 assert "[%key:" not in item, f"{path}: {item}"
+
+
+def test_selector_option_keys_are_valid():
+    """Every option key under selector follows the key pattern Home Assistant accepts."""
+    for path in [COMPONENT / "strings.json"] + [
+        COMPONENT / "translations" / f"{language}.json" for language in LANGUAGES
+    ]:
+        selectors = json.loads(path.read_text(encoding="utf-8")).get("selector", {})
+        for name, selector in selectors.items():
+            for key in selector.get("options", {}):
+                assert OPTION_KEY.match(key), f"{path.name}: selector.{name}.options.{key}"
