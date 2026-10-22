@@ -795,9 +795,9 @@ class SessionManager:
         self._plug_class: str | None = None
         self._plug_usable = False
         self._error_class: str | None = None
-        # The raw value and moment of an error report still within its debounce time.
-        self._error_report: tuple[str, datetime] | None = None
-        self._vehicle_error_report: dict[str, tuple[str, datetime]] = {}
+        # The moment of an error report still within its debounce time.
+        self._error_report: datetime | None = None
+        self._vehicle_error_report: dict[str, datetime] = {}
         self._problems: dict[str, ReportedProblem] = {}
         self._notifier: notify.Notifier | None = None
         self._notification_slot = 0
@@ -1191,7 +1191,7 @@ class SessionManager:
         self._error_class = klass
         if klass == ERROR_CLASS_ERROR:
             if previous != ERROR_CLASS_ERROR and PROBLEM_SOURCE_WALLBOX not in self._problems:
-                self._error_report = (raw, self._now())
+                self._error_report = self._now()
                 self._set_timer("wallbox_error", ERROR_DEBOUNCE_S, self._on_wallbox_error_timer)
         elif klass is not None:
             self._error_report = None
@@ -1335,7 +1335,7 @@ class SessionManager:
         )
         self._vehicle_charge_class[context.vehicle.id] = klass
         self._vehicle_source_available(context.vehicle.id, now)
-        self._track_vehicle_error(context, klass, previous, raw, now)
+        self._track_vehicle_error(context, klass, previous, now)
         if klass is not None:
             self._drive_vehicle_session(context, klass, now)
         self._resolve_late()
@@ -1350,7 +1350,6 @@ class SessionManager:
         context: VehicleContext,
         klass: str | None,
         previous: str | None,
-        raw: str,
         now: datetime,
     ) -> None:
         """Follow the error class of a vehicle's charge state, wherever the vehicle is.
@@ -1363,7 +1362,7 @@ class SessionManager:
         name = self._vehicle_error_timer_name(vehicle_id)
         if klass == CHARGE_STATE_ERROR:
             if previous != CHARGE_STATE_ERROR and key not in self._problems:
-                self._vehicle_error_report[vehicle_id] = (raw, now)
+                self._vehicle_error_report[vehicle_id] = now
                 self._set_timer(
                     name,
                     ERROR_DEBOUNCE_S,
@@ -1378,14 +1377,12 @@ class SessionManager:
         """Take up a vehicle's charging error once it has held for the debounce time."""
         vehicle_id = context.vehicle.id
         self._timers.pop(self._vehicle_error_timer_name(vehicle_id), None)
-        report = self._vehicle_error_report.pop(vehicle_id, None)
-        if self._vehicle_charge_class.get(vehicle_id) != CHARGE_STATE_ERROR or report is None:
+        since = self._vehicle_error_report.pop(vehicle_id, None)
+        if self._vehicle_charge_class.get(vehicle_id) != CHARGE_STATE_ERROR or since is None:
             return
-        raw, since = report
         self._raise_problem(
             ReportedProblem(source=PROBLEM_SOURCE_VEHICLE, vehicle_id=vehicle_id, since=since),
             source_name=context.vehicle.name,
-            error=raw,
         )
         if vehicle_id in self._vehicle_sessions:
             self._drive_vehicle_session(context, CHARGE_STATE_ERROR, self._now())
@@ -1633,15 +1630,13 @@ class SessionManager:
     def _on_wallbox_error_timer(self, _now: datetime) -> None:
         """Take up the wallbox error once it has held for the debounce time."""
         self._timers.pop("wallbox_error", None)
-        report, self._error_report = self._error_report, None
-        if self._error_class != ERROR_CLASS_ERROR or report is None:
+        since, self._error_report = self._error_report, None
+        if self._error_class != ERROR_CLASS_ERROR or since is None:
             return
         assert self.wallbox is not None
-        raw, since = report
         self._raise_problem(
             ReportedProblem(source=PROBLEM_SOURCE_WALLBOX, vehicle_id=None, since=since),
             source_name=self.wallbox.name,
-            error=raw,
         )
 
     def _session_has_problem(self, session: RunningSession) -> bool:
@@ -3053,12 +3048,12 @@ class SessionManager:
                     continue
             self._problems[_problem_key(problem.source, problem.vehicle_id)] = problem
 
-    def _raise_problem(self, problem: ReportedProblem, *, source_name: str, error: str) -> None:
+    def _raise_problem(self, problem: ReportedProblem, *, source_name: str) -> None:
         """Take up a charging error that held for the debounce time, and report it."""
         self._problems[_problem_key(problem.source, problem.vehicle_id)] = problem
         _LOGGER.debug("A charging error is reported by the %s", problem.source)
         if self._notifier is not None:
-            self._notifier.error_reported(source_name, error, problem.since)
+            self._notifier.error_reported(source_name, problem.source, problem.since)
         self._sync_session_error()
         self._persist()
         self._publish()

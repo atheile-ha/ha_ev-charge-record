@@ -849,7 +849,7 @@ function vr(i, e) {
   };
 }
 function $r(i, e) {
-  return i.charge_error ? i.charge_error_source === "wallbox" ? e("flag_charge_error_wallbox") : i.charge_error_source === "vehicle" ? e("flag_charge_error_vehicle") : e("flag_charge_error") : null;
+  return i.charge_error_source === "wallbox" ? e("flag_charge_error_wallbox") : i.charge_error_source === "vehicle" ? e("flag_charge_error_vehicle") : null;
 }
 const P = x`
   :host {
@@ -2944,7 +2944,6 @@ const g = class Te extends b {
           ${e.status === "complete" ? d : o`<span class="chip warn">${t(`status_${e.status}`)}</span>`}
           ${e.location_conflict ? o`<span class="chip alert">${t("flag_location_conflict")}</span>` : d}
           ${e.identification_conflict ? o`<span class="chip alert">${t("flag_identification_conflict")}</span>` : d}
-          ${e.charge_error ? o`<span class="chip alert">${t("flag_charge_error")}</span>` : d}
           ${e.energy_unallocated_kwh > 0 ? o`<span class="chip warn">${t("flag_unallocated_energy")}</span>` : d}
         </span>
       </summary>

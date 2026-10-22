@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 from custom_components.ev_charging.const import DOMAIN, SESSION_STATE_ERROR, TITLE
-from custom_components.ev_charging.models import HubSettings, NotifyTarget
-from custom_components.ev_charging.notify import format_number, persistent_notification_id
+from custom_components.ev_charging.models import HubSettings, NotifyTarget, Session
+from custom_components.ev_charging.notify import (
+    Texts,
+    format_hours_minutes,
+    format_number,
+    persistent_notification_id,
+    summary_lines,
+)
 from custom_components.ev_charging.store import RuntimeStore
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.config_entries import SOURCE_RECONFIGURE
@@ -48,6 +56,7 @@ from tests.test_session_manager import (
 PROBLEM = "binary_sensor.ev_charging_problem"
 SPEAKER = "notify.speaker"
 PHONE = "mobile_app_phone"
+_DASH = "\N{EN DASH}"
 
 _CREATE = "custom_components.ev_charging.notify.persistent_notification.async_create"
 
@@ -103,6 +112,102 @@ def test_numbers_follow_the_decimal_separator_of_the_language() -> None:
     assert format_number(12.3456, 3, ",") == "12,346"
     assert format_number(4.5, 2, ".") == "4.50"
     assert format_number(85.0, 0, ",") == "85"
+
+
+def _texts(language: str) -> Texts:
+    """Return the notification texts of a language as the translation loader provides them."""
+    path = Path(__file__).parents[1] / "custom_components" / DOMAIN / "translations"
+    options = json.loads((path / f"{language}.json").read_text(encoding="utf-8"))["selector"][
+        "notification"
+    ]["options"]
+    prefix = f"component.{DOMAIN}.selector.notification.options."
+    return Texts({f"{prefix}{key}": value for key, value in options.items()})
+
+
+def _finished(**changes: Any) -> Session:
+    """Return a finished session at home with all summary values."""
+    values: dict[str, Any] = {
+        "id": "2026-10-22T18:12:00+02:00_v002",
+        "location": "home",
+        "plug_start": "2026-10-22T18:12:00+02:00",
+        "identification_source": "rfid",
+        "vehicle_id": "v002",
+        "vehicle_name": "GLB",
+        "plug_end": "2026-10-23T07:40:00+02:00",
+        "plug_duration_min": 808.0,
+        "charge_duration_min": 412.0,
+        "phase_count": 4,
+        "soc_start": 42,
+        "soc_end": 100,
+        "odometer_km": 7699,
+        "energy_kwh": 48.213,
+        "energy_grid_kwh": 12.053,
+        "energy_solar_kwh": 36.16,
+        "cost": 4.87,
+    }
+    values.update(changes)
+    return Session(**values)
+
+
+def test_durations_read_as_hours_and_minutes() -> None:
+    assert format_hours_minutes(412) == "6:52"
+    assert format_hours_minutes(808.4) == "13:28"
+    assert format_hours_minutes(2608) == "43:28"
+    assert format_hours_minutes(5) == "0:05"
+
+
+async def test_the_summary_names_period_odometer_solar_share_and_durations(
+    hass: HomeAssistant,
+) -> None:
+    """The finished session reads as one line per value, in the language of the instance."""
+    await hass.config.async_set_time_zone("Europe/Berlin")
+
+    assert summary_lines(_texts("de"), _finished(), "EUR") == [
+        "GLB, zu Hause (Wallbox)",
+        f"22.10.2026 18:12 {_DASH} 23.10.2026 07:40",
+        "Kilometerstand: 7699 km",
+        "Ladestand: 42 % → 100 %",
+        "Energie: 48,213 kWh",
+        "Sonnenanteil: 75 %",
+        "Kosten: 4,87 €",
+        "Gesamtdauer: 13:28 (netto: 6:52 mit 4 Phasen)",
+    ]
+
+
+async def test_the_summary_names_a_shared_date_once(hass: HomeAssistant) -> None:
+    """Start and end on the same day give one date with two times; one phase reads singular."""
+    await hass.config.async_set_time_zone("Europe/Berlin")
+    session = _finished(
+        plug_end="2026-10-22T21:40:00+02:00",
+        plug_duration_min=208.0,
+        charge_duration_min=95.0,
+        phase_count=1,
+    )
+
+    lines = summary_lines(_texts("de"), session, "CHF")
+
+    assert lines[1] == f"22.10.2026 18:12 {_DASH} 21:40"
+    assert "Kosten: 4,87 CHF" in lines
+    assert lines[-1] == "Gesamtdauer: 3:28 (netto: 1:35 mit 1 Phase)"
+
+
+async def test_the_summary_leaves_out_lines_without_values(hass: HomeAssistant) -> None:
+    """Without split, cost, odometer and net time those lines are missing, not empty."""
+    await hass.config.async_set_time_zone("Europe/Berlin")
+    session = _finished(
+        location="external",
+        odometer_km=None,
+        energy_grid_kwh=None,
+        energy_solar_kwh=None,
+        cost=None,
+        charge_duration_min=None,
+    )
+
+    lines = summary_lines(_texts("en"), session, "EUR")
+
+    assert lines[0] == "GLB, external"
+    assert not any(line.startswith(("Odometer", "Solar", "Cost")) for line in lines)
+    assert lines[-1] == "Duration: 13:28"
 
 
 def test_persistent_notification_ids_count_from_one() -> None:
@@ -161,8 +266,8 @@ async def test_a_wallbox_error_switches_the_problem_entity_and_keeps_the_session
     assert await _stored(hass) == []
     assert _titles(persistent) == ["Charging error"]
     message = persistent.call_args.args[1]
-    assert "Carport" in message
-    assert "error" in message
+    assert "Source: Carport" in message
+    assert "Error: Charging error (wallbox)" in message
     block = manager.live_blocks()[0]
     assert block["charge_error"] is True
     assert block["charge_error_source"] == "wallbox"
@@ -286,7 +391,8 @@ async def test_a_vehicle_error_during_an_external_session_is_reported_and_keeps_
     assert manager.live_blocks()[0]["charge_error_source"] is None
     assert await _stored(hass) == []
     assert _titles(persistent) == ["Charging error"]
-    assert "GLB" in persistent.call_args.args[1]
+    assert "Source: GLB" in persistent.call_args.args[1]
+    assert "Error: Charging error (vehicle)" in persistent.call_args.args[1]
 
     await _set(hass, GLB_CHARGE, CHARGING_DC)
     assert hass.states.get(PROBLEM).state == "off"
@@ -504,9 +610,9 @@ async def test_a_finished_wallbox_session_is_summarized(
     message = persistent.call_args.args[1]
     assert message.splitlines()[0] == "GLB, home (wallbox)"
     assert "Energy: 1.000 kWh" in message
-    assert "Grid: " in message
+    assert "Solar share: " in message
     assert "Cost: " in message
-    assert "Net charging time:" in message
+    assert "Duration: " in message
     assert [call.data["title"] for call in entity_calls] == [
         "Charging started",
         "Charging finished",

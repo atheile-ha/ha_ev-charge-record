@@ -1,200 +1,99 @@
 # ha_ev-charge-record
 
-Home-Assistant-Integration zur Erfassung von Ladevorgängen an einer Wallbox und über die Fahrzeugschnittstelle.
+Home-Assistant-Integration, die Ladevorgänge von Elektrofahrzeugen erfasst: an der eigenen Wallbox und unterwegs über die Fahrzeugintegration.
 
-## Funktionsumfang
+## Funktionen
 
-- Erfassung von Ladevorgängen an der Wallbox mit Fahrzeugzuordnung über RFID oder eMAID
-- Erfassung externer Ladevorgänge über die Fahrzeugschnittstelle, mehrere gleichzeitig
-- Gliederung eines Steckvorgangs in Ladephasen, Ausweis von Netto-Ladedauer und Pausen
-- Ermittlung von Netz- und Sonnenanteil sowie Kosten je Ladevorgang und je Phase
-- Liste offener Nacherfassungen für nicht ermittelbare Werte
-- Wirkungsgrad je Fahrzeug und Ladeart aus dem eigenen Datenbestand
-- Panel für die Historie, Lovelace-Karten für die Live-Ansicht
+- Erfassung jedes Ladevorgangs an der Wallbox, vom Anstecken bis zum Abstecken, mit Ladephasen, Pausen und Netto-Ladedauer
+- Zuordnung zum Fahrzeug über RFID-Karte, eMAID oder die Fahrzeugintegration
+- Netz- und Sonnenanteil sowie Kosten je Ladevorgang
+- Erfassung von Ladevorgängen zu Hause ohne Wallbox und unterwegs, auch mehrere gleichzeitig, mit Adresse des Ladeorts
+- Nacherfassung fehlender Werte und Korrektur gespeicherter Ladevorgänge
+- Benachrichtigungen bei Beginn, Ende und Ladefehler
+- Panel für die Historie, Karten für das Dashboard
 
-Die Integration führt keine Steuerung aus.
+Die Integration erfasst nur. Sie steuert weder Wallbox noch Fahrzeug.
 
 ## Voraussetzungen
 
 - Home Assistant 2026.9 oder neuer
-- Wallbox mit Ladeleistung, Steckerzustand und mindestens einem Energiezähler als Entität
-- Optional Fahrzeugentitäten für Ladestand, Kilometerstand, Ladezustand und Standort
-- Optional Modbus-TCP-Zugriff auf die Wallbox, um die Kennung der RFID-Karte unmittelbar zu lesen (KEBA P40, siehe „Direktes Lesen der Wallbox“)
+- Eine unterstützte Wallbox, eingebunden über ihre Quellintegration
+- Optional eine unterstützte Fahrzeugintegration
 
-Herstellerunabhängig. Die Zuordnung erfolgt über normalisierte Rollen bei der Einrichtung.
+### Unterstützte Geräte
 
-## Erfassung an der Wallbox
-
-Ein Ladevorgang beginnt, sobald der Steckerzustand der Wallbox ein verbundenes Fahrzeug meldet, auch wenn noch keine Leistung fließt. Meldet der Steckerzustand keinen verwertbaren Wert, beginnt er ersatzweise, wenn die Ladeleistung erstmals die Schwelle der Wallbox überschreitet, solange der Steckerzustand nicht meldet, dass kein Fahrzeug verbunden ist. Er endet, wenn der Steckerzustand der Wallbox meldet, dass kein Fahrzeug mehr verbunden ist. Ausbleibende Leistung, ein gemeldeter Ladefehler und ein unbekannter Zustandswert beenden ihn nicht. Meldet der Steckerzustand länger als 12 Stunden keinen verwertbaren Wert, wird der Ladevorgang geschlossen und als markiert gekennzeichnet.
-
-- Phasen: Die Leistungsschwelle öffnet und schließt Ladephasen, sie beginnt keinen Ladevorgang. Die erste Phase beginnt mit der ersten Leistung über der Schwelle, die Zeit davor ist Pause. Unterbrechungen unter 15 Minuten bleiben Teil der Ladephase, längere Pausen beginnen eine neue Phase. Netto-Ladedauer und Pausen werden ausgewiesen. Steigt ein Energiezähler, ohne dass eine Phase offen ist, wird die Energie dem Ladevorgang zugerechnet, ohne dass eine Phase entsteht. Ein Ladevorgang kann keine Phase haben.
-- Zustände: `idle`, `candidate`, `charging`, `paused`, `error`, `awaiting_final`. Der Kandidat wird sofort veröffentlicht, die Entprellzeit entscheidet nur, ob der Ladevorgang bestehen bleibt. Ein Ladevorgang ohne Leistung steht im Zustand `paused`. Nach dem Speichern oder Verwerfen eines Ladevorgangs beginnt bei noch verbundenem Fahrzeug sofort der nächste.
-- Energie: Beide Energiezähler werden inkrementell akkumuliert. Ein Rückgang gilt als Rücksetzung des Zählers. Ein Zuwachs, den die Wallbox mit der Nennleistung zuzüglich 15 Prozent nicht liefern kann, wird nicht gezählt und markiert den Ladevorgang. Steht der Gesamtzähler während des Ladens still und der Sitzungszähler steigt, wechselt die Erfassung auf den Sitzungszähler und erzeugt eine Repair Issue. Weichen beide Zähler am Ende um mehr als 5 Prozent ab, ist der Ladevorgang markiert.
-- Netz- und Sonnenanteil: Aus dem geglätteten Netzsaldo der globalen Einstellungen (Mittel über 60 Sekunden) und der Ladeleistung. Kosten aus Netzpreis und Sonnenbewertung. Ohne Netzsaldo wird die Energie nicht aufgeteilt, ohne Netzpreis werden keine Kosten ermittelt.
-- Fahrzeugzuordnung nach `identification_window_s` (Standard 15 Sekunden): erstens über die gemeldete Kennung, die höchstens 5 Minuten alt sein darf und als Anfang oder Ende einer hinterlegten Kennung passen muss, zweitens über genau ein aktives Fahrzeug mit Fahrzeugidentifikation, das den Standort `home` meldet, sonst bleibt der Ladevorgang unzugeordnet. Eine gemeldete Kennung, die kein Fahrzeug hinterlegt hat, führt zu einem unzugeordneten Ladevorgang und einer Repair Issue. Ein unzugeordneter Ladevorgang wird, solange er läuft, dem Fahrzeug zugeordnet, sobald genau ein Fahrzeug mit Fahrzeugidentifikation `charging` meldet; Ladestand und Kilometerstand bei Beginn bleiben dann offen. Widersprechen sich Kennung und Fahrzeugmeldung, gilt die Kennung, und der Ladevorgang ist markiert. Eine Kennung, die erst nach dieser Entscheidung gelesen wird, ordnet nachträglich zu: Ein unzugeordneter Ladevorgang wird dem Fahrzeug der Karte zugeordnet und Ladestand und Kilometerstand bei Beginn bleiben offen. Ist er über die Fahrzeugmeldung demselben Fahrzeug zugeordnet, ändert sich nur die Quelle der Zuordnung. Ist er einem anderen Fahrzeug zugeordnet, gilt die Kennung: Das Fahrzeug wechselt, Ladestand und Kilometerstand bei Beginn bleiben offen und der Ladevorgang ist markiert. Passt die Kennung auf keine hinterlegte Karte, bleibt ein unzugeordneter Ladevorgang unzugeordnet, ein zugeordneter behält sein Fahrzeug und ist markiert, und es entsteht eine Repair Issue. Energie, Kosten und Phasen bleiben unverändert.
-- Verwerfen: Ein Ladevorgang, der durch das Abstecken endet, ohne dass Energie geflossen ist und ohne dass je eine Phase begann, wird nicht gespeichert. Das gilt nur, wenn der Energiezähler von Beginn an lesbar war und nicht gestiegen ist und der Ladevorgang weder einen Ladefehler noch eine Markierung trägt, sonst bleibt er erhalten. Ein Ladevorgang, der nach 12 Stunden ohne verwertbaren Steckerzustand geschlossen wird, wird nie verworfen.
-- Neustart: Steckt bei der Einrichtung oder nach einem Neustart ein Fahrzeug und ist kein Ladevorgang gespeichert, beginnt der Ladevorgang zu diesem Zeitpunkt. Ein gespeicherter Ladevorgang wird fortgesetzt. Energie, die während des Ausfalls geliefert wurde, geht in die Gesamtmenge ein und wird als nicht zugeordnet ausgewiesen.
-- Ladeort ist `home`, die Ladeart die der Wallbox. Meldet der Standort des zugeordneten Fahrzeugs `not_home`, während die Wallbox lädt, erhält der Ladevorgang den Vermerk Standortwiderspruch.
-
-### Entitäten
-
-Alle Entitäten der Wallbox liegen am Gerät der Wallbox, unter dem Untereintrag der Wallbox. Das Gerät trägt Name, Hersteller und Modell der Wallbox. Die Entitäts-IDs beginnen mit dem Namen der Wallbox zum Zeitpunkt des Anlegens, hier als `<wallbox>` geschrieben. Bereits angelegte Entitäten behalten ihre ID. Sie werden höchstens im Takt von `update_interval_s` fortgeschrieben, ein Zustandswechsel wird sofort veröffentlicht.
-
-| Entität | Inhalt |
+| Gerät | Quellintegration |
 |---|---|
-| `binary_sensor.<wallbox>_wallbox_session` | an, solange ein Kandidat oder Ladevorgang besteht |
-| `sensor.<wallbox>_wallbox_state` | Zustand des Ladevorgangs |
-| `sensor.<wallbox>_active_vehicle` | Name des Fahrzeugs, `guest`, `unresolved` oder `none` |
-| `sensor.<wallbox>_session_cost` | Kosten des Ladevorgangs |
-| `sensor.<wallbox>_session_energy_grid`, `sensor.<wallbox>_session_energy_solar` | Netz- und Sonnenanteil in kWh |
-| `sensor.<wallbox>_price_effective` | Preis je kWh aus Netz- und Sonnenanteil |
-| `sensor.<wallbox>_open_followups` | Anzahl offener Nacherfassungen |
+| KEBA KeContact P40 | FENECON FEMS / OpenEMS (`ha_openems`) ab 1.7.2 |
+| KEBA KeContact P20 / P30 (UDP) | `ha_openems` ab 1.7.2 |
+| Webasto Next | `ha_openems` ab 1.7.2 |
+| Spelsberg SMART | `ha_openems` ab 1.7.2 |
+| ABL eMH (Modbus) | `ha_openems` ab 1.7.2 |
+| Alfen Eve (Modbus) | `ha_openems` ab 1.7.2 |
+| Hardy Barth cPH2 / Salia | `ha_openems` ab 1.7.2 |
+| Heidelberg Energy Control Connect | `ha_openems` ab 1.7.2 |
+| Mennekes Amtron (Modbus) | `ha_openems` ab 1.7.2 |
+| Mercedes-Benz mit Mercedes me connect | `mbapi2020` ab 0.29.2 |
+| Škoda mit MySkoda connect | `myskoda` ab 1.36.1 |
 
-Standardmäßig deaktiviert, in der Entitätsverwaltung aktivierbar: `sensor.<wallbox>_active_vehicle_soc`, `_soc_target`, `_charge_state`, `_charge_end`, `sensor.<wallbox>_session_soc_start`, `_odometer_start`, `_duration_net` und `sensor.<wallbox>_grid_share`.
-
-Ohne laufenden Ladevorgang haben die Sensoren des Ladevorgangs keinen Wert. `vin`, Kennungen, Adressen und Koordinaten erscheinen in keiner Entität.
-
-### Entitäten je Fahrzeug
-
-Für jedes aktive Fahrzeug, hier als `<fahrzeug>` geschrieben:
-
-| Entität | Inhalt |
-|---|---|
-| `binary_sensor.<fahrzeug>_session_active` | an, solange ein eigener, von der Wallbox unabhängiger Ladevorgang dieses Fahrzeugs läuft |
-
-Standardmäßig deaktiviert: `sensor.<fahrzeug>_session_state`, `_session_location`, `_session_soc_start`, `_session_odometer_start`, `_session_energy` und `_session_duration_net` sowie `sensor.<fahrzeug>_charge_end`.
-
-## Erfassung über die Fahrzeugschnittstelle
-
-Unabhängig von der Wallbox erfasst die Integration einen Ladevorgang für jedes aktive Fahrzeug mit zugeordneter Rolle `charge_state`. Er beginnt, sobald das Fahrzeug erstmals `charging` meldet, und endet, sobald es `disconnected` meldet oder die Rolle `plug_state` des Fahrzeugs den Zustand nicht verbunden meldet. Mehrere Fahrzeuge können gleichzeitig laden.
-
-Lädt die Wallbox, entsteht für das Fahrzeug an der Wallbox kein zweiter Ladevorgang:
-
-- Hat die Wallbox das Fahrzeug zugeordnet, beginnt dafür kein eigener Ladevorgang.
-- Hat sie ein anderes Fahrzeug zugeordnet, gilt ein Fahrzeug zu Hause als anderes Auto und erfasst einen eigenen Ladevorgang.
-- Hat sie kein Fahrzeug zugeordnet, gilt ein Fahrzeug zu Hause, das `charging` meldet, als das Auto an der Wallbox, wenn der Ladevorgang der Wallbox oder ein Anstieg oder Abfall ihrer Ladeleistung höchstens 2 Minuten zurückliegt oder die Wallbox gerade lädt. Melden beide Fahrzeug und Wallbox eine Ladeleistung und weichen diese um mehr als 25 Prozent der Wallbox-Leistung, mindestens aber 1,5 kW, voneinander ab, gilt es als anderes Auto. Ein Fahrzeug außerhalb der Heimzone ist immer ein anderes Auto. Die Zuordnung der Wallbox ändert sich dadurch nicht.
-- Nach dem Ende des Ladevorgangs der Wallbox beginnt für ein Fahrzeug, das weiterhin `charging` meldet, erst dann wieder ein eigener Ladevorgang, wenn es zwischendurch einen anderen Ladezustand gemeldet hat.
-
-Der Ladeort ist `home_no_wallbox`, wenn der Standort-Tracker des Fahrzeugs beim Beginn die Heimzone meldet, sonst `external`. Bei `external` werden Koordinaten und Zeitpunkt der letzten Standortmeldung übernommen und eine Adresse ermittelt, erneut beim Ende, sofern die erste Ermittlung fehlschlug, und beim Start der Integration für jeden noch offenen Fall; manuell über `ev_charging.retry_address`. Die Ladeart übernimmt die erste eindeutige Meldung der Rolle `charge_type` und ändert sich danach nicht mehr; ohne eine solche Meldung wird sie am Ende aus der mittleren Ladeleistung geschätzt (Schwelle 25 kW für Gleichstrom). Die geladene Energie ist die von der Rolle `energy_session` gemeldete Menge, sonst eine aus der Ladestandsänderung geschätzte und entsprechend gekennzeichnete Menge. Kosten werden für diese Ladevorgänge nicht ermittelt und bleiben zur Nacherfassung offen.
-
-## Ladefehler und Benachrichtigungen
-
-Ein Ladefehler ist nur, was als Fehler gemeldet wird. Ausbleibende Ladeleistung ist kein Fehler.
-
-- Wallbox: die Rolle `error`, als `binary_sensor` mit `device_class: problem` oder als Zustandsentität mit mitgeliefertem Mapping. Bei einer Zustandsentität ist nur die Klasse `error` ein Fehler, bei der KEBA P40 der Ladezustand `error`; `charging_is_temporarily_interrupted` und `undefined` sind keiner.
-- Fahrzeug: die Klasse `error` der Rolle `charge_state`, bei Mercedes me der Code `4`, nicht der Wert `error`. Das gilt an der Wallbox, zu Hause ohne Wallbox und extern.
-
-Ein Fehler gilt, wenn er 5 Sekunden lang ansteht, auch ohne laufenden Ladevorgang. Ein laufender Ladevorgang geht dann in den Zustand `error`: der Ladevorgang der Wallbox bei einem Fehler der Wallbox oder des ihm zugeordneten Fahrzeugs, der eigene Ladevorgang eines Fahrzeugs bei dessen Fehler. Der Ladevorgang bleibt offen und kehrt zurück, sobald der Fehler nicht mehr gemeldet wird.
-
-| Entität | Inhalt |
-|---|---|
-| `binary_sensor.ev_charging_problem` | an, solange die Wallbox oder ein Fahrzeug einen Ladefehler meldet. Attribute `source` (`wallbox` oder `vehicle`) und `vehicle_id` des zuletzt eingetretenen, noch bestehenden Fehlers |
-
-Die Entität gehört zum Haupteintrag der Integration.
-
-Benachrichtigungen werden in den globalen Einstellungen im Abschnitt „Benachrichtigungen“ eingerichtet:
-
-- Persistente Benachrichtigungen in Home Assistant, insgesamt und je Anlass abschaltbar: Zusammenfassung nach jedem gespeicherten Ladevorgang und Ladefehler. Sie verwenden reihum die Kennungen `ev_charging_1` bis `ev_charging_5`, die sechste Meldung ersetzt wieder die erste. Die Reihenfolge bleibt über einen Neustart erhalten.
-- Bis zu zwei Benachrichtigungsziele: eine Entität der Domäne `notify`, angesprochen über `notify.send_message`, oder ein klassischer Benachrichtigungsdienst wie `notify.mobile_app_<gerät>`, angesprochen über den gleichnamigen Dienst. Beide stehen in einer gemeinsamen Auswahl. Je Anlass abschaltbar: Ladevorgang begonnen und Ladevorgang beendet (zu Hause, mit oder ohne Wallbox), externer Ladevorgang begonnen, externer Ladevorgang beendet, Ladefehler, offene Nacherfassung. Die Meldung zur offenen Nacherfassung ist standardmäßig aus.
-
-Die Meldung zum Beginn eines Ladevorgangs zu Hause kommt, sobald das Fahrzeug zugeordnet ist, an der Wallbox nach `identification_window_s`, und nennt Fahrzeug oder „nicht zugeordnet“, Ladestand und Kilometerstand bei Beginn; sie geht nur an die Ziele. Die Zusammenfassung nennt Fahrzeug, Ladeort, Ladestand von und bis, Energie, Netz- und Sonnenanteil, Kosten, Netto-Ladedauer und Zahl der Phasen; Angaben ohne Wert entfallen. Die Fehlermeldung nennt Quelle, gemeldeten Wert und Beginn. Ein Ladevorgang, der nach 12 Stunden ohne verwertbaren Zustand geschlossen wird, wird statt mit der Zusammenfassung mit einer eigenen Meldung über den Anlass Ladefehler gemeldet. Ein verworfener Ladevorgang wird nicht gemeldet. Die Texte folgen der Sprache von Home Assistant, Zahlen mit deren Dezimaltrennzeichen.
-
-Verschwindet ein Benachrichtigungsziel, entsteht eine Repair Issue; das andere Ziel und die persistenten Benachrichtigungen werden weiter bedient. Die Integration legt keine Automationen an und führt bei einem Fehler keine Wiederherstellung aus.
-
-## Panel und Karten
-
-Nach dem Einrichten erscheint in der Seitenleiste das Panel „EV Charging“. Es zeigt die erfassten Ladevorgänge und ist für alle angemeldeten Benutzer lesbar. Nach einer wiederhergestellten Verbindung zu Home Assistant, etwa nach einem Neustart, lädt es die angezeigte und die zuvor geladenen Ansichten neu.
-
-- Übersicht: Filter für Fahrzeug, Ladeort, Ladeart, Karte und Status, die auf alle Werte der Übersicht wirken, Monatsauswahl, Monatssummen für Energie, Kosten, Ladedauer, Ladevorgänge und offene Nacherfassungen, Monatsbalken über das Jahr mit dem auf ganze Zahlen gerundeten Wert jedes Monats, darunter die gerundete Jahreszusammenfassung gesamt, intern und extern
-- Detailliste: dieselben Filter, darunter die Ladevorgänge des Monats als Tabelle. Jeder Eintrag lässt sich aufklappen und zeigt Zeiten, Ladestand, Kilometerstand, Netz- und Sonnenanteil, die Ladephasen und einen Link zu Google Maps. Ein Ladevorgang ohne Ladephase weist das aus
-- Korrektur, nur für Administratoren: oben die offenen Nacherfassungen über alle Jahre mit direkter Eingabe, unabhängig von Monat und Filtern; darunter die Ladevorgänge des gewählten Monats zum Bearbeiten, Löschen, Zuordnen eines Fahrzeugs und Zusammenführen sowie das Nachtragen eines Ladevorgangs
-
-Energie wird mit drei Nachkommastellen angezeigt. Intern sind Ladevorgänge zu Hause, mit und ohne Wallbox. Ladevorgänge ohne Fahrzeug werden als „Nicht zugeordnet“ geführt und zählen in die Summen. Ladevorgänge über mehrere Tage werden dem Monat des Ansteckens zugeordnet. Geschätzte Werte sind mit ~ gekennzeichnet.
-
-In der Kartenauswahl eines Dashboards stehen vier Karten zur Verfügung, sie erscheinen unter ihrem Kartentyp:
-
-| Karte | Inhalt |
-|---|---|
-| `ev-charging-panel-card` | dieselben Ansichten wie das Panel, für eine Dashboard-Ansicht vom Typ Panel |
-| `ev-charging-recent-card` | die letzten Ladevorgänge, aufklappbar. Die Anzahl `count` (1 bis 20, Standard 3) lässt sich im Kartendialog oder in YAML einstellen |
-| `ev-charging-live-card` | ein Block je laufendem Ladevorgang: der der Wallbox immer zuerst, auch ohne Fahrzeug, danach die externen Ladevorgänge in der Reihenfolge ihres Beginns. Die Überschrift eines Blocks nennt den Namen der Wallbox oder „Extern“. Jeder Block zeigt Fahrzeug mit Kilometerstand bei Beginn sowie Ladestand von, bis und Ziel in einer Zeile darunter, Zustand mit Grund und Beginn und Zahl der bisherigen Phasen, Herkunft der Zuordnung, Leistung, Energie und Ladezeit. Der Block der Wallbox zeigt zusätzlich Steckerzustand, Stand des Lesens der Kennung, Netz- und Sonnenanteil, Kosten, Preis je kWh, voraussichtliches Ende, das ohne Ladeleistung als nicht verfügbar erscheint, den maßgeblichen Energiezähler und nicht zugeordnete Energie. Ein externer Block zeigt zusätzlich Adresse, Ladeart, Reichweite und restliche Ladezeit. Ohne Ladevorgang an der Wallbox steht dort der Grund, etwa dass kein Fahrzeug verbunden oder der Steckerzustand nicht verfügbar ist. Fehlt eine Angabe, weil kein Netzsaldo oder kein Netzpreis eingerichtet ist, steht der Grund da. Ein gemeldeter Ladefehler erscheint als Hinweis, solange er besteht mit seiner Quelle, Wallbox oder Fahrzeug. Sie folgt den Quellentitäten und ist nicht an `update_interval_s` gebunden |
-| `ev-charging-month-card` | Energie, Kosten und Sonnenanteil des aktuellen Monats. Der Sonnenanteil zählt die Ladevorgänge, für die Netz- und Sonnenanteil erfasst sind |
-
-## Kennungen (RFID/eMAID)
-
-Beim Fahrzeug wird stets die vollständige, aufgedruckte Seriennummer hinterlegt. Meldet die Wallbox nur einen
-Ausschnitt, wie die KEBA P40 mit den letzten vier Bytes der Seriennummer, prüft der Abgleich zur Laufzeit, ob
-der gemeldete Ausschnitt den Anfang oder das Ende der hinterlegten Kennung bildet. Passt ein Ausschnitt auf
-mehrere hinterlegte Kennungen, ordnet die Integration kein Fahrzeug zu.
-
-## Direktes Lesen der Wallbox (optional)
-
-Stellt keine Quellintegration die Kennung der RFID-Karte bereit, kann die Integration sie unmittelbar aus der Wallbox lesen. Unterstützt ist die KEBA P40 (Register 1500) über Modbus TCP. Das direkte Lesen ist ausgeschaltet, bis im Wallbox-Dialog die Kennung aus dem Register gelesen werden soll.
-
-Einrichtung:
-
-1. Am Gerät Modbus TCP und das Auslesen der Kartenkennung freigeben.
-2. Im Wallbox-Dialog unter Entitätsrollen „Kennung aus dem Register der Wallbox lesen“ wählen. Eine Kennungs-Entität bleibt dann leer.
-3. Unter Expertenoptionen Adresse, Port (Standard 502) und Unit-ID (Standard 255) eintragen. Die Adresse ist Pflicht, solange die Kennung aus dem Register gelesen wird.
-
-Ablauf:
-
-- Gelesen wird ausschließlich mit Funktionscode 3 (Halteregister lesen). Die Integration schreibt nie auf die Wallbox.
-- Die Kennung wird nicht zyklisch gelesen, sondern in höchstens zwei Folgen je Ladevorgang. Die erste beginnt 10 Sekunden nach dem Beginn des Ladevorgangs, die zweite sofort mit dem Beginn der ersten Ladephase und nur, wenn die erste keine gültige Kennung geliefert hat. Beginnt die erste Phase, während die erste Folge noch läuft, ersetzt die zweite sie. Eine Folge liest im Abstand von 5 Sekunden, höchstens zehnmal, und endet mit der ersten gültigen Kennung. Für jeden Lesevorgang wird eine Verbindung aufgebaut und wieder geschlossen.
-- Liefert das Gerät keine gültige Antwort oder den Wert 0, gilt der Lesevorgang als fehlgeschlagen. Nach dem Ende beider Folgen ohne gültige Kennung gilt die Kennung für diesen Ladevorgang als nicht verfügbar, es entsteht eine Repair Issue, deren Art das Ergebnis des letzten Lesevorgangs bestimmt, und die Fahrzeugzuordnung folgt den übrigen Möglichkeiten. Endet der Ladevorgang vorher, entsteht keine Repair Issue. Ein späteres gültiges Lesen löscht sie. Der Ladevorgang wird dadurch nie beendet.
-- Die Fahrzeugzuordnung wartet nicht auf das Lesen. Hat der Leser nach `identification_window_s` eine Kennung, geht sie wie eine von einer Entität gemeldete in die Zuordnung ein. Eine später gelesene Kennung ordnet nachträglich zu.
-
-Hinweise:
-
-- Modbus TCP ist bei der KEBA P40 im Auslieferungszustand abgeschaltet und in der KEBA-eMobility-App freizugeben. Das Auslesen von Kartenkennungen ist dort zusätzlich freizugeben; bis dahin liefert das Register den Wert 0.
-- Die Schnittstelle ist nicht verschlüsselt und gehört in ein vertrauenswürdiges Netzsegment.
-- Die Wallbox nimmt möglicherweise nur einen Modbus-Client an. Ob ein zweiter Client neben einem Energiemanagement angenommen wird, sichert das Gerätehandbuch nicht zu.
-- Softwarestände der KEBA P40 vor 1.2.1 melden die Energieregister im zehnfachen Maßstab.
-
-## Protokoll
-
-Auf der Stufe `DEBUG` schreibt die Integration die Zustandswechsel des Ladevorgangs, den Beginn jeder Ladephase, die Steckerklasse, jeden Lesevorgang der Kennung mit Ziel, Dauer und Antwort des Geräts sowie das Ergebnis der Fahrzeugzuordnung. Kennung, VIN, Adresse und Koordinaten stehen nicht im Protokoll, eine gelesene Kennung nur mit ihren letzten zwei Zeichen. Einschalten unter Einstellungen, Geräte & Dienste, EV Charging im Menü „Debug-Protokollierung aktivieren“; beim Ausschalten lädt Home Assistant das Protokoll herunter. Dauerhaft in der `configuration.yaml`:
-
-```yaml
-logger:
-  logs:
-    custom_components.ev_charging: debug
-```
-
-Mit zusätzlich `pymodbus: debug` protokolliert die Modbus-Bibliothek die übertragenen Rohdaten. Diese enthalten den Registerinhalt und damit die Kennung im Klartext.
+Fahrzeuge ohne Online-Anbindung lassen sich ebenfalls anlegen.
 
 ## Installation
 
-HACS, benutzerdefiniertes Repository, Kategorie Integration. Anschließend unter Geräte und Dienste hinzufügen.
+1. In HACS das Repository als benutzerdefiniertes Repository der Kategorie Integration hinzufügen und installieren.
+2. Home Assistant neu starten.
+3. Unter Einstellungen → Geräte & Dienste die Integration „EV Charging“ hinzufügen.
 
-Zeigt die Companion-App nach einem Update oder einem Neustart von Home Assistant „Karte nicht gefunden“, hilft es, die App einmal vollständig zu schließen und neu zu öffnen.
+## Einrichtung
 
-## Datenhaltung
+1. **Globale Einstellungen:** Netzstrompreis, Einspeisevergütung, Netzsaldo und Benachrichtigungen. Ohne Netzsaldo wird nicht nach Netz und Sonne aufgeteilt, ohne Netzstrompreis werden keine Kosten ermittelt.
+2. **Wallbox:** Gerät wählen und Entitäten für Ladeleistung, Steckerzustand und mindestens einen Energiezähler zuordnen.
+3. **Fahrzeuge:** je Fahrzeug Integration, Kapazität und Karten anlegen. Jedes aktive Fahrzeug braucht mindestens eine Karte oder die Erkennung über die Fahrzeugintegration.
 
-Ladedaten liegen in `.storage` und sind Teil der Home-Assistant-Sicherung. Beim Entfernen der Integration werden sie nicht gelöscht. Für eine vollständige Entfernung vor der Deinstallation `ev_charging.delete_all_data` aufrufen.
+Für die RFID-Karte wird immer die vollständige, aufgedruckte Seriennummer eingetragen, auch wenn die Wallbox nur einen Teil davon meldet.
 
-Optional werden Koordinaten externer Ladevorgänge an einen Geocoding-Dienst übermittelt. Abschaltbar.
+### KEBA P40: Kartenkennung direkt lesen
 
-## Entwicklung
+Die Kennung der RFID-Karte stellt `ha_openems` nicht bereit. Die Integration kann sie lesend über Modbus TCP von der Wallbox holen:
 
-Python 3.14 oder neuer. Die Testabhängigkeiten setzen eine Linux- oder macOS-Umgebung voraus.
+1. In der KEBA-eMobility-App Modbus TCP und das Auslesen der Kartenkennung freigeben.
+2. Im Wallbox-Dialog bei der Kennung „Kennung aus dem Register der Wallbox lesen“ wählen.
+3. Unter Expertenoptionen Adresse, Port und Unit-ID der Wallbox eintragen.
 
-```bash
-python3.14 -m venv .venv && source .venv/bin/activate
-pip install -r requirements-dev.txt
-ruff check . && ruff format --check .
-pytest
-```
+## Bedienung
 
-```bash
-cd frontend && npm install && npm run typecheck && npm test && npm run build
-```
+**Panel „EV Charging“** in der Seitenleiste: Übersicht mit Monats- und Jahressummen, Detailliste aller Ladevorgänge und, für Administratoren, die Ansicht „Korrektur“ für Nacherfassung, Bearbeiten, Löschen und Zusammenführen.
 
-Das gebaute Bundle wird committet.
+**Karten** für das Dashboard, in der Kartenauswahl:
 
-## Änderungen
+| Karte | Inhalt |
+|---|---|
+| `ev-charging-live-card` | laufende Ladevorgänge mit Fahrzeug, Ladestand, Leistung, Energie und Kosten |
+| `ev-charging-recent-card` | die letzten Ladevorgänge |
+| `ev-charging-month-card` | Energie, Kosten und Sonnenanteil des aktuellen Monats |
+| `ev-charging-panel-card` | das Panel als Dashboard-Ansicht |
 
-Siehe `CHANGELOG.md`.
+**Wichtige Entitäten** für eigene Automationen:
+
+| Entität | Inhalt |
+|---|---|
+| `binary_sensor.<wallbox>_wallbox_session` | an, solange an der Wallbox ein Ladevorgang besteht |
+| `sensor.<wallbox>_wallbox_state` | Zustand des Ladevorgangs an der Wallbox |
+| `sensor.<wallbox>_active_vehicle` | erkanntes Fahrzeug |
+| `sensor.<wallbox>_session_cost` | Kosten des laufenden Ladevorgangs |
+| `binary_sensor.<fahrzeug>_session_active` | an, solange das Fahrzeug außerhalb der Wallbox lädt |
+| `binary_sensor.ev_charging_problem` | an bei einem Ladefehler von Wallbox oder Fahrzeug |
+
+Weitere Sensoren sind angelegt, aber standardmäßig deaktiviert.
+
+**Services** (nur für Administratoren): `update_session`, `delete_session`, `create_session`, `close_followup`, `correct_vehicle`, `merge_sessions`, `retry_address`, `delete_all_data`.
+
+## Daten und Datenschutz
+
+- Alle Ladedaten liegen lokal in Home Assistant und sind Teil der Sicherung.
+- Beim Entfernen der Integration bleiben die Ladedaten erhalten. Vollständig löschen: vorher `ev_charging.delete_all_data` aufrufen.
+- Fahrgestellnummer, Kartenkennungen, Adressen und Koordinaten erscheinen in keiner Entität.
+- Für die Adresse externer Ladevorgänge werden Koordinaten an einen Geocoding-Dienst gesendet. Das lässt sich abschalten.
 
 ## Lizenz
 

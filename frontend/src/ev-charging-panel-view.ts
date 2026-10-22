@@ -1326,9 +1326,6 @@ export class EvChargingPanelView extends LitElement {
           ${session.identification_conflict
             ? html`<span class="chip alert">${t("flag_identification_conflict")}</span>`
             : nothing}
-          ${session.charge_error
-            ? html`<span class="chip alert">${t("flag_charge_error")}</span>`
-            : nothing}
           ${session.energy_unallocated_kwh > 0
             ? html`<span class="chip warn">${t("flag_unallocated_energy")}</span>`
             : nothing}

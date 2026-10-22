@@ -55,6 +55,12 @@ def format_number(value: float, digits: int, separator: str) -> str:
     return f"{value:.{digits}f}".replace(".", separator)
 
 
+def format_hours_minutes(minutes: float) -> str:
+    """Format a duration in minutes as hours and minutes, hours not limited to a day."""
+    total = round(minutes)
+    return f"{total // 60}:{total % 60:02d}"
+
+
 def service_name(target: NotifyTarget) -> str:
     """Return the name of a classic notify service, without its domain."""
     return target.target.removeprefix(f"{NOTIFY_DOMAIN}.")
@@ -94,6 +100,21 @@ class Texts:
         """Format a moment in local time in the style of the language."""
         return dt_util.as_local(value).strftime(self.raw("datetime_format"))
 
+    def period(self, start: datetime, end: datetime) -> str:
+        """Format a period in local time, naming the date once when both ends share it."""
+        start_local, end_local = dt_util.as_local(start), dt_util.as_local(end)
+        if start_local.date() == end_local.date():
+            end_text = end_local.strftime(self.raw("time_format"))
+        else:
+            end_text = self.moment(end_local)
+        return self.get("summary_period", start=self.moment(start_local), end=end_text)
+
+    def currency(self, code: str) -> str:
+        """Return the symbol of a currency, or its code without one."""
+        key = f"currency_{code}"
+        symbol = self.raw(key)
+        return code if symbol == key else symbol
+
     def location(self, location: str) -> str:
         """Return the name of a charging location."""
         return self.raw(f"location_{location}") if location in LOCATIONS else location
@@ -125,6 +146,13 @@ def summary_lines(texts: Texts, session: Session, currency: str) -> list[str]:
             location=texts.location(session.location),
         )
     ]
+    start, end = _parse(session.plug_start), _parse(session.plug_end)
+    if start is not None and end is not None:
+        lines.append(texts.period(start, end))
+    if session.odometer_km is not None:
+        lines.append(
+            texts.get("session_start_odometer", odometer=texts.number(session.odometer_km, 0))
+        )
     if session.soc_start is not None and session.soc_end is not None:
         lines.append(
             texts.get(
@@ -136,25 +164,32 @@ def summary_lines(texts: Texts, session: Session, currency: str) -> list[str]:
     if session.energy_kwh is not None:
         lines.append(texts.get("summary_energy", energy=texts.number(session.energy_kwh, 3)))
     if session.energy_grid_kwh is not None and session.energy_solar_kwh is not None:
-        lines.append(
-            texts.get(
-                "summary_split",
-                grid=texts.number(session.energy_grid_kwh, 3),
-                solar=texts.number(session.energy_solar_kwh, 3),
-            )
-        )
+        allocated = session.energy_grid_kwh + session.energy_solar_kwh
+        if allocated > 0:
+            share = session.energy_solar_kwh / allocated * 100
+            lines.append(texts.get("summary_solar", share=texts.number(share, 0)))
     if session.cost is not None:
         lines.append(
-            texts.get("summary_cost", cost=texts.number(session.cost, 2), currency=currency)
-        )
-    if session.charge_duration_min is not None:
-        lines.append(
             texts.get(
-                "summary_duration",
-                duration=texts.number(session.charge_duration_min, 0),
-                phases=session.phase_count if session.phase_count is not None else 0,
+                "summary_cost",
+                cost=texts.number(session.cost, 2),
+                currency=texts.currency(currency),
             )
         )
+    if session.plug_duration_min is not None:
+        total = format_hours_minutes(session.plug_duration_min)
+        if session.charge_duration_min is None:
+            lines.append(texts.get("summary_duration_total", total=total))
+        else:
+            phases = session.phase_count if session.phase_count is not None else 0
+            lines.append(
+                texts.get(
+                    "summary_duration_one_phase" if phases == 1 else "summary_duration",
+                    total=total,
+                    net=format_hours_minutes(session.charge_duration_min),
+                    phases=phases,
+                )
+            )
     if _has_open_fields(session):
         lines.append(texts.raw("summary_followup"))
     return lines
@@ -357,11 +392,15 @@ class Notifier:
         )
 
     @callback
-    def error_reported(self, source_name: str, error: str, since: datetime) -> None:
-        """Report a charging error: which error, from which source, since when."""
+    def error_reported(self, source_name: str, source_kind: str, since: datetime) -> None:
+        """Report a charging error: which error, from which source, since when.
+
+        source_kind is the kind of source that reported it, wallbox or vehicle.
+        """
         settings = self._settings
 
         def _build(texts: Texts) -> tuple[str, str]:
+            error = texts.get("charge_error", origin=texts.raw(f"error_source_{source_kind}"))
             message = texts.get("error", source=source_name, error=error, since=texts.moment(since))
             return texts.raw("title_error"), message
 

@@ -388,16 +388,14 @@ export function dataGaps(live: LiveBlock, t: Translate): LiveGaps {
   };
 }
 
-// The charging error marking, with its source while the error is still reported.
+// The charging error reported right now, with its source; an error that has
+// ended shows nothing.
 export function chargeErrorText(live: LiveBlock, t: Translate): string | null {
-  if (!live.charge_error) {
-    return null;
-  }
   if (live.charge_error_source === "wallbox") {
     return t("flag_charge_error_wallbox");
   }
   if (live.charge_error_source === "vehicle") {
     return t("flag_charge_error_vehicle");
   }
-  return t("flag_charge_error");
+  return null;
 }

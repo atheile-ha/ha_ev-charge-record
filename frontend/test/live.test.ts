@@ -562,8 +562,8 @@ describe("chargeErrorText", () => {
     expect(chargeErrorText(atVehicle, tEn)).toBe("Charging error reported by the vehicle");
   });
 
-  it("keeps the plain marking for an error that has ended", () => {
-    expect(chargeErrorText(live({ charge_error: true }), tDe)).toBe("Ladefehler gemeldet");
+  it("shows nothing once the error has ended", () => {
+    expect(chargeErrorText(live({ charge_error: true }), tDe)).toBeNull();
   });
 
   it("shows nothing without an error", () => {

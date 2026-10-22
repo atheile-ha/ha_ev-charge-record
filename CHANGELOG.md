@@ -4,411 +4,325 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.6.2] - 2026-10-22
+
+### Hinzugefügt
+
+- Eigenes Symbol der Integration in Home Assistant
+
+### Geändert
+
+- Meldung zum Ladeende nennt Beginn und Ende, bei gleichem Datum mit einem Datum und beiden Uhrzeiten, sowie den Kilometerstand
+- Meldung zum Ladeende zeigt den Sonnenanteil in Prozent statt Netz- und Sonnenanteil in kWh
+- Meldung zum Ladeende zeigt die Kosten mit Währungssymbol, etwa „4,87 €“
+- Meldung zum Ladeende zeigt die Dauer als „Gesamtdauer: 13:28 (netto: 6:52 mit 4 Phasen)“
+- Meldung zum Ladefehler nennt Fehler und Quelle, etwa „Ladefehler (Fahrzeug)“, statt eines Gerätecodes
+- Live-Karte zeigt einen Ladefehler nur noch, solange er besteht
+- Detailliste zeigt keinen Ladefehler mehr an
+
 ## [0.6.1] - 2026-10-20
 
 ### Hinzugefügt
 
-- Meldung zum Beginn eines Ladevorgangs zu Hause an die Ziele, sobald das Fahrzeug zugeordnet ist, mit Fahrzeug, Ladestand und Kilometerstand bei Beginn; Anlass „Ladevorgang begonnen“, einzeln abschaltbar
-- Schemaversion 7 des Config Entry mit dem Schalter für diesen Anlass
+- Meldung zum Beginn eines Ladevorgangs zu Hause, sobald das Fahrzeug erkannt ist, mit Fahrzeug, Ladestand und Kilometerstand; einzeln abschaltbar
 
 ## [0.6.0] - 2026-10-20
 
 ### Hinzugefügt
 
-- Entität `binary_sensor.ev_charging_problem` mit den Attributen `source` und `vehicle_id`, an, solange die Wallbox oder ein Fahrzeug einen Ladefehler meldet
-- Benachrichtigungen: persistente Benachrichtigungen auf den rollierenden Kennungen `ev_charging_1` bis `ev_charging_5` sowie bis zu zwei Benachrichtigungsziele, als Entität der Domäne `notify` oder als klassischer Benachrichtigungsdienst
-- Anlässe Ladevorgang beendet, externer Ladevorgang begonnen, externer Ladevorgang beendet, Ladefehler und offene Nacherfassung, je einzeln abschaltbar, im neuen Abschnitt „Benachrichtigungen“ der globalen Einstellungen
-- Meldung, wenn ein Ladevorgang nach 12 Stunden ohne verwertbaren Zustand der Quelle geschlossen wird
-- Repair Issue für ein nicht mehr vorhandenes Benachrichtigungsziel
-- Schemaversion 6 des Config Entry mit den Benachrichtigungseinstellungen
+- Entität `binary_sensor.ev_charging_problem`, an, solange Wallbox oder Fahrzeug einen Ladefehler meldet
+- Benachrichtigungen in Home Assistant und an bis zu zwei Ziele, etwa die Companion-App
+- Meldungen bei Ladeende, externem Ladebeginn und -ende, Ladefehler und offener Nacherfassung, je einzeln abschaltbar, im Abschnitt „Benachrichtigungen“ der globalen Einstellungen
+- Meldung, wenn ein Ladevorgang nach 12 Stunden ohne Rückmeldung der Quelle geschlossen wird
+- Hinweis unter Reparaturen, wenn ein Benachrichtigungsziel nicht mehr vorhanden ist
 
 ### Geändert
 
-- Ein Ladefehler der Wallbox gilt auch ohne laufenden Ladevorgang, sobald er 5 Sekunden ansteht
-- Ein Ladefehler eines Fahrzeugs wird wie der der Wallbox 5 Sekunden entprellt und gilt an jedem Ladeort; der Ladevorgang der Wallbox geht in den Zustand `error`, wenn das ihm zugeordnete Fahrzeug einen Ladefehler meldet
-- Die Live-Karte nennt bei einem bestehenden Ladefehler die Quelle, Wallbox oder Fahrzeug; `ev_charging/live/subscribe` liefert dafür je Block `charge_error_source`
-- Panel und `ev-charging-panel-card`: der Reiter „Letzte 5“ entfällt, die letzten Ladevorgänge zeigt weiterhin `ev-charging-recent-card`
-- Panel und `ev-charging-panel-card`: die Nacherfassung steht oben in der Ansicht „Korrektur“ statt in einem eigenen Reiter
-- Panel und `ev-charging-panel-card`: die Detailliste zeigt keine Monatssummen mehr über der Tabelle
-- Panel und `ev-charging-panel-card` laden nach einer wiederhergestellten Verbindung die angezeigte und die zuvor geladenen Ansichten neu
+- Ein Ladefehler gilt nach 5 Sekunden, auch ohne laufenden Ladevorgang und an jedem Ladeort
+- Live-Karte nennt bei einem Ladefehler die Quelle, Wallbox oder Fahrzeug
+- Panel: Reiter „Letzte 5“ entfällt, die letzten Ladevorgänge zeigt die Karte `ev-charging-recent-card`
+- Panel: Nacherfassung steht oben in der Ansicht „Korrektur“ statt in einem eigenen Reiter
+- Panel: Detailliste ohne Monatssummen über der Tabelle
+- Panel lädt nach einem Neustart von Home Assistant von selbst neu
 
 ## [0.5.6] - 2026-09-30
 
-### Geändert
+### Behoben
 
-- Abhängigkeit `pymodbus` als Mindestversion `>=3.13.1` statt fester Fassung
+- Installation neben aktuellen Home-Assistant-Versionen
 
 ## [0.5.5] - 2026-09-30
 
 ### Behoben
 
-- Wird eine Session erst durch eine nachträglich gelesene Kennung einem Fahrzeug zugeordnet, werden Start-SOC und Kilometerstand aus der Recorder-Historie zum Sessionbeginn übernommen
-- Eine Korrektur entfernt jedes offene Feld aus der Nacherfassung, das danach einen Wert hat
-- Nacherfassung und Fahrzeugkorrektur bilden `energy_estimated_kwh` nur bei Sessions ohne gemessene Energie und berechnen einen vorhandenen Wert neu; `energy_kwh` folgt der Rangfolge abgerechnet, gemessen, vom Fahrzeug gemeldet, geschätzt
-- Nach dem Speichern in der Nacherfassung, der Korrektur oder nach dem Zusammenführen zeigen die übrigen Ansichten des Panels beim nächsten Öffnen den aktuellen Stand
+- Wird ein Ladevorgang erst nachträglich über die Karte einem Fahrzeug zugeordnet, werden Ladestand und Kilometerstand bei Beginn ergänzt
+- Nach einer Korrektur verschwinden alle Felder aus der Nacherfassung, die nun einen Wert haben
+- Korrekturen berechnen die geschätzte Energie richtig
+- Nach dem Speichern zeigen alle Ansichten des Panels den aktuellen Stand
 
 ## [0.5.4] - 2026-09-25
 
 ### Hinzugefügt
 
-- Zusammenführen ausgewählter Sessions in der Ansicht „Korrektur“ mit Vorschau und Bestätigung, Service `ev_charging.merge_sessions` und WebSocket-Kommando `ev_charging/sessions/merge`
+- Zusammenführen ausgewählter Ladevorgänge in der Ansicht „Korrektur“, mit Vorschau und Bestätigung, und Service `ev_charging.merge_sessions`
 
 ## [0.5.3] - 2026-09-25
 
 ### Geändert
 
-- Meldet ein Fahrzeug zu Hause einen Ladevorgang, beginnt seine eigene Session erst nach 90 Sekunden, datiert auf die Meldung, und nur, wenn die Wallbox das Fahrzeug bis dahin nicht erfasst
+- Ein Fahrzeug, das zu Hause einen Ladevorgang meldet, erhält erst nach 90 Sekunden einen eigenen Ladevorgang und nur, wenn die Wallbox es nicht erfasst
 
 ### Behoben
 
-- Eine Fahrzeugsession endet beim Abstecken, auch wenn das Fahrzeug das Abstecken vor der Wallbox meldet
+- Der Ladevorgang eines Fahrzeugs endet beim Abstecken, auch wenn das Fahrzeug das Abstecken vor der Wallbox meldet
 - Die Karten zeigen nicht mehr zeitweise „Custom element doesn't exist“
 
 ## [0.5.2] - 2026-09-24
 
 ### Geändert
 
-- Für das Fahrzeug an der Wallbox beginnt keine zweite Fahrzeugsession mehr, auch nicht kurz nach dem Ende der Wallbox-Session
-- Der Steckerzustand des Fahrzeugs (`plug_state`) beendet dessen eigene Session, beim Mercedes über `chargeinletcoupler`
-- Zugeordnete Entitäten stehen in den Dialogen als Vorschlag im Feld und lassen sich leeren
-- Der Skriptpfad der Karten trägt die Startzeit von Home Assistant
+- Für das Fahrzeug an der Wallbox entsteht kein zweiter Ladevorgang mehr
+- Der Steckerzustand des Fahrzeugs beendet dessen Ladevorgang
+- Zugeordnete Entitäten stehen in den Dialogen im Feld und lassen sich leeren
+
+### Behoben
+
+- Karten laden nach einem Neustart von Home Assistant zuverlässiger
 
 ## [0.5.1] - 2026-09-23
 
 ### Hinzugefügt
 
-- Panel-Ansichten Nacherfassung und Korrektur, in Panel und `ev-charging-panel-card` gleichermaßen: fehlende Werte direkt eintragen, einzelne Ladevorgänge bearbeiten oder löschen, Fahrzeug korrigieren, einen vergangenen Ladevorgang von Hand nachtragen
-- Services `ev_charging.update_session`, `ev_charging.delete_session`, `ev_charging.create_session`, `ev_charging.close_followup` und `ev_charging.correct_vehicle`, nur für Administratoren
-- WebSocket-Kommandos `ev_charging/sessions/update`, `/delete`, `/create`, `/close_followup` und `/correct_vehicle`, nur für Administratoren
-- Feld `identification_corrected` an der Session
+- Panel-Ansichten Nacherfassung und Korrektur: fehlende Werte eintragen, Ladevorgänge bearbeiten oder löschen, Fahrzeug korrigieren, vergangene Ladevorgänge nachtragen
+- Services `ev_charging.update_session`, `delete_session`, `create_session`, `close_followup` und `correct_vehicle`, nur für Administratoren
 
 ### Geändert
 
-- Die automatische Zuordnung eines noch unzugeordneten Ladevorgangs zu einem Fahrzeug ermittelt Ladestand und Kilometerstand bei Beginn jetzt aus der Recorder-Historie, statt sie offen zu lassen
+- Wird ein Ladevorgang automatisch nachträglich einem Fahrzeug zugeordnet, werden Ladestand und Kilometerstand bei Beginn aus dem Verlauf ergänzt
 
 ## [0.5.0] - 2026-09-22
 
 ### Hinzugefügt
 
-- Erfassung von Ladevorgängen über die Fahrzeugschnittstelle, unabhängig von der Wallbox: für Ladevorgänge zu Hause ohne Wallbox und für externe Ladevorgänge, auch mehrere gleichzeitig
-- Adressermittlung externer Ladevorgänge aus den Koordinaten des Standort-Trackers über einen Geocoding-Dienst, mit Ratenbegrenzung auf eine Anfrage je Sekunde
+- Erfassung von Ladevorgängen über die Fahrzeugintegration: zu Hause ohne Wallbox und unterwegs, auch mehrere gleichzeitig
+- Adresse externer Ladevorgänge aus dem Standort des Fahrzeugs
 - Service `ev_charging.retry_address`
-- Entität `binary_sensor.<fahrzeug>_session_active` sowie standardmäßig deaktivierte Sensoren für Sessionzustand, Ladeort, Ladestand und Kilometerstand bei Beginn, Ladeenergie und Netto-Ladedauer je aktivem, nicht als Gastfahrzeug geführtem Fahrzeug, dazu ein normalisiertes Ladeende
+- Entität `binary_sensor.<fahrzeug>_session_active` sowie deaktivierte Sensoren je Fahrzeug für Zustand, Ladeort, Ladestand, Kilometerstand, Energie, Ladedauer und Ladeende
 
 ### Geändert
 
-- `ev_charging/live/subscribe` liefert eine Liste laufender Ladevorgänge statt eines einzelnen Objekts: den der Wallbox zuerst, danach die externen Ladevorgänge in der Reihenfolge ihres Beginns
-- Die Live-Karte zeigt für jeden laufenden Ladevorgang einen eigenen Block mit dem Namen der Wallbox oder „Extern“ als Überschrift
-- Der Text des Wallbox-Blocks ohne verbundenes Fahrzeug lautet jetzt „Kein Fahrzeug an Wallbox verbunden“
-- Panel und Karten versuchen nach einer wiederhergestellten Verbindung automatisch erneut zu laden, wenn ein vorheriger Ladevorgang fehlgeschlagen war, statt nur auf einen manuellen Klick auf „Erneut versuchen“ zu warten
+- Live-Karte zeigt jeden laufenden Ladevorgang in einem eigenen Block
+- Live-Karte zeigt ohne Fahrzeug „Kein Fahrzeug an Wallbox verbunden“
+- Panel und Karten laden nach einem Verbindungsabbruch von selbst erneut
 
 ## [0.4.4] - 2026-09-20
 
 ### Geändert
 
-- Live-Karte: Die Überschrift lautet „Ladevorgang“ mit dem Namen der Wallbox. Kilometerstand bei Beginn und Ladestand von, bis und Ziel stehen in einer kleineren, grauen Zeile unter dem Fahrzeugnamen statt als eigene Felder. Die Werte stehen auch auf schmalen Anzeigen in zwei Spalten
-- Live-Karte: Das voraussichtliche Ende erscheint nur, solange die Wallbox lädt. Ohne Ladeleistung steht dort, dass es nicht verfügbar ist, statt des zuletzt gemeldeten Werts
-- Live-Karte: „Kennung gelesen“ erscheint nicht mehr, sobald die Zuordnung angezeigt wird
-- Das Abonnement der Live-Karte liefert zusätzlich `odometer_km` und `charge_end_missing`
-- Die Entitäten der Wallbox hängen am Untereintrag der Wallbox und an keinem Gerät mehr. Auf der Seite der Integration steht die Wallbox nicht mehr doppelt untereinander. Entitäts-IDs, Aktivierungszustand und Werte bleiben, die Namen der Entitäten beginnen mit dem Namen der Wallbox. Die Geräte der Wallbox und des Hauptintrags werden entfernt
-- Hersteller und Modell von Wallbox und Fahrzeug werden nur noch am Eintrag gespeichert, sie erscheinen in keinem Geräteeintrag
+- Live-Karte: kompaktere Darstellung von Fahrzeug, Kilometerstand und Ladestand, zwei Spalten auch auf schmalen Anzeigen
+- Live-Karte: voraussichtliches Ende nur, solange geladen wird
+- Live-Karte: „Kennung gelesen“ verschwindet, sobald das Fahrzeug angezeigt wird
+- Die Wallbox erscheint auf der Seite der Integration nur noch einmal; Entitäten und ihre IDs bleiben erhalten
 
 ## [0.4.3] - 2026-09-20
 
 ### Geändert
 
-- Der Schalter „Wallbox direkt lesen (Modbus TCP)“ entfällt. Die Kennung wird aus dem Register gelesen, sobald im Wallbox-Dialog „Kennung aus dem Register der Wallbox lesen“ gewählt ist. Adresse, Port und Unit-ID bleiben in den Expertenoptionen, die Adresse ist dann Pflicht. Das Feld `direct_read_enabled` des Wallbox-Untereintrags entfällt, ein gespeicherter Wert wird ignoriert
-- Die Entitäten der Wallbox gehören zum Untereintrag der Wallbox und hängen an einem Gerät mit Name, Hersteller und Modell der Wallbox statt am Gerät „EV Charging“. Bestehende Entitäten wechseln mit unveränderter Entitäts-ID und unverändertem Aktivierungszustand, das dann leere Gerät „EV Charging“ wird entfernt. Die Entitäts-IDs neuer Entitäten beginnen mit dem Namen der Wallbox
-- Die Beschreibungen des direkten Lesens und der Rollenoption „Kennung aus dem Register der Wallbox lesen“ im Wallbox-Dialog sind gekürzt
+- Die Kartenkennung wird aus der Wallbox gelesen, sobald im Wallbox-Dialog „Kennung aus dem Register der Wallbox lesen“ gewählt ist; ein eigener Schalter entfällt
+- Kürzere Beschreibungen im Wallbox-Dialog
 
 ## [0.4.2] - 2026-09-20
 
 ### Hinzugefügt
 
-- Protokolleinträge auf `DEBUG` zu den Zustandswechseln des Ladevorgangs, dem Beginn jeder Ladephase, der Steckerklasse, jedem Lesevorgang der Kennung (Ziel, Dauer, Antwort des Geräts, Ergebnis) und dem Ergebnis der Fahrzeugzuordnung. Die Kennung erscheint darin nicht, eine gelesene Kennung nur mit ihren letzten zwei Zeichen
+- Ausführlichere Debug-Protokollierung
 
 ### Geändert
 
-- Ein von der Wallbox gemeldeter Ausschnitt der Kennung gilt als Treffer, wenn er den Anfang oder das Ende einer hinterlegten Kennung bildet, bisher nur das Ende. Passt er auf mehrere hinterlegte Kennungen, wird weiterhin kein Fahrzeug zugeordnet. Der Kartenfilter des Panels führt eine hinterlegte Karte ebenso mit einer gemeldeten Kennung zusammen, die deren Anfang oder Ende ist
+- Meldet die Wallbox nur einen Teil der Kartenkennung, wird er sowohl am Anfang als auch am Ende der hinterlegten Seriennummer gesucht
 
 ## [0.4.1] - 2026-09-20
 
 ### Hinzugefügt
 
-- Optionales, ausschließlich lesendes Lesen der Wallbox über Modbus TCP mit Funktionscode 3. Erstes unterstütztes Gerät ist die KEBA P40, deren Kennung der RFID-Karte aus Register 1500 gelesen wird
-- Expertenoptionen `direct_read_enabled`, `host`, `port` und `unit_id` am Wallbox-Subentry und die Rollenoption „Kennung aus dem Register der Wallbox lesen“
-- Die Kennung wird in höchstens zwei Folgen je Ladevorgang gelesen: die erste 10 Sekunden nach dem Beginn des Ladevorgangs, die zweite mit dem Beginn der ersten Ladephase und nur ohne gültige Kennung aus der ersten. Eine Folge liest im Abstand von 5 Sekunden höchstens zehnmal und endet mit der ersten gültigen Kennung. Die Fahrzeugzuordnung wartet nicht auf das Lesen
-- Nachträgliche Zuordnung durch eine Kennung, die nach der Entscheidung der Fahrzeugzuordnung gelesen wird: Ein unzugeordneter Ladevorgang wird dem Fahrzeug der Karte zugeordnet, bei einer Fahrzeugmeldung für ein anderes Fahrzeug gilt die Kennung und der Ladevorgang ist markiert. Ladestand und Kilometerstand bei Beginn bleiben bei einer neuen Zuordnung offen
-- Ein Ladevorgang beginnt, sobald der Steckerzustand ein verbundenes Fahrzeug meldet, und steht ohne Leistung im Zustand `paused`. Ersatzweise beginnt er bei Leistung über der Schwelle, solange der Steckerzustand nicht meldet, dass kein Fahrzeug verbunden ist. Steckt bei der Einrichtung oder nach einem Neustart ein Fahrzeug und ist kein Ladevorgang gespeichert, beginnt er zu diesem Zeitpunkt. Nach dem Speichern oder Verwerfen eines Ladevorgangs beginnt bei noch verbundenem Fahrzeug sofort der nächste
-- Ein Ladevorgang, der durch das Abstecken endet, ohne dass Energie geflossen ist und ohne dass je eine Phase begann, wird nicht gespeichert, wenn der Energiezähler lesbar war und nicht gestiegen ist und der Ladevorgang weder einen Ladefehler noch eine Markierung trägt
-- Ein Ladevorgang kann keine Ladephase haben. Steigt ein Energiezähler ohne offene Phase, wird die Energie dem Ladevorgang zugerechnet. Die Detailansicht weist einen Ladevorgang ohne Ladephase aus
-- Die Live-Karte zeigt Zustand mit Grund und Beginn, Zahl der bisherigen Phasen, Steckerzustand auch ohne Ladevorgang, Herkunft der Zuordnung, Widerspruch zwischen Kennung und Fahrzeugmeldung, Stand des Lesens der Kennung, maßgeblichen Energiezähler, nicht zugeordnete Energie und den Grund fehlender Angaben ohne Netzsaldo oder Netzpreis
-- Die Antwort von `ev_charging/live/subscribe` enthält `state_since`, `phase_count`, `waiting_for_power`, `plug`, `identification_conflict`, `identification_read`, `energy_unallocated_kwh`, `counter` und `sources`
-- Repair Issues `direct_read_unreachable` und `direct_read_invalid_value`
-- Abhängigkeit `pymodbus` 3.13.1
+- Optionales Lesen der Kartenkennung direkt von der KEBA P40 über Modbus TCP, ausschließlich lesend
+- Nachträgliche Zuordnung, wenn die Kartenkennung erst später gelesen wird
+- Ein Ladevorgang beginnt beim Anstecken, auch wenn noch keine Leistung fließt, und wartet dann im Zustand „pausiert“
+- Ansteckvorgänge ohne Ladung werden nicht gespeichert
+- Live-Karte zeigt Zustand, Herkunft der Fahrzeugzuordnung, Stand des Kartenlesens und den Grund fehlender Angaben
+- Hinweise unter Reparaturen, wenn die Wallbox nicht erreichbar ist oder keine Kennung liefert
 
 ### Geändert
 
-- Die Leistungsschwelle der Wallbox öffnet und schließt nur noch Ladephasen. Die Beschreibungen von `power_threshold_kw`, `start_debounce_s` und des direkten Lesens im Wallbox-Dialog sind angepasst
-- `flagged` in der Antwort von `ev_charging/live/subscribe` ist unabhängig von `identification_conflict`
-- Die Live-Karte zeigt „Fahrzeug wird erkannt“ bis zur Entscheidung der Fahrzeugzuordnung statt „Nicht zugeordnet“ und zählt die Ladezeit im Kandidatenzustand nicht
-- Schemaversion des Config Entrys auf 5, Wallbox-Subentrys erhalten die Felder des direkten Lesens mit ausgeschaltetem direkten Lesen
-- Register-Einträge in Mapping-Dateien werden beim Laden geprüft: nur Funktionscode 3, nur die Rolle `identification`, bekannte Dekodierung und bekanntes Format. Eine Datei mit einem anderen Eintrag wird übersprungen
+- Die Leistungsschwelle beginnt keinen Ladevorgang mehr, sondern öffnet und schließt nur Ladephasen
+- Live-Karte zeigt „Fahrzeug wird erkannt“, bis das Fahrzeug feststeht
 
 ## [0.4.0] - 2026-09-20
 
 ### Hinzugefügt
 
-- Erfassung von Ladevorgängen an der Wallbox mit den Zuständen `idle`, `candidate`, `charging`, `paused`, `error` und `awaiting_final`. Der Kandidat wird sofort veröffentlicht, ein Ladevorgang endet nur beim Abstecken oder nach 12 Stunden ohne verwertbaren Steckerzustand
-- Ladephasen mit Netto-Ladedauer und Pausen, Unterbrechungen unter 15 Minuten bleiben in der Phase
-- Inkrementelle Akkumulation beider Energiezähler mit Erkennung von Rücksetzung und unplausiblem Zuwachs, Wechsel des maßgeblichen Zählers bei Stillstand und Plausibilitätsprüfung am Ende
-- Netz- und Sonnenanteil aus dem über 60 Sekunden geglätteten Netzsaldo, Kosten aus Netzpreis und Sonnenbewertung
-- Fahrzeugzuordnung über die gemeldete Kennung (Abgleich mit dem Ende der hinterlegten Kennung) oder über genau ein Fahrzeug am Standort `home`, nachträgliche Zuordnung eines laufenden unzugeordneten Ladevorgangs, Kennzeichnung eines Widerspruchs zwischen Kennung und Fahrzeugmeldung
-- Fortsetzung eines laufenden Ladevorgangs nach einem Neustart, Energie des Ausfalls als nicht zugeordnet ausgewiesen
-- Entitäten `binary_sensor.ev_charging_wallbox_session`, `sensor.ev_charging_wallbox_state`, `sensor.ev_charging_active_vehicle`, `sensor.ev_charging_session_cost`, `sensor.ev_charging_session_energy_grid`, `sensor.ev_charging_session_energy_solar`, `sensor.ev_charging_price_effective`, `sensor.ev_charging_open_followups` sowie standardmäßig deaktivierte Sensoren für Ladestand, Ladeziel, Ladezustand, Ladeende, Ladestand und Kilometerstand bei Beginn, Netto-Ladedauer und Netzanteil
+- Erfassung von Ladevorgängen an der Wallbox mit Ladephasen, Netto-Ladedauer und Pausen
+- Netz- und Sonnenanteil sowie Kosten je Ladevorgang
+- Fahrzeugzuordnung über Kartenkennung oder Fahrzeugintegration
+- Fortsetzung eines laufenden Ladevorgangs nach einem Neustart
+- Entitäten für Zustand, Fahrzeug, Kosten, Netz- und Sonnenanteil, Preis und offene Nacherfassungen
 - Karten `ev-charging-live-card` und `ev-charging-month-card`
-- WebSocket-Kommando `ev_charging/live/subscribe`
-- Repair Issues für eine gemeldete Kennung ohne Fahrzeug, den automatischen Wechsel des Energiezählers und einen Zustandswert der Wallbox oder eines Fahrzeugs, der im Mapping fehlt
+- Hinweise unter Reparaturen bei unbekannter Kennung, Wechsel des Energiezählers und unbekanntem Zustandswert
 
 ### Geändert
 
-- Offene Nacherfassungen zeigen das Feld Fahrzeug an
-- `ev_charging.delete_all_data` aktualisiert die Anzahl offener Nacherfassungen
-- Der Skriptpfad des Frontend-Bundles trägt zusätzlich zur Version eine Prüfsumme der Datei
+- Offene Nacherfassungen zeigen das Fahrzeug
+- Karten werden nach einem Update zuverlässig neu geladen
 
 ## [0.3.10] - 2026-09-19
 
 ### Geändert
 
-- Die Filterleiste steht in Übersicht und Detailliste ganz oben. Die gewählten Filter wirken auf die Summen, die Balkengrafik und die Jahreszusammenfassung der Übersicht
-- Antwort von `ev_charging/sessions/list` enthält die Jahre mit Daten
+- Filterleiste oben in Übersicht und Detailliste; die Filter wirken auf alle Summen und Grafiken
 
 ## [0.3.9] - 2026-09-19
 
 ### Hinzugefügt
 
-- Karte `ev-charging-recent-card` hat einen Editor für die Anzahl der angezeigten Ladevorgänge
-- Symbol hinter der Adresse eines Ladevorgangs öffnet den Ort in Google Maps, bei einem Ladevorgang ohne Adresse ein Link mit demselben Ziel
-- Summen der Detailliste folgen den gewählten Filtern
+- Anzahl der Ladevorgänge in `ev-charging-recent-card` im Kartendialog einstellbar
+- Link zu Google Maps hinter der Adresse eines Ladevorgangs
 
 ### Geändert
 
-- Reiter „Letzte 5“ steht direkt hinter „Übersicht“, seine Ladevorgänge sind zunächst zugeklappt und in der Darstellung der Karte `ev-charging-recent-card` gehalten
-- `ev-charging-recent-card` zeigt die Details eines Ladevorgangs aufklappbar
-- Filterleiste der Detailliste steht über den Summen
-- Jahreszusammenfassung und Werte unter den Balken sind auf ganze Zahlen gerundet
-- Die Überschrift der Jahreszusammenfassung steht dicht an ihrer Tabelle und mit deutlichem Abstand zur Balkengrafik
+- `ev-charging-recent-card` zeigt die Details aufklappbar
+- Jahreszusammenfassung und Monatswerte auf ganze Zahlen gerundet
 
 ## [0.3.8] - 2026-09-19
 
 ### Hinzugefügt
 
-- Reiter „Letzte 5 Ladevorgänge“ im Panel, mit allen Details aufgeklappt
-- Jahreszusammenfassung unter den Monatsbalken für Energie, Kosten, Ladedauer und Ladevorgänge, gesamt, intern und extern
-- Der Wert jedes Monats steht unter seinem Balken
-- Monatssummen für Energie, Kosten, Ladedauer, Ladevorgänge und offene Nacherfassungen auch über der Detailliste
-- Kartenfilter der Detailliste bietet die bei den Fahrzeugen hinterlegten Karten
-- Antwort von `ev_charging/vehicles/list` enthält die Karten der Fahrzeuge, Antwort von `ev_charging/sessions/stats` die Jahreszusammenfassung und je Monat die Anzahl offener Nacherfassungen
+- Jahreszusammenfassung unter den Monatsbalken, gesamt, intern und extern
+- Wert jedes Monats unter seinem Balken
+- Kartenfilter mit den hinterlegten Karten
 
 ### Geändert
 
-- Energie wird mit drei Nachkommastellen angezeigt
-- Detailliste als Tabelle mit Spaltenüberschriften und ausgerichteten Spalten, in der mobilen Ansicht mit einheitlichem Aufbau je Eintrag
-- Beschriftungen der Ladeorte, Ladearten und Status als gefüllte, größere Label
-- Die Anzahl offener Nacherfassungen gilt für den gewählten Monat
-- Eigene Meldung, wenn Filter alle Ladevorgänge des Monats ausblenden
+- Energie mit drei Nachkommastellen
+- Detailliste als Tabelle, mobil mit einheitlichem Aufbau
+- Deutlichere Beschriftungen für Ladeort, Ladeart und Status
 
 ## [0.3.7] - 2026-09-19
 
 ### Hinzugefügt
 
-- Panel „EV Charging“ in der Seitenleiste mit den Ansichten Übersicht (Monatsauswahl, Summen für Energie, Kosten und Ladedauer, Monatsbalken über das Jahr) und Detailliste (Filter für Fahrzeug, Ladeort, Ladeart, Karte und Status, aufklappbare Ladevorgänge mit Phasen)
-- Lovelace-Karte `ev-charging-panel-card` mit denselben Ansichten wie das Panel, für eine Dashboard-Ansicht vom Typ Panel
-- Lovelace-Karte `ev-charging-recent-card` mit den letzten Ladevorgängen, Einstellung `count` (Standard 3)
-- Ladevorgänge ohne Fahrzeug erscheinen als „Nicht zugeordnet“, sind filterbar und zählen in den Summen
-- Geschätzte Energiewerte sind mit einer Tilde gekennzeichnet
-- WebSocket-Kommandos `ev_charging/sessions/list`, `ev_charging/sessions/stats`, `ev_charging/sessions/open` und `ev_charging/vehicles/list`, für alle angemeldeten Benutzer lesbar
-- Frontend-Bundle `ev-charging.js`, ausgeliefert mit der Integrationsversion im Skriptpfad
-- `frontend`, `http`, `panel_custom` und `websocket_api` als `after_dependencies` im Manifest
+- Panel „EV Charging“ mit Übersicht und Detailliste
+- Karten `ev-charging-panel-card` und `ev-charging-recent-card`
+- Ladevorgänge ohne Fahrzeug erscheinen als „Nicht zugeordnet“
+- Geschätzte Werte sind mit ~ gekennzeichnet
 
 ## [0.3.6] - 2026-09-18
 
 ### Geändert
 
-- Sicherungskopie vor einer Schemamigration ist jetzt eine eigenständige, unabhängig testbare Funktion
+- Wartung ohne sichtbare Änderung
 
 ## [0.3.5] - 2026-09-18
 
 ### Hinzugefügt
 
-- Datenmodell für Sessions und Ladephasen
-- Jahresweise Session-Speicherung mit Schemaversion, Migrationsfunktion und Sicherungskopie vor einer Migration
-- Service `delete_all_data` mit Pflichtbestätigung, nur für Administratoren
+- Speicherung der Ladevorgänge
+- Service `ev_charging.delete_all_data` mit Pflichtbestätigung, nur für Administratoren
 
 ## [0.3.4] - 2026-09-17
 
 ### Behoben
 
-- Übersetzungsstruktur für den Hinweistext zu nicht angebotenen Geräten entsprach nicht dem von `hassfest` geforderten Schema für die Kategorie `selector`
+- Fehler bei der Prüfung der Übersetzungen
 
 ## [0.3.3] - 2026-09-17
 
 ### Geändert
 
-- Nicht angebotene Geräte/Integrationen stehen jetzt in einem eingeklappten Abschnitt „Derzeit nicht installierte Integrationen“ am Ende des Gerätedialogs statt im Beschreibungstext
+- Nicht installierte Integrationen stehen im Gerätedialog in einem eingeklappten Abschnitt
 
 ### Behoben
 
-- Hinweistext zu nicht angebotenen Geräten war fest auf Englisch codiert statt aus `translations/` zu kommen
+- Hinweis zu nicht angebotenen Geräten erscheint in der eingestellten Sprache
 
 ## [0.3.2] - 2026-09-17
 
 ### Hinzugefügt
 
-- Mitgelieferte Mapping-Datei für Škoda-Fahrzeuge mit MySkoda connect
-- Neue optionale Fahrzeugrolle `plug_state`, klassifiziert wie die gleichnamige Wallbox-Rolle
+- Unterstützung für Škoda mit MySkoda connect
+- Steckerzustand des Fahrzeugs als optionale Angabe
 
 ### Geändert
 
-- Feld „Gerät“ im Wallbox-Dialog umbenannt in „Wallbox“
-- Feld „Gerät“ im Fahrzeugdialog umbenannt in „Fahrzeugintegration“, Auswahltext für Mercedes Me gekürzt auf „Mercedes me connect“
-- Fahrzeug ohne Online-Anbindung ist jetzt eine eigene Auswahlmöglichkeit („Fahrzeug ohne Online-Anbindung“) statt eines leeren Felds
-- Beschreibungstext der Fahrzeugintegration präzisiert
+- Klarere Feldnamen in Wallbox- und Fahrzeugdialog
+- Eigene Auswahl „Fahrzeug ohne Online-Anbindung“
 
 ## [0.3.1] - 2026-09-17
 
 ### Geändert
 
-- Geräteauswahl nennt neben Hersteller und Modell auch die Quellintegration, etwa „KEBA KeContact P40 (via FENECON FEMS)“
+- Geräteauswahl nennt auch die Quellintegration
 
 ## [0.3.0] - 2026-09-16
 
 ### Hinzugefügt
 
-- Mitgelieferte Mapping-Dateien für zehn Geräte (KEBA P40, KEBA P20/P30 über UDP, Webasto Next, Spelsberg SMART, ABL eMH, Alfen Eve, Hardy Barth cPH2/Salia, Heidelberg Energy Control Connect, Mennekes Amtron, Mercedes Me) im Ordner `mappings/`
-- Gerätewahl als erster Schritt im Wallbox- und im Fahrzeug-Subentry: Zustandsklassen kommen ausschließlich aus der gewählten Mapping-Datei
-- Hinweis im Gerätedialog auf Geräte, deren Quellintegration nicht installiert oder zu alt ist
-- Repair Issue, wenn die Quellintegration eines bereits gewählten Geräts unter die Mindestversion fällt
+- Unterstützung für zehn Wallboxen und Fahrzeuge, Auswahl des Geräts als erster Schritt im Dialog
+- Hinweis auf Geräte, deren Integration fehlt oder zu alt ist
 
 ### Geändert
 
-- Der Zuordnungsschritt für Steckerzustand, Fehler, Ladezustand und Ladeart entfällt vollständig; die Klassifikation kommt aus der gewählten Mapping-Datei
-- Schemaversion des Config Entrys und der Subentries auf 4 angehoben, bestehende Einträge werden migriert; das gewählte Gerät ist danach neu zu vergeben
-
-### Entfernt
-
-- Presets, Recorder-Abfrage und freie Eingabe zur Ermittlung von Zustandszuordnungen
+- Die Zuordnung von Zustandswerten von Hand entfällt; das gewählte Gerät ist nach dem Update einmal neu zu wählen
 
 ## [0.2.2] - 2026-09-15
 
 ### Geändert
 
-- Der Zuordnungsschritt für Steckerzustand, Fehler, Ladezustand und Ladeart entfällt beim Einrichten vollständig, sobald ein mitgeliefertes Preset die betroffene Entität bereits vollständig abdeckt
-- Presets für Steckerzustand, Fehler, Ladezustand und Ladeart tragen die bekannten Rohwerte jetzt einheitlich unter einem eigenen Feld `values`
-- Mercedes-Me-Preset liefert damit Ladezustand und Ladeart ohne manuellen Zuordnungsschritt
-- Erklärungstexte der Entitätsrollen im Anlegen- und im Bearbeiten-Dialog von Wallbox und Fahrzeug vereinheitlicht
-- Beschreibungstexte der Formularfelder enden nicht mehr auf einen Punkt
-- Reihenfolge der Kostenmodus-Auswahl im Fahrzeugdialog: Dynamisch vor Fester Preis
-
-### Behoben
-
-- Erklärungstext des Kostenmodus erscheint im Fahrzeugdialog jetzt direkt unter dem Feld statt nach der ausgewählten Option
+- Weniger Einrichtungsschritte für bekannte Geräte
+- Einheitlichere Texte in den Dialogen
 
 ## [0.2.1] - 2026-09-14
 
 ### Behoben
 
-- `recorder` als `after_dependencies` im Manifest eingetragen
-- Auswahlwert „noch nicht klassifiziert“ in den Zuordnungsschritten auf einen gültigen Übersetzungsschlüssel umbenannt
+- Fehler beim Laden und in den Übersetzungen
 
 ## [0.2.0] - 2026-09-14
 
 ### Hinzugefügt
 
-- Entitätsrollen für Wallbox, Fahrzeug und Hauptentry, zuordenbar über den Config Flow: Ladeleistung, Energiezähler, Steckerzustand, Kennung und Fehler an der Wallbox; Ladezustand, Ladeart, Ladestand, Kilometerstand, Standort, Ladeende, Reichweite und Sessionenergie am Fahrzeug; Netzsaldo, Netzbezug, Netzeinspeisung sowie Netz- und Einspeisepreis am Hauptentry
-- Zustandsmapping für Steckerzustand, Fehler, Ladezustand und Ladeart: Voreinstellung aus mitgelieferten Presets, Ergänzung um die über den Recorder real aufgetretenen Werte, freie Eingabe
-- Presets für die OpenEMS-Anbindung der KEBA P40 und für Mercedes Me
-- Fehlerrolle der Wallbox akzeptiert einen `binary_sensor` mit `device_class: problem` oder eine beliebige Zustandsentität mit eigenem Mapping
-- Auflösung von Entitätsrollen über die Entity-Registry-Eintrags-ID, mit Rückfall auf die `entity_id` für Entitäten ohne Registry-Eintrag
-- Repair Issue bei entfernter Rollenentität und bei geänderter Einheit
-- Schalter „Identifikation über die Fahrzeugintegration“ am Fahrzeug, wählbar bei zugeordnetem Ladezustand und Standort
-- Hinweis im Fahrzeugdialog auf den aktuell von der Wallbox gemeldeten Kennungswert
-- Abschnitt zu Kennungen in der README
+- Zuordnung der Entitäten von Wallbox, Fahrzeug und Stromtarif im Einrichtungsdialog
+- Zuordnungen bleiben bei Umbenennung von Entitäten erhalten
+- Hinweise unter Reparaturen bei entfernter Entität und geänderter Einheit
+- Erkennung eines Fahrzeugs über die Fahrzeugintegration
+- Anzeige der zuletzt gemeldeten Kartenkennung im Fahrzeugdialog
 
 ### Geändert
 
-- Ein aktives Fahrzeug benötigt mindestens eine Karte oder die Identifikation über die Fahrzeugintegration
-- Kartentyp-Auswahl im Fahrzeugdialog verwendet feste Beschriftungen „RFID“ und „EMAID“
-- Schemaversion des Config Entrys und der Subentries auf 3 angehoben, bestehende Einträge werden migriert
+- Ein aktives Fahrzeug braucht mindestens eine Karte oder die Erkennung über die Fahrzeugintegration
 
 ## [0.1.5] - 2026-09-14
 
 ### Hinzugefügt
 
-- Globale Einstellungen am Hauptentry: Veröffentlichungsintervall, Sonnenbewertung, Geocoding-Aktivierung, Geocoding-URL, Geocoding-Kontaktangabe, Schwelle für unsichere Schätzung. Bearbeitbar über „Neu konfigurieren“
-- Erkennungsfenster im Wallbox-Dialog
-- Hersteller und Modell im Wallbox- und im Fahrzeugdialog
-- Kartentyp (RFID oder eMAID) je Karteneintrag
-- Ablehnung der Werte `0`, `unknown`, `unavailable` und der leeren Zeichenkette als Kartenkennung
-
-### Geändert
-
-- Startentprellung der Wallbox: Standardwert 2 Sekunden, Bereich 0 bis 30 Sekunden, umbenannt in „Entprellzeit Sessionsstart“
-- Erklärungstext des Erkennungsfensters präzisiert
-- Erklärungstext des Gastfahrzeug-Felds präzisiert
-- Kostenmodus am Fahrzeug ist vorgemerkt und wirkt sich nicht auf die Erfassung aus, Erklärungstext direkt am Feld
-- Beschriftung „Dynamisch“ beim Kostenmodus präzisiert
-- Kartentyp-Auswahl zeigt „RFID“ und „EMAID“ in Großschreibung
-- Feld „Kennung“ der Freischalt-Referenz umbenannt in „Kennung / Seriennummer“
-- Schemaversion des Config Entrys und der Subentries auf 2 angehoben, bestehende Einträge werden migriert
+- Globale Einstellungen, über „Neu konfigurieren“ änderbar
+- Hersteller und Modell bei Wallbox und Fahrzeug
+- Kartentyp RFID oder eMAID
 
 ### Entfernt
 
-- Standardfahrzeug-Feld am Wallbox-Subentry
-- Fester Ladepreis und Sonnenbewertung am Fahrzeug-Subentry
+- Standardfahrzeug an der Wallbox
+- Fester Ladepreis am Fahrzeug
 
 ## [0.1.3] - 2026-09-13
 
-### Hinzugefügt
-
-- Zweiter Schritt im Fahrzeugdialog: je nach Kostenmodus wird nur noch der fixe Ladepreis oder nur die Sonnenbewertung abgefragt
-
 ### Geändert
 
-- Wallbox-Dialog auf Name, Stromart und maximale Leistung reduziert; Leistungsschwelle und Startentprellung stehen unter „Expertenoptionen“, eingeklappt
-- Beschriftung des Kostenmodus im Fahrzeugformular korrigiert
-- Kartenfeld im Fahrzeugformular umbenannt in „Freischalt-Referenz“, mit Erklärung zu RFID/eMAID
-
-### Entfernt
-
-- Konfigurierbarkeit von Mindestpause und maximalem Alter der Kennung der Wallbox; diese Werte sind fest
-- Auswahl eines Standardfahrzeugs im Wallbox-Dialog, bis Entitätsrollen umgesetzt sind
+- Vereinfachter Wallbox-Dialog mit eingeklappten Expertenoptionen
 
 ## [0.1.2] - 2026-09-13
 
 ### Hinzugefügt
 
-- Projektgerüst, CI-Konfiguration, Frontend-Werkzeugkette
-- Einrichtung und Entfernung der Integration über den Config Flow, genau ein Eintrag je Instanz
-- Deutsche und englische Texte des Einrichtungsdialogs
-- Wallbox-Subentry mit Stammdaten, auf eine Instanz begrenzt
-- Fahrzeug-Subentry mit Stammdaten, Kartenverwaltung und fortlaufenden, nie wiederverwendeten IDs
-- Prüfung von Kartenkennungen gegen aktive Fahrzeuge samt Normalisierung
-- Deutsche und englische Texte der Wallbox- und Fahrzeugdialoge
-- Kartenverwaltung als einzelnes Feld im Fahrzeugformular, ohne eigenen Dialogschritt
-- Automatisches Entfernen der Kennungen beim Inaktivsetzen eines Fahrzeugs, Pflicht zur Neuvergabe bei Reaktivierung
-- Kostenmodus je Fahrzeug: fester Preis für den gesamten Ladevorgang oder dynamische Bewertung von Netz- und Sonnenanteil
-
-### Geändert
-
-- Sessions der Wallbox werden ausschließlich über den Steckerzustand begrenzt, nicht mehr über eine wählbare Strategie
-- Der feste Sonnenpreis ist jetzt ein fester Gesamtpreis für den Ladevorgang und Teil des Kostenmodus, nicht mehr eine Ausprägung der Sonnenbewertung
-
-### Entfernt
-
-- Konfigurierbarkeit von Nachlauf auf Endwerte, Fehlerentprellung und Session-Timeout der Wallbox; diese Werte sind fest
-
-### Behoben
-
-- Fehlende Menütexte für das Anlegen und Bearbeiten von Wallbox- und Fahrzeug-Subentries in allen Sprachdateien ergänzt
-- Übersetzungsverweise, die zur Laufzeit nicht aufgelöst wurden, durch den tatsächlichen Text ersetzt
+- Einrichtung und Entfernung der Integration
+- Anlegen von Wallbox und Fahrzeugen mit Stammdaten und Karten
+- Deutsche und englische Texte
