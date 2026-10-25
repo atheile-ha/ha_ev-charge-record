@@ -18,13 +18,15 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.loader import async_get_integration
 from homeassistant.util import dt as dt_util
 
-from . import mappings, problems, resolver, services, websocket
+from . import journal, mappings, problems, resolver, services, store, websocket
 from .const import (
     CONF_VEHICLE_SEQUENCE,
     CONF_WALLBOX_SEQUENCE,
     DOMAIN,
     FRONTEND_BUNDLE_FILENAME,
     FRONTEND_STATIC_URL_PATH,
+    JOURNAL_INTEGRATION_SETUP,
+    JOURNAL_INTEGRATION_UNLOAD,
     PANEL_ICON,
     PANEL_URL_PATH,
     PANEL_WEBCOMPONENT,
@@ -125,12 +127,12 @@ def _watch_roles(
             )
 
         if has_unit:
-            resolver.check_role_unit(
+            problems.check_role_unit(
                 hass,
                 role,
-                issue_id=problems.role_unit_changed_issue_id(subentry_id, role_name),
-                translation_key="role_unit_changed",
-                translation_placeholders={"role": role_name, "subentry_title": subentry_title},
+                subentry_id=subentry_id,
+                role_name=role_name,
+                subentry_title=subentry_title,
             )
 
 
@@ -213,6 +215,17 @@ async def _async_register_frontend(hass: HomeAssistant) -> str | None:
 
 async def async_setup_entry(hass: HomeAssistant, entry: EvChargingConfigEntry) -> bool:
     """Set up ev_charging from a config entry."""
+    await journal.async_setup(hass)
+    journal.add(
+        hass,
+        JOURNAL_INTEGRATION_SETUP,
+        wallboxes=sum(
+            1 for sub in entry.subentries.values() if sub.subentry_type == SUBENTRY_TYPE_WALLBOX
+        ),
+        vehicles=sum(
+            1 for sub in entry.subentries.values() if sub.subentry_type == SUBENTRY_TYPE_VEHICLE
+        ),
+    )
     unsub_listeners: list[callable] = []
     settings = HubSettings.from_dict(entry.data)
     _watch_roles(
@@ -288,6 +301,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: EvChargingConfigEntry) 
     """Unload a config entry."""
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
+    journal.add(hass, JOURNAL_INTEGRATION_UNLOAD)
     if entry.runtime_data.manager is not None:
         await entry.runtime_data.manager.async_unload()
     for unsub in entry.runtime_data.unsub_listeners:
@@ -296,7 +310,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: EvChargingConfigEntry) 
         frontend.async_remove_panel(hass, PANEL_URL_PATH, warn_if_unknown=False)
         frontend.remove_extra_js_url(hass, entry.runtime_data.bundle_url)
     services.async_unload_services(hass)
+    await journal.async_unload(hass)
     return True
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Discard the runtime state and the journal; the stored sessions stay."""
+    await store.async_remove_entry_stores(hass)
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

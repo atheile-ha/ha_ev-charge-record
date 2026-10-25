@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Iterable
 from datetime import datetime
 from typing import Any
 
@@ -12,7 +13,7 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.util import dt as dt_util
 
-from . import session_manager
+from . import journal, session_manager
 from .const import (
     CURRENT_TYPES,
     DEFAULT_RECENT_LIMIT,
@@ -288,6 +289,26 @@ _PERCENT = vol.All(vol.Coerce(float), vol.Range(min=0, max=100))
 _NON_NEGATIVE = vol.All(vol.Coerce(float), vol.Range(min=0))
 
 
+def _journal_write(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+    *,
+    session_ids: Iterable[str],
+    fields: Iterable[str] = (),
+    **data: Any,
+) -> None:
+    """Journal a write command that was carried out, naming the fields that changed."""
+    journal.add_admin(
+        hass,
+        msg["type"],
+        user_id=connection.user.id if connection.user else None,
+        session_ids=session_ids,
+        fields=fields,
+        **data,
+    )
+
+
 def _send_operation_error(
     connection: websocket_api.ActiveConnection,
     msg_id: int,
@@ -330,6 +351,7 @@ async def ws_sessions_update(
     except session_manager.SessionOperationError as err:
         _send_operation_error(connection, msg["id"], err)
         return
+    _journal_write(hass, connection, msg, session_ids=[msg["session_id"]], fields=values)
     connection.send_result(msg["id"], {"session": _payload(updated)})
 
 
@@ -347,6 +369,7 @@ async def ws_sessions_delete(
     except session_manager.SessionOperationError as err:
         _send_operation_error(connection, msg["id"], err)
         return
+    _journal_write(hass, connection, msg, session_ids=[msg["session_id"]])
     connection.send_result(msg["id"])
 
 
@@ -364,6 +387,13 @@ async def ws_sessions_close_followup(
     except session_manager.SessionOperationError as err:
         _send_operation_error(connection, msg["id"], err)
         return
+    _journal_write(
+        hass,
+        connection,
+        msg,
+        session_ids=[msg["session_id"]],
+        fields=session_manager.CLOSE_FOLLOWUP_FIELDS,
+    )
     connection.send_result(msg["id"], {"session": _payload(updated)})
 
 
@@ -387,6 +417,13 @@ async def ws_sessions_correct_vehicle(
     except session_manager.SessionOperationError as err:
         _send_operation_error(connection, msg["id"], err)
         return
+    _journal_write(
+        hass,
+        connection,
+        msg,
+        session_ids=[msg["session_id"]],
+        fields=session_manager.CORRECT_VEHICLE_FIELDS,
+    )
     connection.send_result(msg["id"], {"session": _payload(updated)})
 
 
@@ -420,6 +457,7 @@ async def ws_sessions_create(
     except session_manager.SessionOperationError as err:
         _send_operation_error(connection, msg["id"], err)
         return
+    _journal_write(hass, connection, msg, session_ids=[created.id], fields=fields)
     connection.send_result(msg["id"], {"session": _payload(created)})
 
 
@@ -463,6 +501,15 @@ async def ws_sessions_merge(
     except session_manager.SessionOperationError as err:
         _send_operation_error(connection, msg["id"], err)
         return
+    if not msg["dry_run"]:
+        _journal_write(
+            hass,
+            connection,
+            msg,
+            session_ids=msg["session_ids"],
+            fields=["odometer_km"] if msg["odometer_km"] else [],
+            merged_session_id=merged.id,
+        )
     connection.send_result(
         msg["id"], {"session": _payload(merged), "violations": [], "missing_odometer": []}
     )

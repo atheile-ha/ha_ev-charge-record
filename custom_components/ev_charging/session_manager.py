@@ -7,6 +7,7 @@ from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
+from functools import partial
 from typing import Any
 
 from homeassistant.components.recorder import history
@@ -27,13 +28,14 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.util import dt as dt_util
 
-from . import allocation, geocoding, notify, problems, resolver
+from . import allocation, geocoding, journal, notify, problems, resolver
 from .const import (
     ACTIVE_VEHICLE_GUEST,
     ACTIVE_VEHICLE_NONE,
     ACTIVE_VEHICLE_UNRESOLVED,
     CANDIDATE_TRIGGER_PLUG,
     CANDIDATE_TRIGGER_POWER,
+    CARD_TYPES,
     CHARGE_END_MISSING_NO_POWER,
     CHARGE_STATE_CHARGING,
     CHARGE_STATE_CONNECTED_IDLE,
@@ -53,8 +55,13 @@ from .const import (
     CURRENT_TYPES,
     DC_POWER_THRESHOLD_KW,
     DEFAULT_ESTIMATE_UNCERTAIN_THRESHOLD_PCT,
+    DISCARD_REASON_NO_CONTENT,
     DISTANCE_UNIT_FACTORS_TO_KM,
     DOMAIN,
+    END_REASON_DISCONNECTED,
+    END_REASON_NOT_CONNECTED,
+    END_REASON_TIMEOUT,
+    END_REASON_UNPLUGGED,
     ENERGY_UNIT_FACTORS_TO_KWH,
     ERROR_CLASS_ERROR,
     ERROR_CLASS_OK,
@@ -65,12 +72,42 @@ from .const import (
     IDENTIFICATION_SOURCE_MANUAL,
     IDENTIFICATION_SOURCE_UNRESOLVED,
     IDENTIFICATION_SOURCE_VEHICLE_API,
+    JOURNAL_CANDIDATE_CREATED,
+    JOURNAL_CANDIDATE_DISCARDED,
+    JOURNAL_CHARGE_ERROR_ENDED,
+    JOURNAL_CHARGE_ERROR_REPORTED,
+    JOURNAL_COUNTER_RESET,
+    JOURNAL_COUNTER_STEP_REJECTED,
+    JOURNAL_COUNTER_SWITCHED,
+    JOURNAL_IDENTIFICATION_CONFLICT,
+    JOURNAL_IDENTIFICATION_DECIDED,
+    JOURNAL_IDENTIFICATION_LATE,
+    JOURNAL_LOCATION_CONFLICT,
+    JOURNAL_PHASE_CLOSED,
+    JOURNAL_PHASE_OPENED,
+    JOURNAL_SESSION_DISCARDED,
+    JOURNAL_SESSION_ENDED,
+    JOURNAL_SESSION_RESTORED,
+    JOURNAL_SESSION_STARTED,
+    JOURNAL_SESSION_STATE_CHANGED,
+    JOURNAL_SESSION_STORED,
+    JOURNAL_SOURCE_AVAILABLE,
+    JOURNAL_SOURCE_CLASS_CHANGED,
+    JOURNAL_SOURCE_NEUTRAL_VALUE,
+    JOURNAL_SOURCE_UNAVAILABLE,
+    JOURNAL_SOURCE_UNMAPPED_VALUE,
+    JOURNAL_UNALLOCATED_ENERGY,
+    JOURNAL_VEHICLE_SESSION_DEFERRED,
+    JOURNAL_VEHICLE_SESSION_ENDED,
+    JOURNAL_VEHICLE_SESSION_STARTED,
+    JOURNAL_VEHICLE_SESSION_SUPPRESSED,
     LIVE_BLOCK_EXTERNAL,
     LIVE_BLOCK_WALLBOX,
     LIVE_PUSH_INTERVAL_S,
     LOCATION_EXTERNAL,
     LOCATION_HOME,
     LOCATION_HOME_NO_WALLBOX,
+    MAPPING_CLASS_NEUTRAL,
     MAX_PHASES,
     MIN_PAUSE_MIN,
     MIN_PLAUSIBILITY_INTERVAL_S,
@@ -113,6 +150,9 @@ from .const import (
     SESSION_TIMEOUT_H,
     SUBENTRY_TYPE_VEHICLE,
     SUBENTRY_TYPE_WALLBOX,
+    SUPPRESS_REASON_AFTER_WALLBOX_SESSION,
+    SUPPRESS_REASON_CAR_AT_WALLBOX,
+    SUPPRESS_REASON_WALLBOX_VEHICLE,
     TRACKER_STATE_HOME,
     TRACKER_STATE_NOT_HOME,
 )
@@ -259,6 +299,18 @@ def identify(
             IDENTIFICATION_SOURCE_VEHICLE_API, vehicle_id=vehicle_id, card_uid=card_uid
         )
     return Identification(IDENTIFICATION_SOURCE_UNRESOLVED, card_uid=card_uid)
+
+
+def identification_stage(result: Identification) -> int:
+    """Return the step of the cascade that decided: 1 the card, 2 the vehicle report, 3 none.
+
+    A card that matches no stored card stops the cascade at the first step.
+    """
+    if result.source in CARD_TYPES or result.unknown_card:
+        return 1
+    if result.source == IDENTIFICATION_SOURCE_VEHICLE_API:
+        return 2
+    return 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -811,6 +863,13 @@ class SessionManager:
         self._finalizing = False
         self._card_reader: resolver.IdentificationReader | None = None
         self._direct_read_failure: str | None = None
+        # What the journal last noted per source: raw value, class, and
+        # whether the source was unavailable; and per vehicle the reason its
+        # own session was last suppressed.
+        self._source_raw: dict[str, str] = {}
+        self._source_class: dict[str, str] = {}
+        self._sources_unavailable: set[str] = set()
+        self._suppressed_noted: dict[str, str] = {}
         self.snapshot = self._build_snapshot()
         self.vehicle_snapshots: dict[str, VehicleSnapshot] = {}
 
@@ -883,6 +942,10 @@ class SessionManager:
                 _LOGGER.exception(
                     "The stored external session of a vehicle could not be restored and is dropped"
                 )
+        if self._session is not None:
+            self._journal(JOURNAL_SESSION_RESTORED, state=self._session.state)
+        for vehicle_id, vehicle_session in self._vehicle_sessions.items():
+            self._journal_vehicle(vehicle_id, JOURNAL_SESSION_RESTORED, state=vehicle_session.state)
         self._open_followups = await self._async_count_followups()
         self._start_notifier()
 
@@ -1043,14 +1106,78 @@ class SessionManager:
         assert subentry is not None
         subentry_id = self._entry.entry_id if key.startswith("hub_") else subentry.subentry_id
         title = self._entry.title if key.startswith("hub_") else subentry.title
-        role_name = key.removeprefix("hub_")
-        resolver.check_role_unit(
+        problems.check_role_unit(
             self._hass,
             role,
-            issue_id=problems.role_unit_changed_issue_id(subentry_id, role_name),
-            translation_key="role_unit_changed",
-            translation_placeholders={"role": role_name, "subentry_title": title},
+            subentry_id=subentry_id,
+            role_name=key.removeprefix("hub_"),
+            subentry_title=title,
         )
+
+    # ----------------------------------------------------------------- journal
+
+    def _journal(self, event: str, **data: Any) -> None:
+        """Add a journal entry about the wallbox and its running session."""
+        session = self._session
+        journal.add(
+            self._hass,
+            event,
+            wallbox_id=self.wallbox.id if self.wallbox is not None else None,
+            vehicle_id=session.vehicle_id if session is not None else None,
+            session=session.start if session is not None else None,
+            **data,
+        )
+
+    def _journal_vehicle(self, vehicle_id: str, event: str, **data: Any) -> None:
+        """Add a journal entry about a vehicle and its own running session."""
+        session = self._vehicle_sessions.get(vehicle_id)
+        journal.add(
+            self._hass,
+            event,
+            vehicle_id=vehicle_id,
+            session=session.start if session is not None else None,
+            **data,
+        )
+
+    def _note_source(
+        self,
+        key: str,
+        role_name: str,
+        raw: str,
+        klass: str | None,
+        *,
+        found: bool,
+        neutral: bool,
+        vehicle_id: str | None = None,
+    ) -> None:
+        """Journal a source whose class changed, a new neutral or unmapped value, a return.
+
+        A raw value repeated without change leaves no entry.
+        """
+        log = self._journal if vehicle_id is None else partial(self._journal_vehicle, vehicle_id)
+        if key in self._sources_unavailable:
+            self._sources_unavailable.discard(key)
+            log(JOURNAL_SOURCE_AVAILABLE, role=role_name)
+        raw_changed = self._source_raw.get(key) != raw
+        self._source_raw[key] = raw
+        if raw_changed and not found:
+            log(JOURNAL_SOURCE_UNMAPPED_VALUE, role=role_name, raw=raw)
+        elif raw_changed and neutral:
+            log(JOURNAL_SOURCE_NEUTRAL_VALUE, role=role_name, raw=raw)
+        if klass is not None and klass != self._source_class.get(key):
+            self._source_class[key] = klass
+            log(JOURNAL_SOURCE_CLASS_CHANGED, role=role_name, raw=raw, **{"class": klass})
+
+    def _note_source_unavailable(
+        self, key: str, role_name: str, *, vehicle_id: str | None = None
+    ) -> None:
+        """Journal a source that became unknown or unavailable."""
+        if key in self._sources_unavailable:
+            return
+        self._sources_unavailable.add(key)
+        self._source_raw.pop(key, None)
+        log = self._journal if vehicle_id is None else partial(self._journal_vehicle, vehicle_id)
+        log(JOURNAL_SOURCE_UNAVAILABLE, role=role_name)
 
     # ------------------------------------------------------- source handlers
 
@@ -1124,6 +1251,7 @@ class SessionManager:
         session = self._session
         self._plug_usable = raw is not None
         if raw is None:
+            self._note_source_unavailable("wallbox:plug_state", ROLE_PLUG_STATE)
             if session is not None and session.state in _SESSION_STATES:
                 self._plug_unavailable(session, now)
             return
@@ -1136,6 +1264,14 @@ class SessionManager:
         )
         klass, found = resolver.classify_with_neutral(
             raw, mapping, default=PLUG_STATE_CONNECTED, last_class=self._plug_class
+        )
+        self._note_source(
+            "wallbox:plug_state",
+            ROLE_PLUG_STATE,
+            raw,
+            klass,
+            found=found,
+            neutral=mapping.get(raw) == MAPPING_CLASS_NEUTRAL,
         )
         self._raise_unknown_value(found, self._wallbox_subentry, ROLE_PLUG_STATE, raw)
         if klass != self._plug_class:
@@ -1176,6 +1312,7 @@ class SessionManager:
         assert self.wallbox is not None and self.wallbox.error is not None
         raw = resolver.usable_state(state)
         if raw is None or state is None:
+            self._note_source_unavailable("wallbox:error", ROLE_ERROR)
             return
         mapping = self._wallbox_mapping.role_values(ROLE_ERROR) if self._wallbox_mapping else {}
         previous = self._error_class
@@ -1183,9 +1320,18 @@ class SessionManager:
             klass, found = resolver.classify_with_neutral(
                 raw, mapping, default=ERROR_CLASS_OK, last_class=previous
             )
+            self._note_source(
+                "wallbox:error",
+                ROLE_ERROR,
+                raw,
+                klass,
+                found=found,
+                neutral=mapping.get(raw) == MAPPING_CLASS_NEUTRAL,
+            )
             self._raise_unknown_value(found, self._wallbox_subentry, ROLE_ERROR, raw)
         elif state.domain == "binary_sensor" and raw in ("on", "off"):
             klass = ERROR_CLASS_ERROR if raw == "on" else ERROR_CLASS_OK
+            self._note_source("wallbox:error", ROLE_ERROR, raw, klass, found=True, neutral=False)
         else:
             klass = previous
         self._error_class = klass
@@ -1224,8 +1370,9 @@ class SessionManager:
             counter.value, counter.timestamp, counter.start_value = value, now, value
             counter.started_late = True
             return
+        previous = counter.value
         step = counter_step(
-            counter.value,
+            previous,
             value,
             max_power_kw=self.wallbox.max_power_kw,
             elapsed_s=(now - counter.timestamp).total_seconds(),
@@ -1237,11 +1384,18 @@ class SessionManager:
                 "An energy counter jumped by more than the wallbox can deliver; "
                 "the step is not counted and the session is flagged"
             )
+            self._journal(
+                JOURNAL_COUNTER_STEP_REJECTED, counter=kind, previous=previous, value=value
+            )
+        elif step.kind is StepKind.RESET:
+            self._journal(JOURNAL_COUNTER_RESET, counter=kind, previous=previous, value=value)
         counter.accumulated += step.delta_kwh
         if kind == session.authoritative:
             if session.gap_pending:
                 self._add_unallocated(session, step.delta_kwh)
                 session.gap_pending = False
+                if step.delta_kwh > 0:
+                    self._journal(JOURNAL_UNALLOCATED_ENERGY, energy_kwh=round(step.delta_kwh, 3))
             elif step.delta_kwh > 0:
                 self._allocate(session, step.delta_kwh, now)
         self._touch_live()
@@ -1313,17 +1467,30 @@ class SessionManager:
     def _on_vehicle_charge_state(self, context: VehicleContext, state: State | None) -> None:
         """Classify a vehicle's charge state, drive its own session, and resolve the wallbox's."""
         now = self._now()
+        vehicle_id = context.vehicle.id
         raw = resolver.usable_state(state)
         if raw is None:
+            self._note_source_unavailable(
+                f"{vehicle_id}:charge_state", ROLE_CHARGE_STATE, vehicle_id=vehicle_id
+            )
             self._vehicle_source_unavailable(context, now)
             return
         mapping = context.mapping.role_values(ROLE_CHARGE_STATE) if context.mapping else {}
-        previous = self._vehicle_charge_class.get(context.vehicle.id)
+        previous = self._vehicle_charge_class.get(vehicle_id)
         klass, found = resolver.classify_with_neutral(
             raw,
             mapping,
             default=CHARGE_STATE_DEFAULT,
             last_class=previous,
+        )
+        self._note_source(
+            f"{vehicle_id}:charge_state",
+            ROLE_CHARGE_STATE,
+            raw,
+            klass,
+            found=found,
+            neutral=mapping.get(raw) == MAPPING_CLASS_NEUTRAL,
+            vehicle_id=vehicle_id,
         )
         problems.check_unknown_mapping_value(
             self._hass,
@@ -1471,6 +1638,7 @@ class SessionManager:
             session.counters[kind] = counter
         session.plug_last_valid = now
         self._session = session
+        self._journal(JOURNAL_CANDIDATE_CREATED, trigger=trigger, power_kw=self._power_kw)
         if not self._plug_usable:
             self._plug_unavailable(session, now)
         self._start_counter_check()
@@ -1529,6 +1697,7 @@ class SessionManager:
             session.state_since = self._now()
         if session.state != state:
             _LOGGER.debug("Session state %s -> %s", session.state, state)
+            self._journal(JOURNAL_SESSION_STATE_CHANGED, old=session.state, new=state)
         session.state = state
         self._persist()
         self._publish()
@@ -1553,6 +1722,10 @@ class SessionManager:
         if session.trigger == CANDIDATE_TRIGGER_POWER and not active:
             self._discard_candidate()
             return
+        self._journal(
+            JOURNAL_SESSION_STARTED,
+            state=SESSION_STATE_CHARGING if active else SESSION_STATE_PAUSED,
+        )
         if active:
             if not session.phases:
                 self._open_phase(session, session.power_since or now)
@@ -1564,6 +1737,7 @@ class SessionManager:
     def _discard_candidate(self) -> None:
         """Drop a candidate that did not last."""
         _LOGGER.debug("The candidate is dropped")
+        self._journal(JOURNAL_CANDIDATE_DISCARDED)
         self._clear_session_timers()
         self._session = None
         self._persist()
@@ -1608,6 +1782,7 @@ class SessionManager:
             session.flagged = True
         session.phases.append(Phase(start=_iso(now), power_max_kw=self._power_kw))
         _LOGGER.debug("Phase %d begins", len(session.phases))
+        self._journal(JOURNAL_PHASE_OPENED, phase=len(session.phases), power_kw=self._power_kw)
         if first and self._card_reader is not None:
             self._card_reader.begin_charging()
 
@@ -1624,6 +1799,12 @@ class SessionManager:
             end=_iso(end),
             duration_min=duration,
             power_avg_kw=energy / (duration / 60) if energy is not None and duration > 0 else None,
+        )
+        self._journal(
+            JOURNAL_PHASE_CLOSED,
+            phase=len(session.phases),
+            duration_min=round(duration, 1),
+            energy_kwh=_round(energy, 3),
         )
 
     @callback
@@ -1702,6 +1883,7 @@ class SessionManager:
         )
         self._close_phase(session, end)
         session.plug_end = now
+        self._journal(JOURNAL_SESSION_ENDED, reason=END_REASON_UNPLUGGED)
         self._enter(SESSION_STATE_AWAITING_FINAL)
         self._set_timer("final", FINAL_VALUES_GRACE_S, self._async_on_final_timer)
 
@@ -1720,6 +1902,10 @@ class SessionManager:
         self._close_phase(session, end)
         session.plug_end = end
         session.flagged = True
+        self._journal(JOURNAL_SESSION_ENDED, reason=END_REASON_TIMEOUT)
+        self._journal(
+            JOURNAL_SESSION_STATE_CHANGED, old=session.state, new=SESSION_STATE_AWAITING_FINAL
+        )
         session.state = SESSION_STATE_AWAITING_FINAL
         session.state_since = self._now()
         self._persist()
@@ -1846,6 +2032,7 @@ class SessionManager:
         assigned = session.grid_kwh + session.solar_kwh + session.unallocated_kwh
         session.unallocated_kwh += max(session.counters[counter].accumulated - assigned, 0.0)
         self._counter_detection = {"key": self._counter_key(), "authoritative": counter}
+        self._journal(JOURNAL_COUNTER_SWITCHED, counter=counter)
         problems.async_create_counter_switched_issue(
             self._hass,
             wallbox_id=self._wallbox_subentry.subentry_id,
@@ -1940,6 +2127,15 @@ class SessionManager:
         if result.conflict:
             session.identification_conflict = True
             session.flagged = True
+        self._journal(
+            JOURNAL_IDENTIFICATION_DECIDED,
+            stage=identification_stage(result),
+            source=result.source,
+            card_uid=result.card_uid,
+            unknown_card=result.unknown_card,
+        )
+        if result.conflict:
+            self._journal(JOURNAL_IDENTIFICATION_CONFLICT, card_uid=result.card_uid)
         _LOGGER.debug(
             "Identification decided: source %s, vehicle %s, card read %s, conflict %s",
             result.source,
@@ -1988,6 +2184,7 @@ class SessionManager:
         if reported is None:
             _LOGGER.debug("A read finished, but there is no identification to apply")
             return
+        previous_vehicle_id = session.vehicle_id
         result = identify_late(
             reported,
             [context.vehicle for context in self._vehicles.values()],
@@ -2008,6 +2205,15 @@ class SessionManager:
         if result.conflict:
             session.identification_conflict = True
             session.flagged = True
+        self._journal(
+            JOURNAL_IDENTIFICATION_LATE,
+            source=result.source,
+            previous_vehicle_id=previous_vehicle_id,
+            card_uid=result.card_uid,
+            unknown_card=result.unknown_card,
+        )
+        if result.conflict:
+            self._journal(JOURNAL_IDENTIFICATION_CONFLICT, card_uid=result.card_uid)
         _LOGGER.debug(
             "Identification read after the decision: source %s, vehicle %s, conflict %s, "
             "card unknown %s",
@@ -2085,6 +2291,11 @@ class SessionManager:
             return
         session.identification_source = IDENTIFICATION_SOURCE_VEHICLE_API
         self._assign_vehicle(session, candidates[0], capture_start=False)
+        self._journal(
+            JOURNAL_IDENTIFICATION_LATE,
+            source=IDENTIFICATION_SOURCE_VEHICLE_API,
+            previous_vehicle_id=None,
+        )
         self._evaluate_location_conflict()
         self._start_late_history(candidates[0], session.start)
         self._persist()
@@ -2131,6 +2342,8 @@ class SessionManager:
             return
         context = self._vehicles.get(session.vehicle_id)
         if context is not None and self._vehicle_location(context) == TRACKER_STATE_NOT_HOME:
+            if not session.location_conflict:
+                self._journal(JOURNAL_LOCATION_CONFLICT)
             session.location_conflict = True
 
     # ------------------------------------------------------- vehicle sessions
@@ -2227,6 +2440,10 @@ class SessionManager:
                 context.vehicle.name, location, now, session.soc_start, session.odometer_km
             )
         self._vehicle_sessions[context.vehicle.id] = session
+        self._suppressed_noted.pop(context.vehicle.id, None)
+        self._journal_vehicle(
+            context.vehicle.id, JOURNAL_VEHICLE_SESSION_STARTED, location=location
+        )
         _LOGGER.debug(
             "An external session begins for vehicle %s, location %s", context.vehicle.id, location
         )
@@ -2249,18 +2466,26 @@ class SessionManager:
         session = self._vehicle_sessions.get(vehicle_id)
         if session is not None and session.state == SESSION_STATE_AWAITING_FINAL:
             return
+        if klass != CHARGE_STATE_CHARGING:
+            self._suppressed_noted.pop(vehicle_id, None)
         if klass != CHARGE_STATE_CHARGING and vehicle_id in self._vehicle_rearm:
             self._vehicle_rearm.discard(vehicle_id)
             self._persist()
         if klass == CHARGE_STATE_DISCONNECTED:
             self._cancel_vehicle_pending(vehicle_id)
             if session is not None:
-                self._end_vehicle_session(context, session, now)
+                self._end_vehicle_session(context, session, now, reason=END_REASON_DISCONNECTED)
             return
         if session is None:
             if klass != CHARGE_STATE_CHARGING or vehicle_id in self._vehicle_pending:
                 return
-            if self._vehicle_start_suppressed(context, now):
+            reason = self._vehicle_start_suppressed(context, now)
+            if reason is not None:
+                if self._suppressed_noted.get(vehicle_id) != reason:
+                    self._suppressed_noted[vehicle_id] = reason
+                    self._journal_vehicle(
+                        vehicle_id, JOURNAL_VEHICLE_SESSION_SUPPRESSED, reason=reason
+                    )
                 return
             if self._vehicle_location(context) == TRACKER_STATE_HOME:
                 self._begin_vehicle_pending(context, now)
@@ -2294,14 +2519,21 @@ class SessionManager:
             session.charge_error = True
             self._enter_vehicle_state(session, SESSION_STATE_ERROR)
 
-    def _vehicle_start_suppressed(self, context: VehicleContext, reported_at: datetime) -> bool:
-        """Whether a charging report, made at the given moment, must not begin a session."""
+    def _vehicle_start_suppressed(
+        self, context: VehicleContext, reported_at: datetime
+    ) -> str | None:
+        """Return why a charging report, made at the given moment, must not begin a session.
+
+        None when it may begin one.
+        """
         vehicle_id = context.vehicle.id
         if self._session is not None and self._session.vehicle_id == vehicle_id:
-            return True
-        return vehicle_id in self._vehicle_rearm or self._wallbox_covers_vehicle(
-            context, reported_at
-        )
+            return SUPPRESS_REASON_WALLBOX_VEHICLE
+        if vehicle_id in self._vehicle_rearm:
+            return SUPPRESS_REASON_AFTER_WALLBOX_SESSION
+        if self._wallbox_covers_vehicle(context, reported_at):
+            return SUPPRESS_REASON_CAR_AT_WALLBOX
+        return None
 
     def _vehicle_pending_timer_name(self, vehicle_id: str) -> str:
         """Return the timer name for the delayed start of a vehicle's own session at home."""
@@ -2326,6 +2558,9 @@ class SessionManager:
             HOME_VEHICLE_START_DELAY_S,
             callback(lambda _now, c=context: self._on_vehicle_pending_timer(c)),
         )
+        self._journal_vehicle(
+            vehicle_id, JOURNAL_VEHICLE_SESSION_DEFERRED, delay_s=HOME_VEHICLE_START_DELAY_S
+        )
         _LOGGER.debug(
             "Vehicle %s reports charging at home; its own session waits %d s for the wallbox",
             vehicle_id,
@@ -2349,10 +2584,13 @@ class SessionManager:
         if klass in (None, CHARGE_STATE_DISCONNECTED):
             return
         now = self._now()
-        if self._vehicle_start_suppressed(
+        reason = self._vehicle_start_suppressed(
             context, pending.reported_at
-        ) or self._vehicle_start_suppressed(context, now):
+        ) or self._vehicle_start_suppressed(context, now)
+        if reason is not None:
             _LOGGER.debug("Vehicle %s is the car at the wallbox; no own session", vehicle_id)
+            self._suppressed_noted[vehicle_id] = reason
+            self._journal_vehicle(vehicle_id, JOURNAL_VEHICLE_SESSION_SUPPRESSED, reason=reason)
             return
         session = self._start_vehicle_session(context, pending.reported_at, pending=pending)
         self._open_vehicle_phase(session, pending.reported_at)
@@ -2421,6 +2659,9 @@ class SessionManager:
         vehicle_id = context.vehicle.id
         raw = resolver.usable_state(state)
         if raw is None:
+            self._note_source_unavailable(
+                f"{vehicle_id}:plug_state", ROLE_PLUG_STATE, vehicle_id=vehicle_id
+            )
             return
         mapping = context.mapping.role_values(ROLE_PLUG_STATE) if context.mapping else {}
         klass, found = resolver.classify_with_neutral(
@@ -2428,6 +2669,15 @@ class SessionManager:
             mapping,
             default=PLUG_STATE_CONNECTED,
             last_class=self._vehicle_plug_class.get(vehicle_id),
+        )
+        self._note_source(
+            f"{vehicle_id}:plug_state",
+            ROLE_PLUG_STATE,
+            raw,
+            klass,
+            found=found,
+            neutral=mapping.get(raw) == MAPPING_CLASS_NEUTRAL,
+            vehicle_id=vehicle_id,
         )
         problems.check_unknown_mapping_value(
             self._hass,
@@ -2443,7 +2693,9 @@ class SessionManager:
         if klass == PLUG_STATE_NOT_CONNECTED:
             self._cancel_vehicle_pending(vehicle_id)
             if session is not None and session.state != SESSION_STATE_AWAITING_FINAL:
-                self._end_vehicle_session(context, session, self._now())
+                self._end_vehicle_session(
+                    context, session, self._now(), reason=END_REASON_NOT_CONNECTED
+                )
         self._touch_live()
 
     def _enter_vehicle_state(self, session: RunningVehicleSession, state: str) -> None:
@@ -2453,6 +2705,9 @@ class SessionManager:
         if session.state != state:
             _LOGGER.debug(
                 "External session of vehicle %s: %s -> %s", session.vehicle_id, session.state, state
+            )
+            self._journal_vehicle(
+                session.vehicle_id, JOURNAL_SESSION_STATE_CHANGED, old=session.state, new=state
             )
         session.state = state
         self._persist()
@@ -2478,6 +2733,7 @@ class SessionManager:
             session.vehicle_id,
             len(session.phases),
         )
+        self._journal_vehicle(session.vehicle_id, JOURNAL_PHASE_OPENED, phase=len(session.phases))
 
     def _close_vehicle_phase(self, session: RunningVehicleSession, end: datetime) -> None:
         """Close the open phase of a vehicle's own session at the given moment."""
@@ -2487,15 +2743,33 @@ class SessionManager:
         start = _parse(phase.start)
         duration = max((end - start).total_seconds() / 60, 0.0) if start else 0.0
         session.phases[-1] = replace(phase, end=_iso(end), duration_min=duration)
+        self._journal_vehicle(
+            session.vehicle_id,
+            JOURNAL_PHASE_CLOSED,
+            phase=len(session.phases),
+            duration_min=round(duration, 1),
+        )
 
     def _end_vehicle_session(
-        self, context: VehicleContext, session: RunningVehicleSession, now: datetime
+        self,
+        context: VehicleContext,
+        session: RunningVehicleSession,
+        now: datetime,
+        *,
+        reason: str,
     ) -> None:
-        """React to a vehicle's own charge state falling to disconnected, the only end (7.5)."""
+        """React to a vehicle reporting it is no longer connected, the only end."""
         self._cancel_vehicle_timers(context.vehicle.id)
         end = session.pause_since if session.state == SESSION_STATE_PAUSED else now
         self._close_vehicle_phase(session, end)
         session.plug_end = now
+        self._journal_vehicle(context.vehicle.id, JOURNAL_VEHICLE_SESSION_ENDED, reason=reason)
+        self._journal_vehicle(
+            context.vehicle.id,
+            JOURNAL_SESSION_STATE_CHANGED,
+            old=session.state,
+            new=SESSION_STATE_AWAITING_FINAL,
+        )
         session.state = SESSION_STATE_AWAITING_FINAL
         session.state_since = self._now()
         self._persist()
@@ -2517,6 +2791,15 @@ class SessionManager:
         session.plug_end = end
         session.flagged = True
         session.closed_stale = True
+        self._journal_vehicle(
+            context.vehicle.id, JOURNAL_VEHICLE_SESSION_ENDED, reason=END_REASON_TIMEOUT
+        )
+        self._journal_vehicle(
+            context.vehicle.id,
+            JOURNAL_SESSION_STATE_CHANGED,
+            old=session.state,
+            new=SESSION_STATE_AWAITING_FINAL,
+        )
         session.state = SESSION_STATE_AWAITING_FINAL
         session.state_since = self._now()
         self._persist()
@@ -2668,6 +2951,7 @@ class SessionManager:
             len(session.phases),
             "it holds nothing and is not stored" if empty else "it is stored",
         )
+        stored_ids: list[str] = []
         try:
             if not empty:
                 stored = self._build_session(session, stale=stale)
@@ -2680,6 +2964,7 @@ class SessionManager:
                     while unique.id in taken:
                         unique = replace(stored, id=f"{stored.id}_{counter}")
                         counter += 1
+                    stored_ids.append(unique.id)
                     return [*sessions, unique]
 
                 await SessionYearStore(self._hass, year).async_update(_add)
@@ -2690,6 +2975,10 @@ class SessionManager:
         finally:
             self._finalizing = False
         self._clear_session_timers()
+        if empty:
+            self._journal(JOURNAL_SESSION_DISCARDED, reason=DISCARD_REASON_NO_CONTENT)
+        else:
+            self._journal(JOURNAL_SESSION_STORED, session_id=stored_ids[-1])
         self._arm_vehicle_rearm(session)
         self._session = None
         if not empty:
@@ -2867,6 +3156,7 @@ class SessionManager:
 
         stored = self._build_vehicle_session(context, session)
         year = dt_util.as_local(session.start).year
+        stored_ids: list[str] = []
 
         def _add(sessions: list[Session]) -> list[Session]:
             taken = {existing.id for existing in sessions}
@@ -2875,6 +3165,7 @@ class SessionManager:
             while unique.id in taken:
                 unique = replace(stored, id=f"{stored.id}_{counter}")
                 counter += 1
+            stored_ids.append(unique.id)
             return [*sessions, unique]
 
         try:
@@ -2893,6 +3184,7 @@ class SessionManager:
                 ),
             )
             return
+        self._journal_vehicle(vehicle_id, JOURNAL_SESSION_STORED, session_id=stored_ids[-1])
         del self._vehicle_sessions[vehicle_id]
         self._open_followups = await self._async_count_followups()
         if self._notifier is not None:
@@ -3052,6 +3344,12 @@ class SessionManager:
         """Take up a charging error that held for the debounce time, and report it."""
         self._problems[_problem_key(problem.source, problem.vehicle_id)] = problem
         _LOGGER.debug("A charging error is reported by the %s", problem.source)
+        self._journal_problem(
+            JOURNAL_CHARGE_ERROR_REPORTED,
+            problem.source,
+            problem.vehicle_id,
+            since=_iso(problem.since),
+        )
         if self._notifier is not None:
             self._notifier.error_reported(source_name, problem.source, problem.since)
         self._sync_session_error()
@@ -3068,9 +3366,19 @@ class SessionManager:
             self._sync_session_error()
             return
         _LOGGER.debug("The charging error of the %s has ended", source)
+        self._journal_problem(JOURNAL_CHARGE_ERROR_ENDED, source, vehicle_id)
         self._sync_session_error()
         self._persist()
         self._publish()
+
+    def _journal_problem(
+        self, event: str, source: str, vehicle_id: str | None, **data: Any
+    ) -> None:
+        """Journal a charging error with its source, at the session it concerns."""
+        if source == PROBLEM_SOURCE_VEHICLE and vehicle_id is not None:
+            self._journal_vehicle(vehicle_id, event, source=source, **data)
+        else:
+            self._journal(event, source=source, **data)
 
     def _start_notifier(self) -> None:
         """Prepare the notifications and watch the configured targets."""
@@ -3814,6 +4122,11 @@ def _add_modified(session: Session, *names: str) -> Session:
         if name not in modified:
             modified.append(name)
     return replace(session, modified_fields=tuple(modified))
+
+
+# Fields of a stored session that close_followup and correct_vehicle change.
+CLOSE_FOLLOWUP_FIELDS = ("open_fields", "status")
+CORRECT_VEHICLE_FIELDS = ("vehicle_id", "vehicle_name", "capacity_kwh", "soc_start", "odometer_km")
 
 
 async def async_update_session(

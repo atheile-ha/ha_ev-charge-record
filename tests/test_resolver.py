@@ -1,6 +1,6 @@
 """Tests for role resolution, unit detection, and state classification."""
 
-from custom_components.ev_charging import resolver
+from custom_components.ev_charging import problems, resolver
 from custom_components.ev_charging.const import (
     CHARGE_STATE_CHARGING,
     CHARGE_STATE_CONNECTED_IDLE,
@@ -142,24 +142,18 @@ async def test_check_role_unit_creates_and_clears_issue(hass: HomeAssistant) -> 
     hass.states.async_set("sensor.power", "1500", {"unit_of_measurement": "W"})
     role = EntityRole(entity_id="sensor.power", unit="kW")
 
-    resolver.check_role_unit(
-        hass,
-        role,
-        issue_id="test_issue",
-        translation_key="role_unit_changed",
-        translation_placeholders={"role": "charge_power", "subentry_title": "Carport"},
+    issue_id = problems.role_unit_changed_issue_id("sub1", "charge_power")
+
+    problems.check_role_unit(
+        hass, role, subentry_id="sub1", role_name="charge_power", subentry_title="Carport"
     )
-    assert ir.async_get(hass).async_get_issue("ev_charging", "test_issue") is not None
+    assert ir.async_get(hass).async_get_issue("ev_charging", issue_id) is not None
 
     hass.states.async_set("sensor.power", "1.5", {"unit_of_measurement": "kW"})
-    resolver.check_role_unit(
-        hass,
-        role,
-        issue_id="test_issue",
-        translation_key="role_unit_changed",
-        translation_placeholders={"role": "charge_power", "subentry_title": "Carport"},
+    problems.check_role_unit(
+        hass, role, subentry_id="sub1", role_name="charge_power", subentry_title="Carport"
     )
-    assert ir.async_get(hass).async_get_issue("ev_charging", "test_issue") is None
+    assert ir.async_get(hass).async_get_issue("ev_charging", issue_id) is None
 
 
 async def test_track_role_registry_reacts_to_removal(hass: HomeAssistant) -> None:

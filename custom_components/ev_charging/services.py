@@ -14,7 +14,7 @@ from homeassistant.exceptions import ServiceValidationError, Unauthorized
 from homeassistant.helpers import config_validation as cv
 from homeassistant.util import dt as dt_util
 
-from . import geocoding, session_manager
+from . import geocoding, journal, session_manager
 from .const import (
     ATTR_CONFIRM,
     ATTR_ODOMETER_KM,
@@ -127,6 +127,8 @@ async def _async_handle_delete_all_data(hass: HomeAssistant, call: ServiceCall) 
     for entry in hass.config_entries.async_entries(DOMAIN):
         if entry.state is ConfigEntryState.LOADED and entry.runtime_data.manager is not None:
             await entry.runtime_data.manager.async_refresh_followups()
+    await journal.async_clear(hass)
+    journal.add_admin(hass, SERVICE_DELETE_ALL_DATA, user_id=call.context.user_id, years=years)
     _LOGGER.info("Deleted all ev_charging session data for years: %s", years)
 
 
@@ -177,6 +179,13 @@ async def _async_handle_retry_address(hass: HomeAssistant, call: ServiceCall) ->
             ]
 
         await store.async_update(_apply)
+        journal.add_admin(
+            hass,
+            SERVICE_RETRY_ADDRESS,
+            user_id=call.context.user_id,
+            session_ids=[session_id],
+            fields=["address"],
+        )
         return
 
     raise ServiceValidationError(f"No session with id {session_id}")
@@ -191,35 +200,60 @@ async def _async_handle_update_session(hass: HomeAssistant, call: ServiceCall) -
         await session_manager.async_update_session(hass, session_id, values)
     except session_manager.SessionOperationError as err:
         raise ServiceValidationError(str(err)) from err
+    journal.add_admin(
+        hass,
+        SERVICE_UPDATE_SESSION,
+        user_id=call.context.user_id,
+        session_ids=[session_id],
+        fields=values,
+    )
 
 
 async def _async_handle_delete_session(hass: HomeAssistant, call: ServiceCall) -> None:
     """Remove one stored session, after admin check."""
     await _async_require_admin(hass, call, permission=SERVICE_DELETE_SESSION)
+    session_id = call.data[ATTR_SESSION_ID]
     try:
-        await session_manager.async_delete_session(hass, call.data[ATTR_SESSION_ID])
+        await session_manager.async_delete_session(hass, session_id)
     except session_manager.SessionOperationError as err:
         raise ServiceValidationError(str(err)) from err
+    journal.add_admin(
+        hass, SERVICE_DELETE_SESSION, user_id=call.context.user_id, session_ids=[session_id]
+    )
 
 
 async def _async_handle_close_followup(hass: HomeAssistant, call: ServiceCall) -> None:
     """Accept a session's missing values as final, after admin check (10)."""
     await _async_require_admin(hass, call, permission=SERVICE_CLOSE_FOLLOWUP)
+    session_id = call.data[ATTR_SESSION_ID]
     try:
-        await session_manager.async_close_followup(hass, call.data[ATTR_SESSION_ID])
+        await session_manager.async_close_followup(hass, session_id)
     except session_manager.SessionOperationError as err:
         raise ServiceValidationError(str(err)) from err
+    journal.add_admin(
+        hass,
+        SERVICE_CLOSE_FOLLOWUP,
+        user_id=call.context.user_id,
+        session_ids=[session_id],
+        fields=session_manager.CLOSE_FOLLOWUP_FIELDS,
+    )
 
 
 async def _async_handle_correct_vehicle(hass: HomeAssistant, call: ServiceCall) -> None:
     """Reassign a stored session to a different vehicle, after admin check (7.8)."""
     await _async_require_admin(hass, call, permission=SERVICE_CORRECT_VEHICLE)
+    session_id = call.data[ATTR_SESSION_ID]
     try:
-        await session_manager.async_correct_vehicle(
-            hass, call.data[ATTR_SESSION_ID], call.data[ATTR_VEHICLE_ID]
-        )
+        await session_manager.async_correct_vehicle(hass, session_id, call.data[ATTR_VEHICLE_ID])
     except session_manager.SessionOperationError as err:
         raise ServiceValidationError(str(err)) from err
+    journal.add_admin(
+        hass,
+        SERVICE_CORRECT_VEHICLE,
+        user_id=call.context.user_id,
+        session_ids=[session_id],
+        fields=session_manager.CORRECT_VEHICLE_FIELDS,
+    )
 
 
 async def _async_handle_create_session(hass: HomeAssistant, call: ServiceCall) -> None:
@@ -227,9 +261,16 @@ async def _async_handle_create_session(hass: HomeAssistant, call: ServiceCall) -
     await _async_require_admin(hass, call, permission=SERVICE_CREATE_SESSION)
     fields = dict(call.data)
     try:
-        await session_manager.async_create_session(hass, fields)
+        created = await session_manager.async_create_session(hass, fields)
     except session_manager.SessionOperationError as err:
         raise ServiceValidationError(str(err)) from err
+    journal.add_admin(
+        hass,
+        SERVICE_CREATE_SESSION,
+        user_id=call.context.user_id,
+        session_ids=[created.id],
+        fields=fields,
+    )
 
 
 async def _async_handle_merge_sessions(hass: HomeAssistant, call: ServiceCall) -> None:
@@ -239,9 +280,10 @@ async def _async_handle_merge_sessions(hass: HomeAssistant, call: ServiceCall) -
         raise ServiceValidationError(
             translation_domain=DOMAIN, translation_key="merge_confirm_required"
         )
+    odometer_inputs = dict(call.data[ATTR_ODOMETER_KM])
     try:
-        await session_manager.async_merge_sessions(
-            hass, call.data[ATTR_SESSION_IDS], dict(call.data[ATTR_ODOMETER_KM])
+        merged = await session_manager.async_merge_sessions(
+            hass, call.data[ATTR_SESSION_IDS], odometer_inputs
         )
     except session_manager.SessionMergeError as err:
         first = err.check.violations[0]
@@ -258,6 +300,14 @@ async def _async_handle_merge_sessions(hass: HomeAssistant, call: ServiceCall) -
         ) from err
     except session_manager.SessionOperationError as err:
         raise ServiceValidationError(str(err)) from err
+    journal.add_admin(
+        hass,
+        SERVICE_MERGE_SESSIONS,
+        user_id=call.context.user_id,
+        session_ids=call.data[ATTR_SESSION_IDS],
+        fields=[ATTR_ODOMETER_KM] if odometer_inputs else [],
+        merged_session_id=merged.id,
+    )
 
 
 @callback

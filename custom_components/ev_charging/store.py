@@ -15,10 +15,13 @@ from homeassistant.helpers.storage import Store
 
 from .const import (
     DOMAIN,
+    STORAGE_MINOR_VERSION_JOURNAL,
     STORAGE_MINOR_VERSION_RUNTIME,
     STORAGE_MINOR_VERSION_SESSIONS,
+    STORAGE_VERSION_JOURNAL,
     STORAGE_VERSION_RUNTIME,
     STORAGE_VERSION_SESSIONS,
+    STORE_KEY_JOURNAL,
     STORE_KEY_RUNTIME,
     store_key_sessions,
 )
@@ -29,6 +32,7 @@ _LOGGER = logging.getLogger(__name__)
 _SESSIONS_FILENAME_RE = re.compile(r"^ev_charging\.sessions_(\d{4})$")
 _DATA_YEAR_STORES = "session_year_stores"
 _DATA_RUNTIME_STORE = "runtime_store"
+_DATA_JOURNAL_STORE = "journal_store"
 
 
 def _backup_store_file(path: str, old_major_version: int, old_minor_version: int) -> None:
@@ -179,6 +183,55 @@ class RuntimeStore:
         """Replace the stored runtime state."""
         async with self._lock:
             await self._store.async_save(data)
+
+
+class JournalStore:
+    """Access to the stored journal entries. async_save is the only write path."""
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        """Return the shared journal store, creating it on first use."""
+        domain_data = hass.data.setdefault(DOMAIN, {})
+        if _DATA_JOURNAL_STORE not in domain_data:
+            domain_data[_DATA_JOURNAL_STORE] = (
+                _MigratingStore(
+                    hass,
+                    STORAGE_VERSION_JOURNAL,
+                    STORE_KEY_JOURNAL,
+                    minor_version=STORAGE_MINOR_VERSION_JOURNAL,
+                ),
+                Lock(),
+            )
+        self._store, self._lock = domain_data[_DATA_JOURNAL_STORE]
+
+    async def async_load(self) -> list[dict[str, Any]]:
+        """Return the stored entries in the order they were written, empty if none."""
+        data = await self._store.async_load()
+        if data is None:
+            return []
+        return list(data.get("entries", []))
+
+    async def async_save(self, entries: list[dict[str, Any]]) -> None:
+        """Replace the stored entries."""
+        async with self._lock:
+            await self._store.async_save({"entries": entries})
+
+
+async def async_remove_entry_stores(hass: HomeAssistant) -> None:
+    """Discard the runtime state and the journal once the integration is removed.
+
+    The stores of the sessions stay. Runs after the entry was unloaded, so
+    nothing writes to either store any more; each store's lock is held while
+    its file is removed.
+    """
+    for store in (RuntimeStore(hass), JournalStore(hass)):
+        async with store._lock:
+            await store._store.async_remove()
+    domain_data = hass.data.get(DOMAIN, {})
+    domain_data.pop(_DATA_RUNTIME_STORE, None)
+    domain_data.pop(_DATA_JOURNAL_STORE, None)
+    if not domain_data:
+        hass.data.pop(DOMAIN, None)
+    _LOGGER.info("Discarded the runtime state and the journal of ev_charging")
 
 
 async def async_list_session_years(hass: HomeAssistant) -> list[int]:

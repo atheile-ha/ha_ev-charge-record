@@ -7,6 +7,7 @@ TITLE = "EV Charging"
 
 STORE_KEY_RUNTIME = "ev_charging.runtime"
 STORE_KEY_EFFICIENCY = "ev_charging.efficiency"
+STORE_KEY_JOURNAL = "ev_charging.journal"
 
 
 def store_key_sessions(year: int) -> str:
@@ -242,6 +243,107 @@ STORAGE_VERSION_SESSIONS = 1
 STORAGE_MINOR_VERSION_SESSIONS = 1
 STORAGE_VERSION_RUNTIME = 1
 STORAGE_MINOR_VERSION_RUNTIME = 1
+STORAGE_VERSION_JOURNAL = 1
+STORAGE_MINOR_VERSION_JOURNAL = 1
+
+# Journal of the events and decisions of the session capture. Entries are
+# collected in memory and written at the persist interval and on unload.
+# Older entries and those beyond the limit, oldest first, are dropped when
+# the journal is loaded and once a day; the limit also holds while running.
+JOURNAL_RETENTION_DAYS = 90
+JOURNAL_MAX_ENTRIES = 20000
+JOURNAL_PRUNE_INTERVAL_H = 24
+# A card id appears in the journal shortened to this many trailing characters.
+JOURNAL_CARD_DIGITS = 4
+# Fields that never appear in a journal entry.
+JOURNAL_EXCLUDED_FIELDS = frozenset({"vin", "card_label", "address", "latitude", "longitude"})
+
+# Journal event types. Stable keys, never renamed.
+# Lifecycle.
+JOURNAL_INTEGRATION_SETUP = "integration_setup"
+JOURNAL_INTEGRATION_UNLOAD = "integration_unload"
+JOURNAL_SESSION_RESTORED = "session_restored"
+JOURNAL_UNALLOCATED_ENERGY = "unallocated_energy"
+# Session.
+JOURNAL_CANDIDATE_CREATED = "candidate_created"
+JOURNAL_CANDIDATE_DISCARDED = "candidate_discarded"
+JOURNAL_SESSION_STARTED = "session_started"
+JOURNAL_SESSION_STATE_CHANGED = "session_state_changed"
+JOURNAL_PHASE_OPENED = "phase_opened"
+JOURNAL_PHASE_CLOSED = "phase_closed"
+JOURNAL_SESSION_ENDED = "session_ended"
+JOURNAL_SESSION_STORED = "session_stored"
+JOURNAL_SESSION_DISCARDED = "session_discarded"
+# Session of a vehicle without the wallbox.
+JOURNAL_VEHICLE_SESSION_DEFERRED = "vehicle_session_deferred"
+JOURNAL_VEHICLE_SESSION_SUPPRESSED = "vehicle_session_suppressed"
+JOURNAL_VEHICLE_SESSION_STARTED = "vehicle_session_started"
+JOURNAL_VEHICLE_SESSION_ENDED = "vehicle_session_ended"
+# Identification.
+JOURNAL_IDENTIFICATION_DECIDED = "identification_decided"
+JOURNAL_IDENTIFICATION_LATE = "identification_late"
+JOURNAL_IDENTIFICATION_CONFLICT = "identification_conflict"
+JOURNAL_LOCATION_CONFLICT = "location_conflict"
+# Reading the identification from the device.
+JOURNAL_READ_SEQUENCE_STARTED = "read_sequence_started"
+JOURNAL_READ_SEQUENCE_ENDED = "read_sequence_ended"
+JOURNAL_READ = "read"
+# Sources.
+JOURNAL_SOURCE_CLASS_CHANGED = "source_class_changed"
+JOURNAL_SOURCE_NEUTRAL_VALUE = "source_neutral_value"
+JOURNAL_SOURCE_UNMAPPED_VALUE = "source_unmapped_value"
+JOURNAL_SOURCE_UNAVAILABLE = "source_unavailable"
+JOURNAL_SOURCE_AVAILABLE = "source_available"
+JOURNAL_SOURCE_UNIT_CHANGED = "source_unit_changed"
+JOURNAL_SOURCE_REMOVED = "source_removed"
+# Counters.
+JOURNAL_COUNTER_SWITCHED = "counter_switched"
+JOURNAL_COUNTER_RESET = "counter_reset"
+JOURNAL_COUNTER_STEP_REJECTED = "counter_step_rejected"
+# Charging errors.
+JOURNAL_CHARGE_ERROR_REPORTED = "charge_error_reported"
+JOURNAL_CHARGE_ERROR_ENDED = "charge_error_ended"
+# Notifications.
+JOURNAL_NOTIFICATION_PERSISTENT = "notification_persistent"
+JOURNAL_NOTIFICATION_SENT = "notification_sent"
+# Administration.
+JOURNAL_ADMIN_ACTION = "admin_action"
+# Repair issues.
+JOURNAL_REPAIR_ISSUE_CREATED = "repair_issue_created"
+JOURNAL_REPAIR_ISSUE_DELETED = "repair_issue_deleted"
+
+# Why a session ended.
+END_REASON_UNPLUGGED = "unplugged"
+END_REASON_DISCONNECTED = "disconnected"
+END_REASON_NOT_CONNECTED = "not_connected"
+END_REASON_TIMEOUT = "timeout"
+# Why an ended session was not stored.
+DISCARD_REASON_NO_CONTENT = "no_content"
+# Why a vehicle that reports charging does not begin a session of its own.
+SUPPRESS_REASON_WALLBOX_VEHICLE = "wallbox_session_vehicle"
+SUPPRESS_REASON_CAR_AT_WALLBOX = "car_at_wallbox"
+SUPPRESS_REASON_AFTER_WALLBOX_SESSION = "after_wallbox_session"
+# Outcome of one read of the identification from the device.
+READ_RESULT_VALID = "valid"
+READ_RESULT_ZERO = "zero"
+READ_RESULT_INVALID = "invalid_value"
+READ_RESULT_NO_ANSWER = "no_answer"
+# How a sequence of reads ended.
+SEQUENCE_END_VALUE = "value"
+SEQUENCE_END_EXHAUSTED = "exhausted"
+SEQUENCE_END_STOPPED = "stopped"
+# Outcome of sending a notification to a target.
+NOTIFY_RESULT_SENT = "sent"
+NOTIFY_RESULT_FAILED = "failed"
+NOTIFY_RESULT_TARGET_MISSING = "target_missing"
+# Occasions of a notification.
+NOTIFY_OCCASION_SESSION_START = "session_start"
+NOTIFY_OCCASION_SESSION_END = "session_end"
+NOTIFY_OCCASION_EXTERNAL_START = "external_start"
+NOTIFY_OCCASION_EXTERNAL_END = "external_end"
+NOTIFY_OCCASION_STALE = "stale"
+NOTIFY_OCCASION_ERROR = "error"
+NOTIFY_OCCASION_FOLLOWUP = "followup"
 
 # A raw value with no meaning for a given role (E31, 4.7). Leaves the last
 # valid class of that role unchanged; distinct from a value missing from the

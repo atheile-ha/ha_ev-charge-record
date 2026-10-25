@@ -93,6 +93,7 @@ Weitere Sensoren sind angelegt, aber standardmäßig deaktiviert.
 - Alle Ladedaten liegen lokal in Home Assistant und sind Teil der Sicherung.
 - Beim Entfernen der Integration bleiben die Ladedaten erhalten. Vollständig löschen: vorher `ev_charging.delete_all_data` aufrufen.
 - Fahrgestellnummer, Kartenkennungen, Adressen und Koordinaten erscheinen in keiner Entität.
+- Die Integration führt ein Protokoll ihrer Ereignisse und Entscheidungen der letzten 90 Tage. Es ist im Diagnose-Download der Integration enthalten (Einstellungen → Geräte & Dienste → EV Charging → Diagnose herunterladen). Fahrgestellnummer, Kartenbezeichnungen, Adressen und Koordinaten sind darin entfernt, Kartenkennungen auf die letzten vier Zeichen gekürzt.
 - Für die Adresse externer Ladevorgänge werden Koordinaten an einen Geocoding-Dienst gesendet. Das lässt sich abschalten.
 
 ## Lizenz

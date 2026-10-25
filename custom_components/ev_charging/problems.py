@@ -1,10 +1,15 @@
-"""Repair issues for source entity problems and missing notification targets."""
+"""Repair issues for source entity problems and missing notification targets.
+
+Creating an issue that already stands and deleting one that does not are
+harmless and leave no journal entry; only an actual change is journaled.
+"""
 
 from __future__ import annotations
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 
+from . import journal, resolver
 from .const import (
     DOMAIN,
     ISSUE_COUNTER_SWITCHED,
@@ -16,10 +21,52 @@ from .const import (
     ISSUE_ROLE_UNIT_CHANGED,
     ISSUE_UNKNOWN_CARD,
     ISSUE_UNKNOWN_MAPPING_VALUE,
+    JOURNAL_REPAIR_ISSUE_CREATED,
+    JOURNAL_REPAIR_ISSUE_DELETED,
+    JOURNAL_SOURCE_REMOVED,
+    JOURNAL_SOURCE_UNIT_CHANGED,
     MAX_NOTIFY_TARGETS,
     READ_FAILURE_INVALID_VALUE,
     READ_FAILURE_UNREACHABLE,
 )
+from .models import EntityRole
+
+
+def _issue_active(hass: HomeAssistant, issue_id: str) -> bool:
+    """Whether the issue currently stands."""
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, issue_id)
+    return issue is not None and issue.active
+
+
+def _create_issue(
+    hass: HomeAssistant,
+    issue_id: str,
+    *,
+    translation_key: str,
+    translation_placeholders: dict[str, str],
+) -> bool:
+    """Create or refresh a warning issue. Returns whether it did not stand before."""
+    created = not _issue_active(hass, issue_id)
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        issue_id,
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key=translation_key,
+        translation_placeholders=translation_placeholders,
+    )
+    if created:
+        journal.add(hass, JOURNAL_REPAIR_ISSUE_CREATED, issue_id=issue_id)
+    return created
+
+
+def _delete_issue(hass: HomeAssistant, issue_id: str) -> None:
+    """Delete an issue; journaled only if it stood."""
+    active = _issue_active(hass, issue_id)
+    ir.async_delete_issue(hass, DOMAIN, issue_id)
+    if active:
+        journal.add(hass, JOURNAL_REPAIR_ISSUE_DELETED, issue_id=issue_id)
 
 
 def role_removed_issue_id(subentry_id: str, role_name: str) -> str:
@@ -46,22 +93,51 @@ def async_create_role_removed_issue(
     hass: HomeAssistant, *, subentry_id: str, role_name: str, subentry_title: str
 ) -> None:
     """Create the repair issue for a role whose entity was removed (4.8)."""
-    ir.async_create_issue(
+    if _create_issue(
         hass,
-        DOMAIN,
         role_removed_issue_id(subentry_id, role_name),
-        is_fixable=False,
-        severity=ir.IssueSeverity.WARNING,
         translation_key="role_entity_removed",
         translation_placeholders={"role": role_name, "subentry_title": subentry_title},
-    )
+    ):
+        journal.add(hass, JOURNAL_SOURCE_REMOVED, subentry_id=subentry_id, role=role_name)
 
 
 def async_clear_role_removed_issue(
     hass: HomeAssistant, *, subentry_id: str, role_name: str
 ) -> None:
     """Clear the repair issue for a role whose entity was removed."""
-    ir.async_delete_issue(hass, DOMAIN, role_removed_issue_id(subentry_id, role_name))
+    _delete_issue(hass, role_removed_issue_id(subentry_id, role_name))
+
+
+def check_role_unit(
+    hass: HomeAssistant,
+    role: EntityRole | None,
+    *,
+    subentry_id: str,
+    role_name: str,
+    subentry_title: str,
+) -> None:
+    """Create or clear the unit-changed repair issue for a numeric role."""
+    issue_id = role_unit_changed_issue_id(subentry_id, role_name)
+    if role is not None and role.unit is not None:
+        current_unit = resolver.resolve_current_unit(hass, role)
+        if current_unit is not None and resolver.unit_changed(role, current_unit):
+            if _create_issue(
+                hass,
+                issue_id,
+                translation_key=ISSUE_ROLE_UNIT_CHANGED,
+                translation_placeholders={"role": role_name, "subentry_title": subentry_title},
+            ):
+                journal.add(
+                    hass,
+                    JOURNAL_SOURCE_UNIT_CHANGED,
+                    subentry_id=subentry_id,
+                    role=role_name,
+                    unit=current_unit,
+                    expected_unit=role.unit,
+                )
+            return
+    _delete_issue(hass, issue_id)
 
 
 def check_unknown_mapping_value(
@@ -80,12 +156,9 @@ def check_unknown_mapping_value(
     """
     issue_id = unknown_mapping_value_issue_id(subentry_id, role_name)
     if not found:
-        ir.async_create_issue(
+        _create_issue(
             hass,
-            DOMAIN,
             issue_id,
-            is_fixable=False,
-            severity=ir.IssueSeverity.WARNING,
             translation_key="unknown_mapping_value",
             translation_placeholders={
                 "role": role_name,
@@ -94,7 +167,7 @@ def check_unknown_mapping_value(
             },
         )
         return
-    ir.async_delete_issue(hass, DOMAIN, issue_id)
+    _delete_issue(hass, issue_id)
 
 
 def check_mapping_source_below_min_version(
@@ -110,12 +183,9 @@ def check_mapping_source_below_min_version(
     """Create or clear the repair issue for a mapping source below min_version (4.7, O20)."""
     issue_id = mapping_source_below_min_version_issue_id(subentry_id)
     if below_min_version:
-        ir.async_create_issue(
+        _create_issue(
             hass,
-            DOMAIN,
             issue_id,
-            is_fixable=False,
-            severity=ir.IssueSeverity.WARNING,
             translation_key="mapping_source_below_min_version",
             translation_placeholders={
                 "subentry_title": subentry_title,
@@ -125,7 +195,7 @@ def check_mapping_source_below_min_version(
             },
         )
         return
-    ir.async_delete_issue(hass, DOMAIN, issue_id)
+    _delete_issue(hass, issue_id)
 
 
 def unknown_card_issue_id(wallbox_id: str) -> str:
@@ -140,12 +210,9 @@ def async_create_unknown_card_issue(
 
     The card itself is deliberately not named in the issue.
     """
-    ir.async_create_issue(
+    _create_issue(
         hass,
-        DOMAIN,
         unknown_card_issue_id(wallbox_id),
-        is_fixable=False,
-        severity=ir.IssueSeverity.WARNING,
         translation_key=ISSUE_UNKNOWN_CARD,
         translation_placeholders={"wallbox_title": wallbox_title},
     )
@@ -153,7 +220,7 @@ def async_create_unknown_card_issue(
 
 def async_clear_unknown_card_issue(hass: HomeAssistant, *, wallbox_id: str) -> None:
     """Clear the repair issue for an unknown card."""
-    ir.async_delete_issue(hass, DOMAIN, unknown_card_issue_id(wallbox_id))
+    _delete_issue(hass, unknown_card_issue_id(wallbox_id))
 
 
 def counter_switched_issue_id(wallbox_id: str) -> str:
@@ -165,12 +232,9 @@ def async_create_counter_switched_issue(
     hass: HomeAssistant, *, wallbox_id: str, wallbox_title: str, counter: str
 ) -> None:
     """Create the repair issue for an automatic change of the authoritative energy counter."""
-    ir.async_create_issue(
+    _create_issue(
         hass,
-        DOMAIN,
         counter_switched_issue_id(wallbox_id),
-        is_fixable=False,
-        severity=ir.IssueSeverity.WARNING,
         translation_key=ISSUE_COUNTER_SWITCHED,
         translation_placeholders={"wallbox_title": wallbox_title, "counter": counter},
     )
@@ -184,7 +248,7 @@ def direct_read_issue_id(issue: str, wallbox_id: str) -> str:
 def async_clear_direct_read_issues(hass: HomeAssistant, *, wallbox_id: str) -> None:
     """Clear both repair issues about reading the wallbox directly."""
     for issue in (ISSUE_DIRECT_READ_UNREACHABLE, ISSUE_DIRECT_READ_INVALID_VALUE):
-        ir.async_delete_issue(hass, DOMAIN, direct_read_issue_id(issue, wallbox_id))
+        _delete_issue(hass, direct_read_issue_id(issue, wallbox_id))
 
 
 def check_direct_read(
@@ -202,15 +266,12 @@ def check_direct_read(
     }.get(failure or "")
     for other in (ISSUE_DIRECT_READ_UNREACHABLE, ISSUE_DIRECT_READ_INVALID_VALUE):
         if other != issue:
-            ir.async_delete_issue(hass, DOMAIN, direct_read_issue_id(other, wallbox_id))
+            _delete_issue(hass, direct_read_issue_id(other, wallbox_id))
     if issue is None:
         return
-    ir.async_create_issue(
+    _create_issue(
         hass,
-        DOMAIN,
         direct_read_issue_id(issue, wallbox_id),
-        is_fixable=False,
-        severity=ir.IssueSeverity.WARNING,
         translation_key=issue,
         translation_placeholders={"wallbox_title": wallbox_title},
     )
@@ -225,14 +286,11 @@ def check_notify_target(hass: HomeAssistant, *, number: int, target: str, presen
     """Create or clear the repair issue for a notification target that no longer exists."""
     issue_id = notify_target_missing_issue_id(number)
     if present:
-        ir.async_delete_issue(hass, DOMAIN, issue_id)
+        _delete_issue(hass, issue_id)
         return
-    ir.async_create_issue(
+    _create_issue(
         hass,
-        DOMAIN,
         issue_id,
-        is_fixable=False,
-        severity=ir.IssueSeverity.WARNING,
         translation_key=ISSUE_NOTIFY_TARGET_MISSING,
         translation_placeholders={"target": target},
     )
@@ -242,4 +300,4 @@ def async_clear_notify_target_issues(hass: HomeAssistant, *, numbers: list[int])
     """Clear the repair issues of the given notification target numbers, counted from 1."""
     for number in numbers:
         if 1 <= number <= MAX_NOTIFY_TARGETS:
-            ir.async_delete_issue(hass, DOMAIN, notify_target_missing_issue_id(number))
+            _delete_issue(hass, notify_target_missing_issue_id(number))

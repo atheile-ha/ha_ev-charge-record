@@ -4,6 +4,18 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.6.3] - 2026-10-25
+
+### Hinzugefügt
+
+- Protokoll aller Ereignisse und Entscheidungen der Erfassung, 90 Tage aufbewahrt, höchstens 20.000 Einträge
+- Diagnose-Download mit globalen Einstellungen, Wallbox und Fahrzeugen, laufendem Ladevorgang und Protokoll; Fahrgestellnummer, Kartenkennungen, Kartenbezeichnungen, Adressen und Koordinaten sind entfernt, Kartenkennungen im Protokoll auf die letzten vier Zeichen gekürzt
+
+### Geändert
+
+- `ev_charging.delete_all_data` löscht auch das Protokoll
+- Beim Entfernen der Integration werden der Stand des laufenden Ladevorgangs und das Protokoll verworfen; die Ladedaten bleiben erhalten
+
 ## [0.6.2] - 2026-10-22
 
 ### Hinzugefügt

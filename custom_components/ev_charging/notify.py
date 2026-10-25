@@ -23,11 +23,24 @@ from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.translation import async_get_translations
 from homeassistant.util import dt as dt_util
 
+from . import journal
 from .const import (
     DOMAIN,
+    JOURNAL_NOTIFICATION_PERSISTENT,
+    JOURNAL_NOTIFICATION_SENT,
     LOCATION_EXTERNAL,
     LOCATIONS,
     NOTIFY_DOMAIN,
+    NOTIFY_OCCASION_ERROR,
+    NOTIFY_OCCASION_EXTERNAL_END,
+    NOTIFY_OCCASION_EXTERNAL_START,
+    NOTIFY_OCCASION_FOLLOWUP,
+    NOTIFY_OCCASION_SESSION_END,
+    NOTIFY_OCCASION_SESSION_START,
+    NOTIFY_OCCASION_STALE,
+    NOTIFY_RESULT_FAILED,
+    NOTIFY_RESULT_SENT,
+    NOTIFY_RESULT_TARGET_MISSING,
     NOTIFY_SERVICE_SEND_MESSAGE,
     NOTIFY_TARGET_ENTITY,
     PERSISTENT_NOTIFICATION_ID_PREFIX,
@@ -315,6 +328,7 @@ class Notifier:
             return title, "\n".join(summary_lines(texts, session, currency))
 
         self._dispatch(
+            NOTIFY_OCCASION_EXTERNAL_END if external else NOTIFY_OCCASION_SESSION_END,
             persistent=settings.persistent_on_session_end,
             targets=settings.notify_on_external_end if external else settings.notify_on_session_end,
             build=_build,
@@ -338,7 +352,10 @@ class Notifier:
             return texts.raw("title_stale"), message
 
         self._dispatch(
-            persistent=settings.persistent_on_error, targets=settings.notify_on_error, build=_build
+            NOTIFY_OCCASION_STALE,
+            persistent=settings.persistent_on_error,
+            targets=settings.notify_on_error,
+            build=_build,
         )
         self._followup(session)
 
@@ -374,7 +391,10 @@ class Notifier:
             return texts.raw("title_session_start"), "\n".join(lines)
 
         self._dispatch(
-            persistent=False, targets=self._settings.notify_on_session_start, build=_build
+            NOTIFY_OCCASION_SESSION_START,
+            persistent=False,
+            targets=self._settings.notify_on_session_start,
+            build=_build,
         )
 
     @callback
@@ -388,7 +408,10 @@ class Notifier:
             return texts.raw("title_external_start"), "\n".join(lines)
 
         self._dispatch(
-            persistent=False, targets=self._settings.notify_on_external_start, build=_build
+            NOTIFY_OCCASION_EXTERNAL_START,
+            persistent=False,
+            targets=self._settings.notify_on_external_start,
+            build=_build,
         )
 
     @callback
@@ -405,7 +428,10 @@ class Notifier:
             return texts.raw("title_error"), message
 
         self._dispatch(
-            persistent=settings.persistent_on_error, targets=settings.notify_on_error, build=_build
+            NOTIFY_OCCASION_ERROR,
+            persistent=settings.persistent_on_error,
+            targets=settings.notify_on_error,
+            build=_build,
         )
 
     def _followup(self, session: Session) -> None:
@@ -424,11 +450,18 @@ class Notifier:
             )
             return texts.raw("title_followup"), message
 
-        self._dispatch(persistent=False, targets=self._settings.notify_on_followup, build=_build)
+        self._dispatch(
+            NOTIFY_OCCASION_FOLLOWUP,
+            persistent=False,
+            targets=self._settings.notify_on_followup,
+            build=_build,
+        )
 
     # -------------------------------------------------------------- sending
 
-    def _dispatch(self, *, persistent: bool, targets: bool, build: MessageBuilder) -> None:
+    def _dispatch(
+        self, occasion: str, *, persistent: bool, targets: bool, build: MessageBuilder
+    ) -> None:
         """Send one notification where its occasion is switched on, without waiting."""
         notification_id = None
         if persistent and self._settings.persistent_enabled:
@@ -439,11 +472,12 @@ class Notifier:
         if notification_id is None and not recipients:
             return
         self._hass.async_create_task(
-            self._async_send(notification_id, recipients, build), eager_start=False
+            self._async_send(occasion, notification_id, recipients, build), eager_start=False
         )
 
     async def _async_send(
         self,
+        occasion: str,
         notification_id: str | None,
         recipients: list[tuple[int, NotifyTarget]],
         build: MessageBuilder,
@@ -457,9 +491,16 @@ class Notifier:
             persistent_notification.async_create(
                 self._hass, message, title=title, notification_id=notification_id
             )
+            journal.add(
+                self._hass,
+                JOURNAL_NOTIFICATION_PERSISTENT,
+                occasion=occasion,
+                notification_id=notification_id,
+            )
         for number, target in recipients:
             if not target_present(self._hass, target):
                 self._on_target_check(number, target, False)
+                self._journal_sent(occasion, target, NOTIFY_RESULT_TARGET_MISSING)
                 continue
             try:
                 if target.kind == NOTIFY_TARGET_ENTITY:
@@ -478,3 +519,16 @@ class Notifier:
                     )
             except HomeAssistantError, vol.Invalid:
                 _LOGGER.warning("Sending a notification to %s failed", target.target, exc_info=True)
+                self._journal_sent(occasion, target, NOTIFY_RESULT_FAILED)
+            else:
+                self._journal_sent(occasion, target, NOTIFY_RESULT_SENT)
+
+    def _journal_sent(self, occasion: str, target: NotifyTarget, result: str) -> None:
+        """Journal the outcome of sending to one target."""
+        journal.add(
+            self._hass,
+            JOURNAL_NOTIFICATION_SENT,
+            occasion=occasion,
+            target=target.target,
+            result=result,
+        )

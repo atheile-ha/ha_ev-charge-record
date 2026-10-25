@@ -13,7 +13,6 @@ from awesomeversion import AwesomeVersion
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import Event, HomeAssistant, State, callback
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.entity_registry import EventEntityRegistryUpdatedData
 from homeassistant.helpers.event import (
     async_call_later,
@@ -22,28 +21,37 @@ from homeassistant.helpers.event import (
 from homeassistant.loader import IntegrationNotFound, async_get_integration
 from homeassistant.util import dt as dt_util
 
-from . import direct_read, mappings
+from . import direct_read, journal, mappings
 from .const import (
     CHARGE_STATE_DEFAULT,
     DIRECT_READ_FIRST_DELAY_S,
     DIRECT_READ_INTERVAL_S,
     DIRECT_READ_MAX_READS,
     DISTANCE_UNIT_FACTORS_TO_KM,
-    DOMAIN,
     ENERGY_UNIT_FACTORS_TO_KWH,
     ERROR_CLASS_OK,
     IDENTIFICATION_MAX_AGE_MIN,
     INVALID_CARD_UIDS,
+    JOURNAL_READ,
+    JOURNAL_READ_SEQUENCE_ENDED,
+    JOURNAL_READ_SEQUENCE_STARTED,
     MAPPING_CLASS_NEUTRAL,
     PLUG_STATE_CONNECTED,
     POWER_UNIT_FACTORS_TO_KW,
     READ_FAILURE_INVALID_VALUE,
     READ_FAILURE_UNREACHABLE,
+    READ_RESULT_INVALID,
+    READ_RESULT_NO_ANSWER,
+    READ_RESULT_VALID,
+    READ_RESULT_ZERO,
     READ_STATE_READ,
     READ_STATE_READING,
     READ_STATE_UNREADABLE,
     READ_STATE_WAITING,
     ROLE_IDENTIFICATION,
+    SEQUENCE_END_EXHAUSTED,
+    SEQUENCE_END_STOPPED,
+    SEQUENCE_END_VALUE,
 )
 from .models import EntityRole, Wallbox, normalize_card_uid
 
@@ -108,31 +116,6 @@ def unit_changed(role: EntityRole | None, current_unit: str | None) -> bool:
     if role is None or role.unit is None:
         return False
     return current_unit != role.unit
-
-
-def check_role_unit(
-    hass: HomeAssistant,
-    role: EntityRole | None,
-    *,
-    issue_id: str,
-    translation_key: str,
-    translation_placeholders: dict[str, str],
-) -> None:
-    """Create or clear the unit-changed repair issue for a numeric role."""
-    if role is not None and role.unit is not None:
-        current_unit = resolve_current_unit(hass, role)
-        if current_unit is not None and unit_changed(role, current_unit):
-            ir.async_create_issue(
-                hass,
-                DOMAIN,
-                issue_id,
-                is_fixable=False,
-                severity=ir.IssueSeverity.WARNING,
-                translation_key=translation_key,
-                translation_placeholders=translation_placeholders,
-            )
-            return
-    ir.async_delete_issue(hass, DOMAIN, issue_id)
 
 
 def _normalize(value: float, unit: str | None, factors: dict[str, float]) -> float | None:
@@ -380,6 +363,7 @@ class IdentificationReader:
         self._attempts = 0
         self._value: str | None = None
         self._failure: str | None = None
+        self._since: datetime | None = None
 
     async def async_prepare(self) -> None:
         """Load what reading the register needs, if that is where the value comes from."""
@@ -423,6 +407,7 @@ class IdentificationReader:
             return
         self._on_event = on_event
         self._active = True
+        self._since = since
         elapsed = (dt_util.utcnow() - since).total_seconds()
         delay = max(DIRECT_READ_FIRST_DELAY_S - elapsed, 0)
         _LOGGER.debug("Identification: the first sequence of reads begins in %.0f s", delay)
@@ -481,15 +466,24 @@ class IdentificationReader:
             return None
         return normalized
 
+    def _journal(self, event: str, **data: object) -> None:
+        """Add a journal entry about reading for the current session."""
+        journal.add(self._hass, event, wallbox_id=self._wallbox.id, session=self._since, **data)
+
     def _start_sequence(self, sequence: int, delay_s: float) -> None:
         """Begin a sequence whose first read comes after delay_s."""
         self._sequence = sequence
         self._attempts = 0
         self._reading = True
+        self._journal(JOURNAL_READ_SEQUENCE_STARTED, sequence=sequence, delay_s=round(delay_s))
         self._schedule(delay_s)
 
     def _halt(self) -> None:
         """Cancel the pending read and one that is under way."""
+        if self._reading:
+            self._journal(
+                JOURNAL_READ_SEQUENCE_ENDED, sequence=self._sequence, result=SEQUENCE_END_STOPPED
+            )
         self._generation += 1
         if self._unsub is not None:
             self._unsub()
@@ -540,18 +534,23 @@ class IdentificationReader:
         self._attempts += 1
         value: str | None = None
         failure = READ_FAILURE_UNREACHABLE
+        result = READ_RESULT_NO_ANSWER
         outcome = "no valid answer from the device"
         if raw == 0:
             failure = READ_FAILURE_INVALID_VALUE
+            result = READ_RESULT_ZERO
             outcome = "the register holds 0"
         elif raw is not None:
             text = direct_read.format_value(raw, spec.output)
             value = normalize_card_uid(text) if text else None
             if not value or value in INVALID_CARD_UIDS:
                 value, failure = None, READ_FAILURE_INVALID_VALUE
+                result = READ_RESULT_INVALID
                 outcome = "the register holds no valid identifier"
             else:
+                result = READ_RESULT_VALID
                 outcome = f"identification read, ends in ..{value[-2:]}"
+        self._journal(JOURNAL_READ, sequence=self._sequence, attempt=self._attempts, result=result)
         _LOGGER.debug(
             "Identification: sequence %d, read %d of %d: %s",
             self._sequence,
@@ -564,6 +563,9 @@ class IdentificationReader:
             self._value = value
             self._failure = None
             self._reading = False
+            self._journal(
+                JOURNAL_READ_SEQUENCE_ENDED, sequence=self._sequence, result=SEQUENCE_END_VALUE
+            )
             self._emit(ReadEvent.VALUE)
         elif self._attempts < DIRECT_READ_MAX_READS:
             self._schedule(DIRECT_READ_INTERVAL_S)
@@ -572,6 +574,12 @@ class IdentificationReader:
             self._reading = False
             _LOGGER.debug(
                 "Identification: sequence %d ended without an identification", self._sequence
+            )
+            self._journal(
+                JOURNAL_READ_SEQUENCE_ENDED,
+                sequence=self._sequence,
+                result=SEQUENCE_END_EXHAUSTED,
+                last_read=result,
             )
             if self._sequence == 2:
                 self._failure = failure
