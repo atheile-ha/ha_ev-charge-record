@@ -208,7 +208,7 @@ async def test_diagnostics_redact_personal_fields_and_hold_the_journal(
 
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
 
-    assert set(diagnostics) == {"hub", "subentries", "runtime", "journal"}
+    assert set(diagnostics) == {"hub", "subentries", "runtime", "efficiency", "journal"}
     assert diagnostics["runtime"]["session"]["card_uid"] == "**REDACTED**"
     vehicle = next(
         sub["data"] for sub in diagnostics["subentries"] if sub["subentry_type"] == "vehicle"

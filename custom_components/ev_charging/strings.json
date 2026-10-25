@@ -947,6 +947,12 @@
       },
       "vehicle_charge_end": {
         "name": "{vehicle} Charge end"
+      },
+      "vehicle_efficiency_ac": {
+        "name": "{vehicle} Efficiency AC"
+      },
+      "vehicle_efficiency_dc": {
+        "name": "{vehicle} Efficiency DC"
       }
     },
     "binary_sensor": {

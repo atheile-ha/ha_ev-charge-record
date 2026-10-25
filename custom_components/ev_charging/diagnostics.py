@@ -1,4 +1,4 @@
-"""Diagnostics download: hub settings, subentries, runtime state and the journal."""
+"""Diagnostics download: settings, subentries, runtime state, efficiency factors, journal."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
-from . import journal
+from . import efficiency, journal
 from .store import RuntimeStore
 
 # Personal fields. In the subentry of a vehicle a card holds its id and its
@@ -49,6 +49,8 @@ async def async_get_config_entry_diagnostics(
                     for subentry in entry.subentries.values()
                 ],
                 "runtime": runtime,
+                # Factors of every vehicle with data, active or not.
+                "efficiency": efficiency.as_dict(hass),
             },
             TO_REDACT,
         ),

@@ -13,13 +13,20 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, UnitOfEnergy, UnitOfLength, UnitOfTime
+from homeassistant.const import (
+    PERCENTAGE,
+    EntityCategory,
+    UnitOfEnergy,
+    UnitOfLength,
+    UnitOfTime,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from .const import CHARGE_STATE_CLASSES, LOCATIONS, SESSION_STATES
+from . import efficiency
+from .const import CHARGE_STATE_CLASSES, CURRENT_TYPES, LOCATIONS, SESSION_STATES
 from .session_manager import SessionManager, VehicleContext, VehicleSnapshot, WallboxSnapshot
 
 if TYPE_CHECKING:
@@ -354,6 +361,42 @@ class EvChargingVehicleSensor(EvChargingVehicleEntity, SensorEntity):
         return self.entity_description.value_fn(snapshot) if snapshot is not None else None
 
 
+class EvChargingEfficiencySensor(SensorEntity):
+    """The efficiency factor of a vehicle for one charge type, a diagnostic entity.
+
+    Belongs to the vehicle's own subentry and has no device. Follows each
+    recomputation of the factors.
+    """
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 3
+
+    def __init__(self, context: VehicleContext, charge_type: str) -> None:
+        """Bind the sensor to the vehicle and the charge type it reports on."""
+        self._vehicle_id = context.vehicle.id
+        self._charge_type = charge_type
+        self._attr_unique_id = f"{context.subentry_id}_efficiency_{charge_type}"
+        self._attr_translation_key = f"vehicle_efficiency_{charge_type}"
+        self._attr_translation_placeholders = {"vehicle": context.vehicle.name}
+
+    async def async_added_to_hass(self) -> None:
+        """Follow recomputations for as long as the entity exists."""
+        self.async_on_remove(efficiency.add_listener(self.hass, self._handle_update))
+
+    @callback
+    def _handle_update(self) -> None:
+        """Write the new state."""
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> float:
+        """Return the current factor."""
+        return efficiency.factor(self.hass, self._vehicle_id, self._charge_type)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: EvChargingConfigEntry,
@@ -381,5 +424,9 @@ async def async_setup_entry(
                 EvChargingVehicleSensor(manager, context, description)
                 for description in descriptions
             ),
+            config_subentry_id=context.subentry_id,
+        )
+        async_add_entities(
+            (EvChargingEfficiencySensor(context, charge_type) for charge_type in CURRENT_TYPES),
             config_subentry_id=context.subentry_id,
         )

@@ -4,6 +4,12 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionier
 
 ## [Unveröffentlicht]
 
+## [0.6.4] - 2026-10-25
+
+### Hinzugefügt
+
+- Wirkungsgrad je Fahrzeug und Ladeart als Diagnose-Entitäten `sensor.<fahrzeug>_efficiency_ac` und `_dc`, zusätzlich im Diagnose-Download
+
 ## [0.6.3] - 2026-10-25
 
 ### Hinzugefügt

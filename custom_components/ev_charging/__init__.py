@@ -18,7 +18,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.loader import async_get_integration
 from homeassistant.util import dt as dt_util
 
-from . import journal, mappings, problems, resolver, services, store, websocket
+from . import efficiency, journal, mappings, problems, resolver, services, store, websocket
 from .const import (
     CONF_VEHICLE_SEQUENCE,
     CONF_WALLBOX_SEQUENCE,
@@ -270,6 +270,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EvChargingConfigEntry) -
 
     websocket.async_setup_websocket(hass)
     bundle_url = await _async_register_frontend(hass)
+    await efficiency.async_setup(hass)
     manager = SessionManager(hass, entry)
     if not await manager.async_setup():
         manager = None
@@ -310,12 +311,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: EvChargingConfigEntry) 
         frontend.async_remove_panel(hass, PANEL_URL_PATH, warn_if_unknown=False)
         frontend.remove_extra_js_url(hass, entry.runtime_data.bundle_url)
     services.async_unload_services(hass)
+    await efficiency.async_unload(hass)
     await journal.async_unload(hass)
     return True
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Discard the runtime state and the journal; the stored sessions stay."""
+    """Discard the runtime state, the efficiency factors and the journal; sessions stay."""
     await store.async_remove_entry_stores(hass)
 
 

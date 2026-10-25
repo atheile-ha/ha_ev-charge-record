@@ -14,7 +14,7 @@ from homeassistant.exceptions import ServiceValidationError, Unauthorized
 from homeassistant.helpers import config_validation as cv
 from homeassistant.util import dt as dt_util
 
-from . import geocoding, journal, session_manager
+from . import efficiency, geocoding, journal, session_manager
 from .const import (
     ATTR_CONFIRM,
     ATTR_ODOMETER_KM,
@@ -127,6 +127,7 @@ async def _async_handle_delete_all_data(hass: HomeAssistant, call: ServiceCall) 
     for entry in hass.config_entries.async_entries(DOMAIN):
         if entry.state is ConfigEntryState.LOADED and entry.runtime_data.manager is not None:
             await entry.runtime_data.manager.async_refresh_followups()
+    await efficiency.async_recompute(hass)
     await journal.async_clear(hass)
     journal.add_admin(hass, SERVICE_DELETE_ALL_DATA, user_id=call.context.user_id, years=years)
     _LOGGER.info("Deleted all ev_charging session data for years: %s", years)

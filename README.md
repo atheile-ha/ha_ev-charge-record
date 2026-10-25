@@ -83,7 +83,7 @@ Die Kennung der RFID-Karte stellt `ha_openems` nicht bereit. Die Integration kan
 | `sensor.<wallbox>_session_cost` | Kosten des laufenden Ladevorgangs |
 | `binary_sensor.<fahrzeug>_session_active` | an, solange das Fahrzeug außerhalb der Wallbox lädt |
 | `binary_sensor.ev_charging_problem` | an bei einem Ladefehler von Wallbox oder Fahrzeug |
-
+| `sensor.<fahrzeug>_efficiency_ac`, `sensor.<fahrzeug>_efficiency_dc` | Wirkungsgrad des Fahrzeugs je Ladeart (Diagnose) |
 Weitere Sensoren sind angelegt, aber standardmäßig deaktiviert.
 
 **Services** (nur für Administratoren): `update_session`, `delete_session`, `create_session`, `close_followup`, `correct_vehicle`, `merge_sessions`, `retry_address`, `delete_all_data`.

@@ -245,6 +245,13 @@ STORAGE_VERSION_RUNTIME = 1
 STORAGE_MINOR_VERSION_RUNTIME = 1
 STORAGE_VERSION_JOURNAL = 1
 STORAGE_MINOR_VERSION_JOURNAL = 1
+STORAGE_VERSION_EFFICIENCY = 1
+STORAGE_MINOR_VERSION_EFFICIENCY = 1
+
+# Efficiency factor per vehicle and charge type: the median of proven energy
+# over raw energy. With fewer data points the default factor applies.
+EFFICIENCY_MIN_SAMPLES = 5
+EFFICIENCY_DEFAULT_FACTOR = 1.0
 
 # Journal of the events and decisions of the session capture. Entries are
 # collected in memory and written at the persist interval and on unload.

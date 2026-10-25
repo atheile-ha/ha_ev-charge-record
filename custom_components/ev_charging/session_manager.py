@@ -28,7 +28,7 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.util import dt as dt_util
 
-from . import allocation, geocoding, journal, notify, problems, resolver
+from . import allocation, efficiency, geocoding, journal, notify, problems, resolver
 from .const import (
     ACTIVE_VEHICLE_GUEST,
     ACTIVE_VEHICLE_NONE,
@@ -2979,6 +2979,7 @@ class SessionManager:
             self._journal(JOURNAL_SESSION_DISCARDED, reason=DISCARD_REASON_NO_CONTENT)
         else:
             self._journal(JOURNAL_SESSION_STORED, session_id=stored_ids[-1])
+            efficiency.schedule_recompute(self._hass)
         self._arm_vehicle_rearm(session)
         self._session = None
         if not empty:
@@ -3185,6 +3186,7 @@ class SessionManager:
             )
             return
         self._journal_vehicle(vehicle_id, JOURNAL_SESSION_STORED, session_id=stored_ids[-1])
+        efficiency.schedule_recompute(self._hass)
         del self._vehicle_sessions[vehicle_id]
         self._open_followups = await self._async_count_followups()
         if self._notifier is not None:
@@ -4431,4 +4433,5 @@ async def async_create_session(hass: HomeAssistant, fields: dict[str, Any]) -> S
 
     await SessionYearStore(hass, local_start.year).async_update(_add)
     await _async_refresh_followups(hass)
+    efficiency.schedule_recompute(hass)
     return session

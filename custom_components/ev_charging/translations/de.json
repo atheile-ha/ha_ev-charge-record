@@ -950,6 +950,12 @@
       },
       "vehicle_charge_end": {
         "name": "{vehicle} Ladeende"
+      },
+      "vehicle_efficiency_ac": {
+        "name": "{vehicle} Wirkungsgrad AC"
+      },
+      "vehicle_efficiency_dc": {
+        "name": "{vehicle} Wirkungsgrad DC"
       }
     },
     "binary_sensor": {
