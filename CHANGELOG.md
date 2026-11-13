@@ -1,350 +1,350 @@
-# Änderungsverlauf
+# Changelog
 
-Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionierung nach [SemVer](https://semver.org/lang/de/).
+Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning according to [SemVer](https://semver.org/).
 
 ## [0.6.5] - 2026-11-13
 
-### Behoben
+### Fixed
 
-- Meldet das Fahrzeug das Laden, bevor sein Standort auf „zu Hause“ wechselt, und ordnet die Wallbox-Session danach dasselbe Fahrzeug zu, bestanden zwei Ladevorgänge desselben Fahrzeugs gleichzeitig und wurden beide gespeichert. Die eigene Session des Fahrzeugs wird jetzt verworfen, sobald die Wallbox-Session das Fahrzeug führt
+- If the vehicle reported charging before its location changed to "home" and the wallbox session was then assigned the same vehicle, two charging sessions of the same vehicle existed at the same time and both were stored. The vehicle's own session is now discarded as soon as the wallbox session holds the vehicle
 
 ## [0.6.4] - 2026-10-25
 
-### Hinzugefügt
+### Added
 
-- Wirkungsgrad je Fahrzeug und Ladeart als Diagnose-Entitäten `sensor.<fahrzeug>_efficiency_ac` und `_dc`, zusätzlich im Diagnose-Download
+- Efficiency per vehicle and charge type as diagnostic entities `sensor.<vehicle>_efficiency_ac` and `_dc`, also in the diagnostics download
 
 ## [0.6.3] - 2026-10-25
 
-### Hinzugefügt
+### Added
 
-- Protokoll aller Ereignisse und Entscheidungen der Erfassung, 90 Tage aufbewahrt, höchstens 20.000 Einträge
-- Diagnose-Download mit globalen Einstellungen, Wallbox und Fahrzeugen, laufendem Ladevorgang und Protokoll; Fahrgestellnummer, Kartenkennungen, Kartenbezeichnungen, Adressen und Koordinaten sind entfernt, Kartenkennungen im Protokoll auf die letzten vier Zeichen gekürzt
+- Log of all events and decisions of the recording, kept for 90 days, at most 20,000 entries
+- Diagnostics download with global settings, wallbox and vehicles, running charging session and log; vehicle identification number, card identifiers, card labels, addresses and coordinates are removed, card identifiers in the log are shortened to their last four characters
 
-### Geändert
+### Changed
 
-- `ev_charging.delete_all_data` löscht auch das Protokoll
-- Beim Entfernen der Integration werden der Stand des laufenden Ladevorgangs und das Protokoll verworfen; die Ladedaten bleiben erhalten
+- `ev_charging.delete_all_data` also deletes the log
+- When the integration is removed, the state of the running charging session and the log are discarded; the charging data is kept
 
 ## [0.6.2] - 2026-10-22
 
-### Hinzugefügt
+### Added
 
-- Eigenes Symbol der Integration in Home Assistant
+- Own icon of the integration in Home Assistant
 
-### Geändert
+### Changed
 
-- Meldung zum Ladeende nennt Beginn und Ende, bei gleichem Datum mit einem Datum und beiden Uhrzeiten, sowie den Kilometerstand
-- Meldung zum Ladeende zeigt den Sonnenanteil in Prozent statt Netz- und Sonnenanteil in kWh
-- Meldung zum Ladeende zeigt die Kosten mit Währungssymbol, etwa „4,87 €“
-- Meldung zum Ladeende zeigt die Dauer als „Gesamtdauer: 13:28 (netto: 6:52 mit 4 Phasen)“
-- Meldung zum Ladefehler nennt Fehler und Quelle, etwa „Ladefehler (Fahrzeug)“, statt eines Gerätecodes
-- Live-Karte zeigt einen Ladefehler nur noch, solange er besteht
-- Detailliste zeigt keinen Ladefehler mehr an
+- Notification at the end of a charging session names start and end, with one date and both times if the date is the same, as well as the odometer reading
+- Notification at the end of a charging session shows the solar share in percent instead of grid and solar share in kWh
+- Notification at the end of a charging session shows the cost with currency symbol, for example "€4.87"
+- Notification at the end of a charging session shows the duration as "Duration: 13:28 (net: 6:52 in 4 phases)"
+- Notification on a charging error names the error and the source, for example "Charging error (vehicle)", instead of a device code
+- Live card shows a charging error only while it persists
+- Detail list no longer shows a charging error
 
 ## [0.6.1] - 2026-10-20
 
-### Hinzugefügt
+### Added
 
-- Meldung zum Beginn eines Ladevorgangs zu Hause, sobald das Fahrzeug erkannt ist, mit Fahrzeug, Ladestand und Kilometerstand; einzeln abschaltbar
+- Notification at the start of a charging session at home, as soon as the vehicle is identified, with vehicle, state of charge and odometer reading; can be switched off individually
 
 ## [0.6.0] - 2026-10-20
 
-### Hinzugefügt
+### Added
 
-- Entität `binary_sensor.ev_charging_problem`, an, solange Wallbox oder Fahrzeug einen Ladefehler meldet
-- Benachrichtigungen in Home Assistant und an bis zu zwei Ziele, etwa die Companion-App
-- Meldungen bei Ladeende, externem Ladebeginn und -ende, Ladefehler und offener Nacherfassung, je einzeln abschaltbar, im Abschnitt „Benachrichtigungen“ der globalen Einstellungen
-- Meldung, wenn ein Ladevorgang nach 12 Stunden ohne Rückmeldung der Quelle geschlossen wird
-- Hinweis unter Reparaturen, wenn ein Benachrichtigungsziel nicht mehr vorhanden ist
+- Entity `binary_sensor.ev_charging_problem`, on while the wallbox or the vehicle reports a charging error
+- Notifications in Home Assistant and to up to two targets, for example the companion app
+- Notifications on the end of a session, start and end of an external session, charging error and open follow-up, each can be switched off individually, in the "Notifications" section of the global settings
+- Notification when a charging session is closed after 12 hours without a response from the source
+- Repair issue when a notification target no longer exists
 
-### Geändert
+### Changed
 
-- Ein Ladefehler gilt nach 5 Sekunden, auch ohne laufenden Ladevorgang und an jedem Ladeort
-- Live-Karte nennt bei einem Ladefehler die Quelle, Wallbox oder Fahrzeug
-- Panel: Reiter „Letzte 5“ entfällt, die letzten Ladevorgänge zeigt die Karte `ev-charging-recent-card`
-- Panel: Nacherfassung steht oben in der Ansicht „Korrektur“ statt in einem eigenen Reiter
-- Panel: Detailliste ohne Monatssummen über der Tabelle
-- Panel lädt nach einem Neustart von Home Assistant von selbst neu
+- A charging error counts after 5 seconds, also without a running charging session and at every charging location
+- Live card names the source of a charging error, wallbox or vehicle
+- Panel: the "Last 5" tab is removed; the most recent charging sessions are shown by the card `ev-charging-recent-card`
+- Panel: follow-up entry is at the top of the "Correction" view instead of in a separate tab
+- Panel: detail list without monthly totals above the table
+- Panel reloads by itself after a restart of Home Assistant
 
 ## [0.5.6] - 2026-09-30
 
-### Behoben
+### Fixed
 
-- Installation neben aktuellen Home-Assistant-Versionen
+- Installation alongside current Home Assistant versions
 
 ## [0.5.5] - 2026-09-30
 
-### Behoben
+### Fixed
 
-- Wird ein Ladevorgang erst nachträglich über die Karte einem Fahrzeug zugeordnet, werden Ladestand und Kilometerstand bei Beginn ergänzt
-- Nach einer Korrektur verschwinden alle Felder aus der Nacherfassung, die nun einen Wert haben
-- Korrekturen berechnen die geschätzte Energie richtig
-- Nach dem Speichern zeigen alle Ansichten des Panels den aktuellen Stand
+- If a charging session is assigned to a vehicle afterwards through the card, state of charge and odometer reading at the start are filled in
+- After a correction, all fields that now have a value disappear from the follow-up
+- Corrections calculate the estimated energy correctly
+- After saving, all views of the panel show the current state
 
 ## [0.5.4] - 2026-09-25
 
-### Hinzugefügt
+### Added
 
-- Zusammenführen ausgewählter Ladevorgänge in der Ansicht „Korrektur“, mit Vorschau und Bestätigung, und Service `ev_charging.merge_sessions`
+- Merging selected charging sessions in the "Correction" view, with preview and confirmation, and service `ev_charging.merge_sessions`
 
 ## [0.5.3] - 2026-09-25
 
-### Geändert
+### Changed
 
-- Ein Fahrzeug, das zu Hause einen Ladevorgang meldet, erhält erst nach 90 Sekunden einen eigenen Ladevorgang und nur, wenn die Wallbox es nicht erfasst
+- A vehicle that reports a charging session at home gets a session of its own only after 90 seconds, and only if the wallbox does not record it
 
-### Behoben
+### Fixed
 
-- Der Ladevorgang eines Fahrzeugs endet beim Abstecken, auch wenn das Fahrzeug das Abstecken vor der Wallbox meldet
-- Die Karten zeigen nicht mehr zeitweise „Custom element doesn't exist“
+- The charging session of a vehicle ends on unplugging, even if the vehicle reports the unplugging before the wallbox
+- The cards no longer intermittently show "Custom element doesn't exist"
 
 ## [0.5.2] - 2026-09-24
 
-### Geändert
+### Changed
 
-- Für das Fahrzeug an der Wallbox entsteht kein zweiter Ladevorgang mehr
-- Der Steckerzustand des Fahrzeugs beendet dessen Ladevorgang
-- Zugeordnete Entitäten stehen in den Dialogen im Feld und lassen sich leeren
+- No second charging session is created for the vehicle at the wallbox
+- The plug state of the vehicle ends its charging session
+- Assigned entities are shown in the field in the dialogs and can be cleared
 
-### Behoben
+### Fixed
 
-- Karten laden nach einem Neustart von Home Assistant zuverlässiger
+- Cards load more reliably after a restart of Home Assistant
 
 ## [0.5.1] - 2026-09-23
 
-### Hinzugefügt
+### Added
 
-- Panel-Ansichten Nacherfassung und Korrektur: fehlende Werte eintragen, Ladevorgänge bearbeiten oder löschen, Fahrzeug korrigieren, vergangene Ladevorgänge nachtragen
-- Services `ev_charging.update_session`, `delete_session`, `create_session`, `close_followup` und `correct_vehicle`, nur für Administratoren
+- Panel views Follow-up and Correction: enter missing values, edit or delete charging sessions, correct the vehicle, add past charging sessions
+- Services `ev_charging.update_session`, `delete_session`, `create_session`, `close_followup` and `correct_vehicle`, administrators only
 
-### Geändert
+### Changed
 
-- Wird ein Ladevorgang automatisch nachträglich einem Fahrzeug zugeordnet, werden Ladestand und Kilometerstand bei Beginn aus dem Verlauf ergänzt
+- If a charging session is automatically assigned to a vehicle afterwards, state of charge and odometer reading at the start are filled in from the history
 
 ## [0.5.0] - 2026-09-22
 
-### Hinzugefügt
+### Added
 
-- Erfassung von Ladevorgängen über die Fahrzeugintegration: zu Hause ohne Wallbox und unterwegs, auch mehrere gleichzeitig
-- Adresse externer Ladevorgänge aus dem Standort des Fahrzeugs
+- Recording of charging sessions through the vehicle integration: at home without a wallbox and on the road, also several at the same time
+- Address of external charging sessions from the location of the vehicle
 - Service `ev_charging.retry_address`
-- Entität `binary_sensor.<fahrzeug>_session_active` sowie deaktivierte Sensoren je Fahrzeug für Zustand, Ladeort, Ladestand, Kilometerstand, Energie, Ladedauer und Ladeende
+- Entity `binary_sensor.<vehicle>_session_active` as well as disabled sensors per vehicle for state, charging location, state of charge, odometer reading, energy, charging duration and charge end
 
-### Geändert
+### Changed
 
-- Live-Karte zeigt jeden laufenden Ladevorgang in einem eigenen Block
-- Live-Karte zeigt ohne Fahrzeug „Kein Fahrzeug an Wallbox verbunden“
-- Panel und Karten laden nach einem Verbindungsabbruch von selbst erneut
+- Live card shows every running charging session in a block of its own
+- Live card shows "No vehicle connected to wallbox" when there is no vehicle
+- Panel and cards reload by themselves after a connection loss
 
 ## [0.4.4] - 2026-09-20
 
-### Geändert
+### Changed
 
-- Live-Karte: kompaktere Darstellung von Fahrzeug, Kilometerstand und Ladestand, zwei Spalten auch auf schmalen Anzeigen
-- Live-Karte: voraussichtliches Ende nur, solange geladen wird
-- Live-Karte: „Kennung gelesen“ verschwindet, sobald das Fahrzeug angezeigt wird
-- Die Wallbox erscheint auf der Seite der Integration nur noch einmal; Entitäten und ihre IDs bleiben erhalten
+- Live card: more compact display of vehicle, odometer reading and state of charge, two columns also on narrow displays
+- Live card: expected end only while charging
+- Live card: "Card read" disappears as soon as the vehicle is shown
+- The wallbox appears only once on the page of the integration; entities and their IDs are kept
 
 ## [0.4.3] - 2026-09-20
 
-### Geändert
+### Changed
 
-- Die Kartenkennung wird aus der Wallbox gelesen, sobald im Wallbox-Dialog „Kennung aus dem Register der Wallbox lesen“ gewählt ist; ein eigener Schalter entfällt
-- Kürzere Beschreibungen im Wallbox-Dialog
+- The card identification is read from the wallbox as soon as "Read identification from the wallbox register" is selected in the wallbox dialog; a separate switch is removed
+- Shorter descriptions in the wallbox dialog
 
 ## [0.4.2] - 2026-09-20
 
-### Hinzugefügt
+### Added
 
-- Ausführlichere Debug-Protokollierung
+- More detailed debug logging
 
-### Geändert
+### Changed
 
-- Meldet die Wallbox nur einen Teil der Kartenkennung, wird er sowohl am Anfang als auch am Ende der hinterlegten Seriennummer gesucht
+- If the wallbox reports only a part of the card identification, it is searched at both the start and the end of the stored serial number
 
 ## [0.4.1] - 2026-09-20
 
-### Hinzugefügt
+### Added
 
-- Optionales Lesen der Kartenkennung direkt von der KEBA P40 über Modbus TCP, ausschließlich lesend
-- Nachträgliche Zuordnung, wenn die Kartenkennung erst später gelesen wird
-- Ein Ladevorgang beginnt beim Anstecken, auch wenn noch keine Leistung fließt, und wartet dann im Zustand „pausiert“
-- Ansteckvorgänge ohne Ladung werden nicht gespeichert
-- Live-Karte zeigt Zustand, Herkunft der Fahrzeugzuordnung, Stand des Kartenlesens und den Grund fehlender Angaben
-- Hinweise unter Reparaturen, wenn die Wallbox nicht erreichbar ist oder keine Kennung liefert
+- Optional reading of the card identification directly from the KEBA P40 over Modbus TCP, read-only
+- Subsequent assignment when the card identification is read only later
+- A charging session begins on plugging in, even if no power flows yet, and then waits in the "paused" state
+- Plug-in events without charging are not stored
+- Live card shows state, origin of the vehicle assignment, state of the card reading and the reason for missing values
+- Repair issues when the wallbox is unreachable or provides no identification
 
-### Geändert
+### Changed
 
-- Die Leistungsschwelle beginnt keinen Ladevorgang mehr, sondern öffnet und schließt nur Ladephasen
-- Live-Karte zeigt „Fahrzeug wird erkannt“, bis das Fahrzeug feststeht
+- The power threshold no longer begins a charging session, it only opens and closes charging phases
+- Live card shows "Vehicle is being identified" until the vehicle is determined
 
 ## [0.4.0] - 2026-09-20
 
-### Hinzugefügt
+### Added
 
-- Erfassung von Ladevorgängen an der Wallbox mit Ladephasen, Netto-Ladedauer und Pausen
-- Netz- und Sonnenanteil sowie Kosten je Ladevorgang
-- Fahrzeugzuordnung über Kartenkennung oder Fahrzeugintegration
-- Fortsetzung eines laufenden Ladevorgangs nach einem Neustart
-- Entitäten für Zustand, Fahrzeug, Kosten, Netz- und Sonnenanteil, Preis und offene Nacherfassungen
-- Karten `ev-charging-live-card` und `ev-charging-month-card`
-- Hinweise unter Reparaturen bei unbekannter Kennung, Wechsel des Energiezählers und unbekanntem Zustandswert
+- Recording of charging sessions at the wallbox with charging phases, net charging duration and pauses
+- Grid and solar share as well as cost per charging session
+- Vehicle assignment by card identification or vehicle integration
+- Continuation of a running charging session after a restart
+- Entities for state, vehicle, cost, grid and solar share, price and open follow-ups
+- Cards `ev-charging-live-card` and `ev-charging-month-card`
+- Repair issues for unknown identification, change of the energy counter and unknown state value
 
-### Geändert
+### Changed
 
-- Offene Nacherfassungen zeigen das Fahrzeug
-- Karten werden nach einem Update zuverlässig neu geladen
+- Open follow-ups show the vehicle
+- Cards are reliably reloaded after an update
 
 ## [0.3.10] - 2026-09-19
 
-### Geändert
+### Changed
 
-- Filterleiste oben in Übersicht und Detailliste; die Filter wirken auf alle Summen und Grafiken
+- Filter bar at the top of overview and detail list; the filters apply to all totals and charts
 
 ## [0.3.9] - 2026-09-19
 
-### Hinzugefügt
+### Added
 
-- Anzahl der Ladevorgänge in `ev-charging-recent-card` im Kartendialog einstellbar
-- Link zu Google Maps hinter der Adresse eines Ladevorgangs
+- Number of charging sessions in `ev-charging-recent-card` can be set in the card dialog
+- Link to Google Maps behind the address of a charging session
 
-### Geändert
+### Changed
 
-- `ev-charging-recent-card` zeigt die Details aufklappbar
-- Jahreszusammenfassung und Monatswerte auf ganze Zahlen gerundet
+- `ev-charging-recent-card` shows the details expandable
+- Yearly summary and monthly values rounded to whole numbers
 
 ## [0.3.8] - 2026-09-19
 
-### Hinzugefügt
+### Added
 
-- Jahreszusammenfassung unter den Monatsbalken, gesamt, intern und extern
-- Wert jedes Monats unter seinem Balken
-- Kartenfilter mit den hinterlegten Karten
+- Yearly summary below the monthly bars, total, internal and external
+- Value of each month below its bar
+- Card filter with the stored cards
 
-### Geändert
+### Changed
 
-- Energie mit drei Nachkommastellen
-- Detailliste als Tabelle, mobil mit einheitlichem Aufbau
-- Deutlichere Beschriftungen für Ladeort, Ladeart und Status
+- Energy with three decimal places
+- Detail list as a table, with a uniform layout on mobile
+- Clearer labels for charging location, charge type and status
 
 ## [0.3.7] - 2026-09-19
 
-### Hinzugefügt
+### Added
 
-- Panel „EV Charging“ mit Übersicht und Detailliste
-- Karten `ev-charging-panel-card` und `ev-charging-recent-card`
-- Ladevorgänge ohne Fahrzeug erscheinen als „Nicht zugeordnet“
-- Geschätzte Werte sind mit ~ gekennzeichnet
+- Panel "EV Charging" with overview and detail list
+- Cards `ev-charging-panel-card` and `ev-charging-recent-card`
+- Charging sessions without a vehicle appear as "Not assigned"
+- Estimated values are marked with ~
 
 ## [0.3.6] - 2026-09-18
 
-### Geändert
+### Changed
 
-- Wartung ohne sichtbare Änderung
+- Maintenance without visible change
 
 ## [0.3.5] - 2026-09-18
 
-### Hinzugefügt
+### Added
 
-- Speicherung der Ladevorgänge
-- Service `ev_charging.delete_all_data` mit Pflichtbestätigung, nur für Administratoren
+- Storage of charging sessions
+- Service `ev_charging.delete_all_data` with mandatory confirmation, administrators only
 
 ## [0.3.4] - 2026-09-17
 
-### Behoben
+### Fixed
 
-- Fehler bei der Prüfung der Übersetzungen
+- Error in the validation of the translations
 
 ## [0.3.3] - 2026-09-17
 
-### Geändert
+### Changed
 
-- Nicht installierte Integrationen stehen im Gerätedialog in einem eingeklappten Abschnitt
+- Integrations that are not installed are listed in a collapsed section of the device dialog
 
-### Behoben
+### Fixed
 
-- Hinweis zu nicht angebotenen Geräten erscheint in der eingestellten Sprache
+- The notice on devices that are not offered appears in the configured language
 
 ## [0.3.2] - 2026-09-17
 
-### Hinzugefügt
+### Added
 
-- Unterstützung für Škoda mit MySkoda connect
-- Steckerzustand des Fahrzeugs als optionale Angabe
+- Support for Škoda with MySkoda connect
+- Plug state of the vehicle as an optional value
 
-### Geändert
+### Changed
 
-- Klarere Feldnamen in Wallbox- und Fahrzeugdialog
-- Eigene Auswahl „Fahrzeug ohne Online-Anbindung“
+- Clearer field names in the wallbox and vehicle dialogs
+- Separate choice "Vehicle without online connection"
 
 ## [0.3.1] - 2026-09-17
 
-### Geändert
+### Changed
 
-- Geräteauswahl nennt auch die Quellintegration
+- Device selection also names the source integration
 
 ## [0.3.0] - 2026-09-16
 
-### Hinzugefügt
+### Added
 
-- Unterstützung für zehn Wallboxen und Fahrzeuge, Auswahl des Geräts als erster Schritt im Dialog
-- Hinweis auf Geräte, deren Integration fehlt oder zu alt ist
+- Support for ten wallboxes and vehicles, choice of the device as the first step in the dialog
+- Notice on devices whose integration is missing or too old
 
-### Geändert
+### Changed
 
-- Die Zuordnung von Zustandswerten von Hand entfällt; das gewählte Gerät ist nach dem Update einmal neu zu wählen
+- Manual assignment of state values is removed; after the update, the chosen device has to be selected once again
 
 ## [0.2.2] - 2026-09-15
 
-### Geändert
+### Changed
 
-- Weniger Einrichtungsschritte für bekannte Geräte
-- Einheitlichere Texte in den Dialogen
+- Fewer setup steps for known devices
+- More consistent texts in the dialogs
 
 ## [0.2.1] - 2026-09-14
 
-### Behoben
+### Fixed
 
-- Fehler beim Laden und in den Übersetzungen
+- Errors on loading and in the translations
 
 ## [0.2.0] - 2026-09-14
 
-### Hinzugefügt
+### Added
 
-- Zuordnung der Entitäten von Wallbox, Fahrzeug und Stromtarif im Einrichtungsdialog
-- Zuordnungen bleiben bei Umbenennung von Entitäten erhalten
-- Hinweise unter Reparaturen bei entfernter Entität und geänderter Einheit
-- Erkennung eines Fahrzeugs über die Fahrzeugintegration
-- Anzeige der zuletzt gemeldeten Kartenkennung im Fahrzeugdialog
+- Assignment of the entities of wallbox, vehicle and electricity tariff in the setup dialog
+- Assignments are kept when entities are renamed
+- Repair issues on a removed entity and a changed unit
+- Detection of a vehicle through the vehicle integration
+- Display of the most recently reported card identification in the vehicle dialog
 
-### Geändert
+### Changed
 
-- Ein aktives Fahrzeug braucht mindestens eine Karte oder die Erkennung über die Fahrzeugintegration
+- An active vehicle needs at least one card or detection through the vehicle integration
 
 ## [0.1.5] - 2026-09-14
 
-### Hinzugefügt
+### Added
 
-- Globale Einstellungen, über „Neu konfigurieren“ änderbar
-- Hersteller und Modell bei Wallbox und Fahrzeug
-- Kartentyp RFID oder eMAID
+- Global settings, changeable through "Reconfigure"
+- Manufacturer and model for wallbox and vehicle
+- Card type RFID or eMAID
 
-### Entfernt
+### Removed
 
-- Standardfahrzeug an der Wallbox
-- Fester Ladepreis am Fahrzeug
+- Default vehicle at the wallbox
+- Fixed charging price on the vehicle
 
 ## [0.1.3] - 2026-09-13
 
-### Geändert
+### Changed
 
-- Vereinfachter Wallbox-Dialog mit eingeklappten Expertenoptionen
+- Simplified wallbox dialog with collapsed expert options
 
 ## [0.1.2] - 2026-09-13
 
-### Hinzugefügt
+### Added
 
-- Einrichtung und Entfernung der Integration
-- Anlegen von Wallbox und Fahrzeugen mit Stammdaten und Karten
-- Deutsche und englische Texte
+- Setup and removal of the integration
+- Adding wallbox and vehicles with master data and cards
+- German and English texts
