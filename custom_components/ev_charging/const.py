@@ -284,6 +284,7 @@ JOURNAL_SESSION_DISCARDED = "session_discarded"
 # Session of a vehicle without the wallbox.
 JOURNAL_VEHICLE_SESSION_DEFERRED = "vehicle_session_deferred"
 JOURNAL_VEHICLE_SESSION_SUPPRESSED = "vehicle_session_suppressed"
+JOURNAL_VEHICLE_SESSION_DISCARDED = "vehicle_session_discarded"
 JOURNAL_VEHICLE_SESSION_STARTED = "vehicle_session_started"
 JOURNAL_VEHICLE_SESSION_ENDED = "vehicle_session_ended"
 # Identification.

@@ -98,6 +98,7 @@ from .const import (
     JOURNAL_SOURCE_UNMAPPED_VALUE,
     JOURNAL_UNALLOCATED_ENERGY,
     JOURNAL_VEHICLE_SESSION_DEFERRED,
+    JOURNAL_VEHICLE_SESSION_DISCARDED,
     JOURNAL_VEHICLE_SESSION_ENDED,
     JOURNAL_VEHICLE_SESSION_STARTED,
     JOURNAL_VEHICLE_SESSION_SUPPRESSED,
@@ -2241,7 +2242,11 @@ class SessionManager:
     def _assign_vehicle(
         self, session: RunningSession, context: VehicleContext, *, capture_start: bool
     ) -> None:
-        """Attach a vehicle to the session, taking its state of charge and odometer if asked."""
+        """Attach a vehicle to the session, taking its state of charge and odometer if asked.
+
+        A vehicle has at most one running session, so a session of its own
+        that began before the wallbox session named it is dropped.
+        """
         session.vehicle_id = context.vehicle.id
         if capture_start:
             session.soc_start = self._read_vehicle_number(context, ROLE_SOC, None)
@@ -2249,6 +2254,7 @@ class SessionManager:
                 context, ROLE_ODOMETER, DISTANCE_UNIT_FACTORS_TO_KM
             )
         if session is self._session:
+            self._discard_vehicle_session(context.vehicle.id)
             self._sync_session_error()
 
     def _read_vehicle_number(
@@ -2454,8 +2460,9 @@ class SessionManager:
 
         Only the charging class begins a session; connected_idle and error
         only ever continue one that already exists, and disconnected always
-        ends it, also while the wallbox session names this vehicle. A session
-        does not begin for a vehicle the wallbox session names, for the car at
+        ends it. A session does not begin for a vehicle the wallbox session
+        names, and one that exists when the wallbox session names the vehicle
+        is dropped (_assign_vehicle). A session does not begin for the car at
         the wallbox, nor for a vehicle that has reported charging since its
         wallbox session ended until it has reported anything else. A vehicle
         at home begins its session only after a waiting time, so a wallbox
@@ -2518,6 +2525,28 @@ class SessionManager:
             session.pause_since = None
             session.charge_error = True
             self._enter_vehicle_state(session, SESSION_STATE_ERROR)
+
+    def _discard_vehicle_session(self, vehicle_id: str) -> None:
+        """Drop a vehicle's own running session without storing it.
+
+        Used when the wallbox session names the vehicle: the wallbox session
+        carries the measured energy, the cost and the phases of the same
+        charge. A session that already ended and is being written stays.
+        """
+        session = self._vehicle_sessions.get(vehicle_id)
+        if session is None or session.state == SESSION_STATE_AWAITING_FINAL:
+            return
+        self._cancel_vehicle_timers(vehicle_id)
+        self._journal_vehicle(
+            vehicle_id,
+            JOURNAL_VEHICLE_SESSION_DISCARDED,
+            reason=SUPPRESS_REASON_WALLBOX_VEHICLE,
+        )
+        del self._vehicle_sessions[vehicle_id]
+        self._suppressed_noted.pop(vehicle_id, None)
+        _LOGGER.debug(
+            "The wallbox session names vehicle %s; its own session is dropped", vehicle_id
+        )
 
     def _vehicle_start_suppressed(
         self, context: VehicleContext, reported_at: datetime

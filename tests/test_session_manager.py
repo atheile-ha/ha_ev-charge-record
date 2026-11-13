@@ -9,15 +9,15 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from custom_components.ev_charging import problems
+from custom_components.ev_charging import journal, problems
 from custom_components.ev_charging.const import (
     DOMAIN,
     HOME_VEHICLE_START_DELAY_S,
     LOCATION_EXTERNAL,
     LOCATION_HOME_NO_WALLBOX,
+    SESSION_STATE_AWAITING_FINAL,
     SESSION_STATE_CHARGING,
     SESSION_STATE_ERROR,
-    SESSION_STATE_PAUSED,
     SESSION_STATUS_FLAGGED,
     SUBENTRY_TYPE_VEHICLE,
     SUBENTRY_TYPE_WALLBOX,
@@ -4168,36 +4168,86 @@ async def _external_session_the_wallbox_then_names(
     return manager
 
 
-async def test_a_vehicle_session_beside_a_wallbox_session_of_that_vehicle_follows_and_ends(
+async def test_the_wallbox_naming_the_vehicle_drops_the_vehicles_own_session(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
-    """The vehicle's own session pauses and ends although the wallbox names the vehicle."""
+    """A vehicle has one running session: the wallbox session wins and the other is dropped."""
+    manager = await _external_session_the_wallbox_then_names(hass, freezer)
+
+    assert _external_block(manager, "v001") is None
+    assert "v001" not in manager._vehicle_sessions
+    assert len(manager.live_blocks()) == 1
+    (dropped,) = [e for e in journal.entries(hass) if e["event"] == "vehicle_session_discarded"]
+    assert dropped["vehicle_id"] == "v001"
+
+    await _set(hass, GLB_CHARGE, CONNECTED_IDLE)
+    await _advance(hass, freezer, 1)
+    await _set(hass, GLB_CHARGE, DISCONNECTED)
+    await _advance(hass, freezer, 1)
+    await _unplug(hass, freezer)
+
+    (stored,) = await _stored(hass)
+    assert stored.wallbox_id is not None
+    assert stored.location == "home"
+
+
+async def test_a_tracker_that_lags_behind_the_vehicle_report_leaves_one_session(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """The report comes while the tracker still says away: one session, not two."""
+    _entry, manager = await _setup(hass, vehicles=(_glb_ext(),))
+    await _set(hass, GLB_TRACKER, "not_home")
+    await _start_charging(hass, freezer)
+
+    await _advance(hass, freezer, 3)
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
+    await _advance(hass, freezer, 3)
+    await _set(hass, GLB_TRACKER, "home")
+    assert _external_block(manager, "v001") is not None
+
+    await _advance(hass, freezer, 20)
+
+    assert _external_block(manager, "v001") is None
+    assert len(manager.live_blocks()) == 1
+    assert manager.live_payload()["vehicle"]["id"] == "v001"
+
+    await _advance(hass, freezer, HOME_VEHICLE_START_DELAY_S)
+    assert _external_block(manager, "v001") is None
+    await _unplug(hass, freezer)
+    await _set(hass, GLB_CHARGE, DISCONNECTED)
+    await _advance(hass, freezer, 3)
+
+    (stored,) = await _stored(hass)
+    assert stored.wallbox_id is not None
+    assert stored.location == "home"
+
+
+async def test_the_vehicle_reporting_charging_again_begins_nothing_after_its_session_was_dropped(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """The wallbox session still names the vehicle, so a new report starts no session."""
     manager = await _external_session_the_wallbox_then_names(hass, freezer)
 
     await _set(hass, GLB_CHARGE, CONNECTED_IDLE)
     await _advance(hass, freezer, 1)
-    assert _external_block(manager, "v001")["state"] == SESSION_STATE_PAUSED
-
-    await _set(hass, GLB_CHARGE, DISCONNECTED)
-    await _advance(hass, freezer, 1)
+    await _set(hass, GLB_CHARGE, CHARGING_DC)
+    await _advance(hass, freezer, HOME_VEHICLE_START_DELAY_S)
 
     assert _external_block(manager, "v001") is None
-    (stored,) = await _stored(hass)
-    assert stored.wallbox_id is None
-    assert manager.live_payload()["state"] == SESSION_STATE_CHARGING
+    assert len(manager.live_blocks()) == 1
 
 
-async def test_the_vehicle_plug_state_ends_its_session_beside_a_wallbox_session_of_it(
+async def test_a_vehicle_session_that_already_ended_is_not_dropped_by_the_wallbox(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
-    """Not connected ends the vehicle's own session also while the wallbox names it."""
-    hass.states.async_set(GLB_PLUG, PLUG_VEHICLE)
-    manager = await _external_session_the_wallbox_then_names(
-        hass, freezer, plug_state=_role(GLB_PLUG)
-    )
-
-    await _set(hass, GLB_PLUG, PLUG_VEHICLE_NOT)
+    """A session being written after the unplugging stays; only a running one is dropped."""
+    _entry, manager = await _setup(hass, vehicles=(_glb_ext(),))
+    await _set(hass, GLB_TRACKER, "not_home")
+    await _set(hass, GLB_CHARGE, CHARGING_AC)
     await _advance(hass, freezer, 1)
+    session = manager._vehicle_sessions["v001"]
+    session.state = SESSION_STATE_AWAITING_FINAL
 
-    assert _external_block(manager, "v001") is None
-    assert len(await _stored(hass)) == 1
+    manager._discard_vehicle_session("v001")
+
+    assert manager._vehicle_sessions["v001"] is session

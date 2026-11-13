@@ -2,7 +2,11 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionierung nach [SemVer](https://semver.org/lang/de/).
 
-## [Unveröffentlicht]
+## [0.6.5] - 2026-11-13
+
+### Behoben
+
+- Meldet das Fahrzeug das Laden, bevor sein Standort auf „zu Hause“ wechselt, und ordnet die Wallbox-Session danach dasselbe Fahrzeug zu, bestanden zwei Ladevorgänge desselben Fahrzeugs gleichzeitig und wurden beide gespeichert. Die eigene Session des Fahrzeugs wird jetzt verworfen, sobald die Wallbox-Session das Fahrzeug führt
 
 ## [0.6.4] - 2026-10-25
 
